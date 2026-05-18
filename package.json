@@ -20,7 +20,7 @@
     "licitacoes",
     "planalto"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "engines": {
     "bun": ">=1.1.0"
   },

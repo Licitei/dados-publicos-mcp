@@ -1,53 +1,74 @@
-# MCP Legislacao BR
+# dados-publicos-mcp
 
-Servidor MCP da Licitei para facilitar o acesso de agentes de IA a dados
-publicos brasileiros, com foco inicial em legislacao de licitacoes, contratos
-administrativos e compras publicas.
+Servidor MCP da Licitei para consulta local de legislacao brasileira usada em
+licitacoes, contratos administrativos e compras publicas.
 
-O projeto cria um indice local a partir de fontes oficiais do Planalto e expoe
-ferramentas MCP para que agentes possam listar normas, buscar trechos e obter
-artigos especificos com referencia para a fonte oficial.
+Ele baixa normas oficiais do Planalto, cria um indice JSON local e expoe tools
+MCP para agentes buscarem trechos e artigos com referencia para a fonte oficial.
+Depois da indexacao, as consultas nao dependem de rede.
 
-## Para que serve
+## O que resolve
 
-Este MCP nasceu para apoiar fluxos da Licitei em que agentes precisam responder
-perguntas sobre licitacoes, contratos administrativos, empresas estatais,
-registro de precos e tratamento favorecido para ME/EPP.
+Agentes que trabalham com licitacoes precisam citar a base legal com rapidez e
+previsibilidade. Busca aberta na web e scraping em tempo de resposta sao lentos,
+ruidosos e pouco auditaveis.
 
-Em vez de depender de buscas abertas ou scraping em tempo de resposta, o
-servidor usa um indice JSON local. A rede e usada apenas durante a indexacao das
-fontes oficiais.
+Este MCP faz o caminho oposto:
+
+- fonte oficial do Planalto;
+- indice local em JSON, facil de auditar e versionar;
+- consulta offline depois da indexacao;
+- tools pequenas para listar normas, buscar termos e obter artigos;
+- erros serializados com `better-result`, sem exception solta cruzando boundary.
+
+Exemplos de perguntas que um agente pode responder usando este MCP:
+
+- "O que a Lei 14.133 fala sobre habilitacao tecnica?"
+- "Traga o art. 67 da nova lei de licitacoes."
+- "Onde a LC 123 trata de tratamento favorecido para ME/EPP?"
+- "Quais normas do catalogo falam de registro de precos?"
+- "Busque mencoes a consorcio na Lei 14.133."
+
+## Escopo
+
+Este servidor e focado em legislacao. Ele nao busca editais, contratos, atas ou
+CNPJ em tempo real.
+
+Esse recorte e intencional. O Licinexus MCP cobre PNCP, contratos, atas de
+registro de preco, PCA, orgaos e CNPJ via endpoints publicos. Este projeto fica
+no fundamento normativo: leis e decretos oficiais, indexados localmente para
+consulta estavel por agentes.
 
 ## Ferramentas MCP
 
-- `listar_normas`: lista o catalogo de normas suportadas.
-- `status_indice`: mostra o caminho do indice local, status e ultima
-  atualizacao.
-- `indexar_legislacao`: baixa fontes oficiais do Planalto e recria o indice
-  local.
-- `buscar_legislacao`: busca um termo livre no indice local, opcionalmente
-  filtrando por norma.
-- `obter_artigo`: retorna o texto de um artigo especifico de uma norma
-  indexada.
+| Tool | O que faz |
+| --- | --- |
+| `listar_normas` | Lista as normas disponiveis no catalogo. |
+| `status_indice` | Mostra caminho, status e data de atualizacao do indice local. |
+| `indexar_legislacao` | Baixa fontes oficiais do Planalto e recria o indice local. |
+| `buscar_legislacao` | Busca termo livre no indice, com filtro opcional por norma. |
+| `obter_artigo` | Retorna o texto de um artigo especifico de uma norma indexada. |
 
 ## Catalogo inicial
 
-- Lei 14.133/2021: licitacoes e contratos administrativos.
-- Lei 8.666/1993: regime antigo de licitacoes.
-- Lei 13.303/2016: estatais.
-- Lei Complementar 123/2006: ME/EPP e Simples Nacional.
-- Decreto 11.462/2023: sistema de registro de precos.
+| ID | Norma | Temas |
+| --- | --- | --- |
+| `lei-14133-2021` | Lei 14.133/2021 | licitacoes, contratos, PNCP, habilitacao, pregao |
+| `lei-8666-1993` | Lei 8.666/1993 | regime antigo de licitacoes e contratos |
+| `lei-13303-2016` | Lei 13.303/2016 | estatais, empresas publicas, sociedades de economia mista |
+| `lc-123-2006` | Lei Complementar 123/2006 | ME/EPP, Simples Nacional, tratamento favorecido |
+| `decreto-11462-2023` | Decreto 11.462/2023 | sistema de registro de precos, atas, contratacoes |
 
-Cada item do catalogo inclui `id`, titulo, URL oficial, temas e apelidos para
-facilitar o uso por agentes.
+Cada norma tem `id`, titulo, URL oficial, temas e apelidos. Exemplos de apelidos:
+`14133`, `lei de licitacoes`, `lei das estatais`, `lc 123`, `srp`.
 
-## Uso local
+## Uso rapido
 
 Requisitos:
 
 - Bun 1.1 ou superior.
 
-Instale dependencias, crie o indice e inicie o servidor:
+Instale dependencias, crie o indice e suba o servidor:
 
 ```bash
 bun install
@@ -63,22 +84,83 @@ bun src/index.ts index
 bun src/index.ts serve
 ```
 
-Config exemplo para um cliente MCP:
+`bun src/index.ts` sem argumento tambem inicia o servidor MCP via stdio.
+
+## Configuracao MCP
+
+### Claude Desktop
+
+Edite `claude_desktop_config.json` e adicione:
 
 ```json
 {
   "mcpServers": {
-    "mcp-legislacao-br": {
+    "dados-publicos-mcp": {
       "command": "bun",
-      "args": ["/caminho/para/mcp-legislacao-br/src/index.ts"]
+      "args": ["/caminho/para/dados-publicos-mcp/src/index.ts"]
     }
   }
 }
 ```
 
-Depois de conectado, o agente pode chamar `indexar_legislacao` quando precisar
-recriar o indice, ou consultar diretamente `buscar_legislacao` e
-`obter_artigo` quando o indice ja existir.
+Reinicie o Claude completamente depois de salvar.
+
+### Cursor
+
+Crie ou edite `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "dados-publicos-mcp": {
+      "command": "bun",
+      "args": ["/caminho/para/dados-publicos-mcp/src/index.ts"]
+    }
+  }
+}
+```
+
+### Continue.dev
+
+No `config.json` ou `config.yaml` do Continue:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "dados-publicos-mcp",
+      "command": "bun",
+      "args": ["/caminho/para/dados-publicos-mcp/src/index.ts"]
+    }
+  ]
+}
+```
+
+## Como testar no cliente
+
+Depois de conectar o MCP no cliente, pergunte:
+
+```text
+Quais ferramentas do dados-publicos-mcp voce tem disponiveis?
+```
+
+Prompts uteis:
+
+```text
+Liste as normas disponiveis.
+```
+
+```text
+Busque "habilitacao tecnica" na Lei 14.133 e traga os principais trechos.
+```
+
+```text
+Traga o artigo 67 da Lei 14.133.
+```
+
+```text
+Existe alguma norma no catalogo sobre sistema de registro de precos?
+```
 
 ## Indice local
 
@@ -88,30 +170,54 @@ Por padrao, o indice fica em:
 ~/.local/share/dados-publicos-mcp/legislacao/index.json
 ```
 
-Voce pode mudar o diretorio com:
+Voce pode mudar o diretorio:
 
 ```bash
 DADOS_PUBLICOS_MCP_DATA_DIR=/caminho/local bun run index
 ```
 
-O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. Os
-dados ficam separados por dataset para permitir novas fontes, como Portal da
-Transparencia, sem misturar indices. O modulo mantem um cache simples em memoria
-para evitar reler o indice a cada chamada e publica status de indexacao e erros.
+O arquivo e JSON. Isso facilita auditoria, backup, distribuicao offline e testes.
+O servidor tambem mantem cache em memoria para evitar reler o indice a cada
+chamada.
+
+## Contrato das respostas
+
+As tools retornam texto JSON. Operacoes de dominio usam `better-result` e sao
+serializadas no boundary MCP.
+
+Sucesso:
+
+```json
+{
+  "status": "ok",
+  "value": {}
+}
+```
+
+Erro esperado:
+
+```json
+{
+  "status": "error",
+  "error": {
+    "_tag": "IndexNotFoundError",
+    "message": "Indice local nao encontrado..."
+  }
+}
+```
+
+`listar_normas` retorna a lista diretamente porque nao depende do indice local.
 
 ## Arquitetura
 
 - `src/index.ts`: CLI com `cac` e servidor MCP stdio via SDK oficial.
 - `src/modules/legislacao/tools.ts`: registro das tools MCP e contratos Zod.
 - `src/modules/legislacao/service.ts`: casos de uso de legislacao.
-- `src/modules/legislacao/indexer.ts`: adapter que monta os documentos
-  indexaveis de legislacao.
-- `src/modules/legislacao/store.ts`: persistencia, validacao Zod, cache em
-  memoria, indexacao e status do indice local.
+- `src/modules/legislacao/indexer.ts`: download e extracao das fontes oficiais.
+- `src/modules/legislacao/store.ts`: persistencia, validacao Zod, cache e status.
+- `src/modules/legislacao/catalog.ts`: catalogo das normas suportadas.
 
-Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
-arquivo de tools em `src/modules/<nome>` e usar um subdiretorio proprio quando
-houver persistencia local.
+Datas e timestamps devem passar por `dayjs`.
 
 ## Desenvolvimento
 
@@ -120,13 +226,55 @@ bun test
 bun run typecheck
 ```
 
+Smoke MCP local:
+
+```bash
+printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | bun src/index.ts
+```
+
+## Troubleshooting
+
+### "Indice local nao encontrado"
+
+Rode:
+
+```bash
+bun run index
+```
+
+Ou chame a tool `indexar_legislacao` pelo cliente MCP.
+
+### "command not found: bun"
+
+O cliente MCP pode nao herdar o mesmo `PATH` do seu terminal. Use o caminho
+absoluto do Bun:
+
+```bash
+which bun
+```
+
+E coloque esse caminho em `command`.
+
+### O servidor parece travado no terminal
+
+Normal. MCP stdio espera mensagens JSON-RPC pelo `stdin`. Quem deve iniciar o
+processo normalmente e o cliente MCP.
+
+### A indexacao falhou ao acessar o Planalto
+
+Tente novamente. O site do Planalto pode fechar conexoes ou responder devagar.
+O adapter usa `fetch` nativo do Bun com timeout, retry e user-agent compatível.
+
 ## Limites
 
-Este servidor retorna trechos de normas oficiais para apoio a pesquisa e
-automacao. Ele nao substitui revisao juridica humana, nao garante consolidacao
-juridica perfeita e nao deve ser usado como unica fonte para peticionamento,
-parecer ou tomada de decisao.
+Este MCP apoia pesquisa e automacao. Ele nao substitui revisao juridica humana,
+nao garante consolidacao juridica perfeita e nao deve ser usado como unica fonte
+para peticionamento, parecer ou tomada de decisao.
 
 ## Licenca
 
-MIT
+AGPL-3.0-only.
+
+Qualquer distribuicao, modificacao ou servico de rede baseado neste projeto deve
+preservar as obrigacoes da AGPL v3, incluindo disponibilizar o codigo-fonte
+correspondente das versoes modificadas aos usuarios que interagem com o servico.
