@@ -1,13 +1,16 @@
 {
   "name": "dados-publicos-mcp",
   "version": "0.1.0",
-  "description": "Servidor MCP para consulta local de dados publicos brasileiros.",
+  "description": "Servidor MCP AGPL para consulta local de legislacao brasileira de licitacoes e contratos.",
   "type": "module",
+  "packageManager": "bun@1.3.9",
   "bin": {
     "dados-publicos-mcp": "./src/index.ts"
   },
   "scripts": {
+    "check": "bun run typecheck && bun test",
     "index": "bun src/index.ts index",
+    "prepublishOnly": "bun run check",
     "start": "bun src/index.ts serve",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
@@ -20,7 +23,23 @@
     "licitacoes",
     "planalto"
   ],
+  "homepage": "https://github.com/Licitei/dados-publicos-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Licitei/dados-publicos-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Licitei/dados-publicos-mcp.git"
+  },
   "license": "AGPL-3.0-only",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "bun": ">=1.1.0"
   },
