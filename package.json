@@ -27,7 +27,6 @@
   "dependencies": {
     "better-result": "^2.9.2",
     "cheerio": "^1.2.0",
-    "ky": "^1.14.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

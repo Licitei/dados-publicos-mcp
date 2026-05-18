@@ -1,5 +1,4 @@
 import * as cheerio from "cheerio";
-import ky from "ky";
 import { Result, TaggedError, type Result as ResultType } from "better-result";
 import { normas } from "./catalog";
 import type { DocumentoIndexado } from "./store";
@@ -16,19 +15,7 @@ export class PlanaltoParseError extends TaggedError("PlanaltoParseError")<{
 
 export type PlanaltoIndexError = PlanaltoFetchError | PlanaltoParseError;
 
-const http = ky.create({
-  timeout: 30_000,
-  retry: {
-    limit: 3,
-    methods: ["get"],
-    statusCodes: [408, 413, 429, 500, 502, 503, 504],
-    backoffLimit: 3_000,
-  },
-  headers: {
-    "user-agent": "dados-publicos-mcp/0.1.0",
-    accept: "text/html,application/xhtml+xml",
-  },
-});
+const retryableStatusCodes = new Set([408, 413, 429, 500, 502, 503, 504]);
 
 export const legislacaoIndexAdapter = {
   name: "legislacao",
@@ -63,7 +50,7 @@ async function fetchNorma(
 ): Promise<ResultType<string, PlanaltoFetchError>> {
   return Result.tryPromise({
     try: async () => {
-      const buffer = await http.get(url).arrayBuffer();
+      const buffer = await fetchWithRetry(url);
 
       return decodePlanaltalto(buffer);
     },
@@ -73,6 +60,40 @@ async function fetchNorma(
         url,
       }),
   });
+}
+
+async function fetchWithRetry(url: string) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "user-agent": "dados-publicos-mcp/0.1.0",
+          accept: "text/html,application/xhtml+xml",
+        },
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (response.ok) return response.arrayBuffer();
+
+      const message = `HTTP ${response.status} ${response.statusText}`.trim();
+
+      if (!retryableStatusCodes.has(response.status) || attempt === 3) {
+        throw new Error(message);
+      }
+
+      lastError = new Error(message);
+    } catch (error) {
+      if (attempt === 3) throw error;
+
+      lastError = error;
+    }
+
+    await sleep(Math.min(250 * 2 ** attempt, 3_000));
+  }
+
+  throw lastError;
 }
 
 function decodePlanaltalto(buffer: ArrayBuffer) {
@@ -118,4 +139,8 @@ function causeMessage(cause: unknown) {
   if (typeof cause === "string") return cause;
 
   return String(cause);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
