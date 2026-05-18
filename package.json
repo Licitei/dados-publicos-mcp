@@ -1,0 +1,36 @@
+{
+  "name": "dados-publicos-mcp",
+  "version": "0.1.0",
+  "description": "Servidor MCP para consulta local de dados publicos brasileiros.",
+  "type": "module",
+  "bin": {
+    "dados-publicos-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "index": "bun src/cli.ts index",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "dados-publicos",
+    "legislacao",
+    "brasil",
+    "licitacoes",
+    "planalto"
+  ],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "dependencies": {
+    "@tanstack/store": "^0.11.0",
+    "cheerio": "^1.2.0",
+    "ky": "^1.14.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}
