@@ -1,10 +1,17 @@
+import { Result, type Result as ResultType } from "better-result";
 import { findNorma, normas, normalize } from "./catalog";
+import {
+  IndexNotFoundError,
+  NormaNotFoundError,
+  NormaNotIndexedError,
+  type LegislacaoError,
+} from "./errors";
 import {
   getIndiceLocal,
   recriarIndiceLocal,
   statusIndiceLocal,
 } from "./runtime-store";
-import { getIndexPath } from "./store";
+import { getIndexPath, type IndiceLegislacao } from "./store";
 
 export type SearchInput = {
   termo: string;
@@ -35,14 +42,34 @@ export async function recriarIndice() {
   return recriarIndiceLocal();
 }
 
-export async function buscarLegislacao(input: SearchInput) {
+export async function buscarLegislacao(
+  input: SearchInput
+): Promise<
+  ResultType<
+    {
+      norma: string;
+      titulo: string;
+      trecho: string;
+      indice: number;
+      url: string;
+    }[],
+    LegislacaoError
+  >
+> {
   const indice = await requireIndex();
+
+  if (Result.isError(indice)) return indice;
+
   const termo = normalize(input.termo);
   const limite = Math.min(input.limite ?? 8, 25);
-  const normaFiltro = input.norma ? resolveNorma(input.norma).id : null;
+  const norma = input.norma ? resolveNorma(input.norma) : null;
+
+  if (norma && Result.isError(norma)) return norma;
+
+  const normaFiltro = norma?.value.id ?? null;
   const resultados = [];
 
-  for (const documento of indice.documentos) {
+  for (const documento of indice.value.documentos) {
     if (normaFiltro && documento.norma.id !== normaFiltro) continue;
 
     for (const [index, paragrafo] of documento.paragrafos.entries()) {
@@ -56,22 +83,33 @@ export async function buscarLegislacao(input: SearchInput) {
         url: documento.norma.url,
       });
 
-      if (resultados.length >= limite) return resultados;
+      if (resultados.length >= limite) return Result.ok(resultados);
     }
   }
 
-  return resultados;
+  return Result.ok(resultados);
 }
 
 export async function obterArtigo(input: ArtigoInput) {
   const indice = await requireIndex();
+
+  if (Result.isError(indice)) return indice;
+
   const norma = resolveNorma(input.norma);
-  const documento = indice.documentos.find(
-    (item) => item.norma.id === norma.id
+
+  if (Result.isError(norma)) return norma;
+
+  const documento = indice.value.documentos.find(
+    (item) => item.norma.id === norma.value.id
   );
 
   if (!documento) {
-    throw new Error(`Norma nao indexada: ${norma.id}`);
+    return Result.err(
+      new NormaNotIndexedError({
+        message: `Norma nao indexada: ${norma.value.id}`,
+        norma: norma.value.id,
+      })
+    );
   }
 
   const artigo = String(input.artigo).replace(/^art\.?\s*/i, "");
@@ -81,13 +119,13 @@ export async function obterArtigo(input: ArtigoInput) {
   );
 
   if (start === -1) {
-    return {
-      norma: norma.id,
-      titulo: norma.titulo,
+    return Result.ok({
+      norma: norma.value.id,
+      titulo: norma.value.titulo,
       artigo,
       encontrado: false,
-      url: norma.url,
-    };
+      url: norma.value.url,
+    });
   }
 
   const trechos = [];
@@ -100,36 +138,49 @@ export async function obterArtigo(input: ArtigoInput) {
     trechos.push(paragrafo);
   }
 
-  return {
-    norma: norma.id,
-    titulo: norma.titulo,
+  return Result.ok({
+    norma: norma.value.id,
+    titulo: norma.value.titulo,
     artigo,
     encontrado: true,
     texto: trechos.join("\n"),
-    url: norma.url,
-  };
+    url: norma.value.url,
+  });
 }
 
-function resolveNorma(id: string) {
+function resolveNorma(id: string): ResultType<
+  (typeof normas)[number],
+  NormaNotFoundError
+> {
   const norma = findNorma(id);
 
   if (!norma) {
-    throw new Error(`Norma nao encontrada: ${id}`);
-  }
-
-  return norma;
-}
-
-async function requireIndex() {
-  const indice = await getIndiceLocal();
-
-  if (!indice) {
-    throw new Error(
-      `Indice local nao encontrado. Rode "bun run index" ou chame a ferramenta indexar_legislacao. Caminho esperado: ${getIndexPath()}`
+    return Result.err(
+      new NormaNotFoundError({
+        message: `Norma nao encontrada: ${id}`,
+        norma: id,
+      })
     );
   }
 
-  return indice;
+  return Result.ok(norma);
+}
+
+async function requireIndex(): Promise<ResultType<IndiceLegislacao, LegislacaoError>> {
+  const indice = await getIndiceLocal();
+
+  if (Result.isError(indice)) return indice;
+
+  if (!indice.value) {
+    return Result.err(
+      new IndexNotFoundError({
+        message: `Indice local nao encontrado. Rode "bun run index" ou chame a ferramenta indexar_legislacao. Caminho esperado: ${getIndexPath()}`,
+        path: getIndexPath(),
+      })
+    );
+  }
+
+  return Result.ok(indice.value);
 }
 
 function escapeRegExp(value: string) {

@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 
 import {
+  Result,
+  type Result as ResultType,
+} from "better-result";
+import {
   buscarLegislacao,
   listarNormas,
   obterArtigo,
@@ -9,6 +13,7 @@ import {
   type ArtigoInput,
   type SearchInput,
 } from "./legislacao";
+import { errorMessage, type LegislacaoError } from "./errors";
 
 type JsonRpcRequest = {
   jsonrpc?: "2.0";
@@ -210,7 +215,17 @@ async function callTool(name: string, args: unknown) {
   throw new Error(`Ferramenta nao encontrada: ${name}`);
 }
 
-function asToolResult(data: unknown) {
+function asToolResult(
+  data: unknown | ResultType<unknown, LegislacaoError>
+) {
+  if (isResult(data)) {
+    if (Result.isError(data)) {
+      throw new Error(errorMessage(data.error));
+    }
+
+    data = data.value;
+  }
+
   return {
     content: [
       {
@@ -219,6 +234,12 @@ function asToolResult(data: unknown) {
       },
     ],
   };
+}
+
+function isResult(value: unknown): value is ResultType<unknown, LegislacaoError> {
+  if (!value || typeof value !== "object") return false;
+
+  return "status" in value && (value.status === "ok" || value.status === "error");
 }
 
 function write(response: JsonRpcResponse) {

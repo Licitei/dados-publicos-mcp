@@ -1,32 +1,53 @@
-# Dados Publicos MCP
+# MCP Legislacao BR
 
-Servidor MCP para consulta de dados publicos brasileiros com indice local no PC
-do usuario.
+Servidor MCP da Licitei para facilitar o acesso de agentes de IA a dados
+publicos brasileiros, com foco inicial em legislacao de licitacoes, contratos
+administrativos e compras publicas.
 
-Esta V1 nasceu para o fluxo da Licitei: responder perguntas de agentes sobre
-licitacoes, contratos administrativos, estatais e tratamento de ME/EPP com
-citacao para a fonte oficial.
+O projeto cria um indice local a partir de fontes oficiais do Planalto e expoe
+ferramentas MCP para que agentes possam listar normas, buscar trechos e obter
+artigos especificos com referencia para a fonte oficial.
 
-## Ferramentas
+## Para que serve
 
-- `listar_normas`: lista o catalogo inicial de normas suportadas.
-- `status_indice`: mostra onde esta o indice local e quando foi atualizado.
-- `indexar_legislacao`: baixa fontes oficiais e recria o indice local.
-- `buscar_legislacao`: busca termo livre no indice local.
-- `obter_artigo`: retorna um artigo especifico a partir do indice local.
+Este MCP nasceu para apoiar fluxos da Licitei em que agentes precisam responder
+perguntas sobre licitacoes, contratos administrativos, empresas estatais,
+registro de precos e tratamento favorecido para ME/EPP.
+
+Em vez de depender de buscas abertas ou scraping em tempo de resposta, o
+servidor usa um indice JSON local. A rede e usada apenas durante a indexacao das
+fontes oficiais.
+
+## Ferramentas MCP
+
+- `listar_normas`: lista o catalogo de normas suportadas.
+- `status_indice`: mostra o caminho do indice local, status e ultima
+  atualizacao.
+- `indexar_legislacao`: baixa fontes oficiais do Planalto e recria o indice
+  local.
+- `buscar_legislacao`: busca um termo livre no indice local, opcionalmente
+  filtrando por norma.
+- `obter_artigo`: retorna o texto de um artigo especifico de uma norma
+  indexada.
 
 ## Catalogo inicial
 
 - Lei 14.133/2021: licitacoes e contratos administrativos.
 - Lei 8.666/1993: regime antigo de licitacoes.
 - Lei 13.303/2016: estatais.
-- Lei Complementar 123/2006: ME/EPP.
+- Lei Complementar 123/2006: ME/EPP e Simples Nacional.
 - Decreto 11.462/2023: sistema de registro de precos.
 
-As consultas nao dependem de rede em tempo de uso. A rede e usada apenas no
-passo de indexacao. O download das fontes usa `ky`, com timeout e retry.
+Cada item do catalogo inclui `id`, titulo, URL oficial, temas e apelidos para
+facilitar o uso por agentes.
 
 ## Uso local
+
+Requisitos:
+
+- Bun 1.1 ou superior.
+
+Instale dependencias, crie o indice e inicie o servidor:
 
 ```bash
 bun install
@@ -34,24 +55,22 @@ bun run index
 bun start
 ```
 
-Config exemplo para cliente MCP:
+Config exemplo para um cliente MCP:
 
 ```json
 {
   "mcpServers": {
-    "dados-publicos": {
+    "mcp-legislacao-br": {
       "command": "bun",
-      "args": ["/caminho/para/dados-publicos-mcp/src/index.ts"]
+      "args": ["/caminho/para/mcp-legislacao-br/src/index.ts"]
     }
   }
 }
 ```
 
-## Testes
-
-```bash
-bun test
-```
+Depois de conectado, o agente pode chamar `indexar_legislacao` quando precisar
+recriar o indice, ou consultar diretamente `buscar_legislacao` e
+`obter_artigo` quando o indice ja existir.
 
 ## Indice local
 
@@ -68,14 +87,22 @@ DADOS_PUBLICOS_MCP_DATA_DIR=/caminho/local bun run index
 ```
 
 O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. O
-servidor usa `@tanstack/store` agnostico apenas como estado runtime em memoria
-para cachear o indice carregado, status de indexacao e erros.
+servidor usa `@tanstack/store` apenas como estado runtime em memoria para
+cachear o indice carregado, status de indexacao e erros.
 
-## Escopo juridico
+## Desenvolvimento
 
-Este servidor retorna trechos de normas oficiais para apoio a pesquisa. Ele nao
-substitui revisao juridica humana, nao garante vigencia consolidada perfeita e
-nao deve ser usado como unica fonte para peticionamento ou tomada de decisao.
+```bash
+bun test
+bun run typecheck
+```
+
+## Limites
+
+Este servidor retorna trechos de normas oficiais para apoio a pesquisa e
+automacao. Ele nao substitui revisao juridica humana, nao garante consolidacao
+juridica perfeita e nao deve ser usado como unica fonte para peticionamento,
+parecer ou tomada de decisao.
 
 ## Licenca
 

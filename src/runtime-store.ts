@@ -1,4 +1,6 @@
 import { createStore } from "@tanstack/store";
+import { Result, type Result as ResultType } from "better-result";
+import { errorMessage, type LegislacaoError } from "./errors";
 import { indexarLegislacao } from "./indexer";
 import { getIndexPath, loadIndex, type IndiceLegislacao } from "./store";
 
@@ -19,45 +21,59 @@ export const runtimeStore = createStore<RuntimeState>({
 export async function getIndiceLocal() {
   const state = runtimeStore.state;
 
-  if (state.indiceCarregado) return state.indice;
+  if (state.indiceCarregado) return Result.ok(state.indice);
 
-  try {
-    const indice = await loadIndex();
+  const loaded = await loadIndex();
 
+  if (Result.isOk(loaded)) {
     runtimeStore.setState((prev) => ({
       ...prev,
-      indice,
+      indice: loaded.value,
       indiceCarregado: true,
       erro: null,
     }));
 
-    return indice;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro desconhecido";
-
-    runtimeStore.setState((prev) => ({
-      ...prev,
-      indice: null,
-      indiceCarregado: true,
-      erro: message,
-    }));
-
-    throw error;
+    return loaded;
   }
+
+  runtimeStore.setState((prev) => ({
+    ...prev,
+    indice: null,
+    indiceCarregado: true,
+    erro: errorMessage(loaded.error),
+  }));
+
+  return loaded;
 }
 
-export async function statusIndiceLocal() {
-  const indice = await getIndiceLocal();
+export async function statusIndiceLocal(): Promise<
+  ResultType<
+    {
+      caminho: string;
+      existe: boolean;
+      indexando: boolean;
+      erro: string | null;
+      atualizadoEm: string | null;
+      normasIndexadas: string[];
+    },
+    LegislacaoError
+  >
+> {
+  const loaded = await getIndiceLocal();
+
+  if (Result.isError(loaded)) return loaded;
+
+  const indice = loaded.value;
   const state = runtimeStore.state;
 
-  return {
+  return Result.ok({
     caminho: getIndexPath(),
     existe: Boolean(indice),
     indexando: state.indexando,
     erro: state.erro,
     atualizadoEm: indice?.criadoEm ?? null,
     normasIndexadas: indice?.documentos.map((documento) => documento.norma.id) ?? [],
-  };
+  });
 }
 
 export async function recriarIndiceLocal() {
@@ -67,28 +83,37 @@ export async function recriarIndiceLocal() {
     erro: null,
   }));
 
-  try {
-    const result = await indexarLegislacao();
-    const indice = await loadIndex();
+  const indexed = await indexarLegislacao();
+
+  if (Result.isOk(indexed)) {
+    const loaded = await loadIndex();
+
+    if (Result.isError(loaded)) {
+      runtimeStore.setState((prev) => ({
+        ...prev,
+        indexando: false,
+        erro: errorMessage(loaded.error),
+      }));
+
+      return loaded;
+    }
 
     runtimeStore.setState((prev) => ({
       ...prev,
-      indice,
+      indice: loaded.value,
       indiceCarregado: true,
       indexando: false,
       erro: null,
     }));
 
-    return result;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Erro desconhecido";
-
-    runtimeStore.setState((prev) => ({
-      ...prev,
-      indexando: false,
-      erro: message,
-    }));
-
-    throw error;
+    return indexed;
   }
+
+  runtimeStore.setState((prev) => ({
+    ...prev,
+    indexando: false,
+    erro: errorMessage(indexed.error),
+  }));
+
+  return indexed;
 }

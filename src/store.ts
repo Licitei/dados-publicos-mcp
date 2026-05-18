@@ -1,6 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { Result, type Result as ResultType } from "better-result";
 import type { Norma } from "./catalog";
+import { causeMessage, IndexReadError, IndexWriteError } from "./errors";
 
 export type DocumentoIndexado = {
   norma: Norma;
@@ -36,20 +38,43 @@ export function getIndexPath() {
   return join(getDataDir(), "index.json");
 }
 
-export async function loadIndex() {
+export async function loadIndex(): Promise<
+  ResultType<IndiceLegislacao | null, IndexReadError>
+> {
   const path = getIndexPath();
-  const file = Bun.file(path);
 
-  if (!(await file.exists())) return null;
+  return Result.tryPromise({
+    try: async () => {
+      const file = Bun.file(path);
 
-  return (await file.json()) as IndiceLegislacao;
+      if (!(await file.exists())) return null;
+
+      return (await file.json()) as IndiceLegislacao;
+    },
+    catch: (cause) =>
+      new IndexReadError({
+        message: `Falha ao ler indice local em ${path}: ${causeMessage(cause)}`,
+        path,
+      }),
+  });
 }
 
-export async function saveIndex(indice: IndiceLegislacao) {
+export async function saveIndex(
+  indice: IndiceLegislacao
+): Promise<ResultType<string, IndexWriteError>> {
   const path = getIndexPath();
 
-  await mkdir(dirname(path), { recursive: true });
-  await Bun.write(path, `${JSON.stringify(indice, null, 2)}\n`);
+  return Result.tryPromise({
+    try: async () => {
+      await mkdir(dirname(path), { recursive: true });
+      await Bun.write(path, `${JSON.stringify(indice, null, 2)}\n`);
 
-  return path;
+      return path;
+    },
+    catch: (cause) =>
+      new IndexWriteError({
+        message: `Falha ao salvar indice local em ${path}: ${causeMessage(cause)}`,
+        path,
+      }),
+  });
 }

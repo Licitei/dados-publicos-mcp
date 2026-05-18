@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { Result } from "better-result";
+import { errorMessage } from "./errors";
 import { indexarLegislacao } from "./indexer";
 
 const command = Bun.argv[2];
@@ -7,9 +9,14 @@ const command = Bun.argv[2];
 if (command === "index") {
   const result = await indexarLegislacao();
 
-  console.info(`Indice criado em ${result.caminho}`);
-  console.info(`Normas indexadas: ${result.normasIndexadas.join(", ")}`);
-  process.exit(0);
+  if (Result.isOk(result)) {
+    console.info(`Indice criado em ${result.value.caminho}`);
+    console.info(`Normas indexadas: ${result.value.normasIndexadas.join(", ")}`);
+    process.exit(0);
+  }
+
+  console.error(errorMessage(result.error));
+  process.exit(1);
 }
 
 console.error("Comando invalido. Use: bun src/cli.ts index");
