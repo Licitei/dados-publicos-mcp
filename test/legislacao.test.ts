@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { findNorma } from "../src/modules/legislacao/catalog";
-import { htmlToParagraphs } from "../src/modules/legislacao/parser";
+import { htmlToParagraphs } from "../src/modules/legislacao/indexer";
 
 test("encontra norma por apelido", () => {
   expect(findNorma("14133")?.id).toBe("lei-14133-2021");

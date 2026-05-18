@@ -1,7 +1,0 @@
-interface:
-   display_name: "Better Result"
-   short_description: "Typed Result flows for Montte"
-   default_prompt: "Use $better-result to implement typed domain errors, Result.gen composition, WebAppError boundary mapping, and focused tests in Montte."
-
-policy:
-   allow_implicit_invocation: true

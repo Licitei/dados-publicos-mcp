@@ -1,18 +1,44 @@
-import { Result, type Result as ResultType } from "better-result";
+import { Result, TaggedError, type Result as ResultType } from "better-result";
 import { findNorma, normas, normalize } from "./catalog";
-import {
-  IndexNotFoundError,
-  NormaNotFoundError,
-  NormaNotIndexedError,
-  type LegislacaoError,
-} from "./errors";
 import {
   getIndiceLocal,
   recriarIndiceLocal,
   statusIndiceLocal,
+  type StoreError,
 } from "./store";
-import type { ArtigoInput, SearchInput } from "./schemas";
 import { getIndexPath, type IndiceLegislacao } from "./store";
+
+class IndexNotFoundError extends TaggedError("IndexNotFoundError")<{
+  message: string;
+  path: string;
+}>() {}
+
+class NormaNotFoundError extends TaggedError("NormaNotFoundError")<{
+  message: string;
+  norma: string;
+}>() {}
+
+class NormaNotIndexedError extends TaggedError("NormaNotIndexedError")<{
+  message: string;
+  norma: string;
+}>() {}
+
+type LegislacaoError =
+  | StoreError
+  | IndexNotFoundError
+  | NormaNotFoundError
+  | NormaNotIndexedError;
+
+type SearchInput = {
+  termo: string;
+  norma?: string;
+  limite?: number;
+};
+
+type ArtigoInput = {
+  norma: string;
+  artigo: string | number;
+};
 
 export function listarNormas() {
   return normas.map((norma) => ({

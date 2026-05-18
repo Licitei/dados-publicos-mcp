@@ -94,10 +94,7 @@ para evitar reler o indice a cada chamada e publica status de indexacao e erros.
 ## Arquitetura
 
 - `src/index.ts`: adapter MCP stdio, sem conhecer detalhes dos dominios.
-- `src/mcp/registry.ts`: registro dos modulos de ferramentas expostas ao MCP.
-- `src/datasets.ts`: paths de dados por dataset.
-- `src/modules/legislacao/tools.ts`: tools MCP registradas pelo modulo.
-- `src/modules/legislacao/schemas.ts`: contratos Zod e JSON Schemas das tools.
+- `src/modules/legislacao/tools.ts`: tools MCP, contratos Zod e JSON Schemas.
 - `src/modules/legislacao/service.ts`: casos de uso de legislacao.
 - `src/modules/legislacao/indexer.ts`: adapter que monta os documentos
   indexaveis de legislacao.
@@ -105,8 +102,8 @@ para evitar reler o indice a cada chamada e publica status de indexacao e erros.
   memoria, indexacao e status do indice local.
 
 Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
-modulo em `src/modules/<nome>`, registrar suas tools MCP e usar um dataset
-proprio quando houver persistencia local.
+arquivo de tools em `src/modules/<nome>` e usar um subdiretorio proprio quando
+houver persistencia local.
 
 ## Desenvolvimento
 

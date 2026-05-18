@@ -1,12 +1,9 @@
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
-import { Result, type Result as ResultType } from "better-result";
+import { dirname, join } from "node:path";
+import { Result, TaggedError, type Result as ResultType } from "better-result";
 import { z } from "zod";
 import type { Norma } from "./catalog";
-import { getDatasetFilePath } from "../../datasets";
-import { causeMessage, IndexReadError, IndexWriteError } from "./errors";
-import type { LegislacaoError } from "./errors";
-import { legislacaoIndexAdapter } from "./indexer";
+import { legislacaoIndexAdapter, type PlanaltoIndexError } from "./indexer";
 
 export type DocumentoIndexado = {
   norma: Norma;
@@ -19,6 +16,18 @@ export type IndiceLegislacao = {
   fonte: "planalto";
   documentos: DocumentoIndexado[];
 };
+
+export class IndexReadError extends TaggedError("IndexReadError")<{
+  message: string;
+  path: string;
+}>() {}
+
+export class IndexWriteError extends TaggedError("IndexWriteError")<{
+  message: string;
+  path: string;
+}>() {}
+
+export type StoreError = IndexReadError | IndexWriteError | PlanaltoIndexError;
 
 type RuntimeState = {
   indice: IndiceLegislacao | null;
@@ -67,7 +76,19 @@ const indiceLegislacaoSchema: z.ZodType<IndiceLegislacao> = z
   .strict();
 
 export function getIndexPath() {
-  return getDatasetFilePath("legislacao", "index.json");
+  return join(getDataDir(), "legislacao", "index.json");
+}
+
+function getDataDir() {
+  const configured = process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
+
+  if (configured) return configured;
+
+  const home = process.env.HOME;
+
+  if (!home) throw new Error("HOME nao definido; configure DADOS_PUBLICOS_MCP_DATA_DIR");
+
+  return join(home, ".local", "share", "dados-publicos-mcp");
 }
 
 export async function loadIndex(): Promise<
@@ -159,7 +180,7 @@ export async function statusIndiceLocal(): Promise<
       atualizadoEm: string | null;
       normasIndexadas: string[];
     },
-    LegislacaoError
+    StoreError
   >
 > {
   const loaded = await getIndiceLocal();
@@ -178,7 +199,16 @@ export async function statusIndiceLocal(): Promise<
   });
 }
 
-export async function recriarIndiceLocal() {
+export async function recriarIndiceLocal(): Promise<
+  ResultType<
+    {
+      caminho: string;
+      atualizadoEm: string;
+      normasIndexadas: string[];
+    },
+    StoreError
+  >
+> {
   runtimeState.indexando = true;
   runtimeState.erro = null;
 
@@ -188,7 +218,7 @@ export async function recriarIndiceLocal() {
     runtimeState.indexando = false;
     runtimeState.erro = built.error.message;
 
-    return built;
+    return Result.err(built.error);
   }
 
   const indice: IndiceLegislacao = {
@@ -216,4 +246,10 @@ export async function recriarIndiceLocal() {
   runtimeState.erro = saved.error.message;
 
   return saved;
+}
+
+function causeMessage(cause: unknown) {
+  if (typeof cause === "string") return cause;
+
+  return String(cause);
 }

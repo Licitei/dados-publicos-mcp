@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
 
-import { createToolRegistry } from "./mcp/registry";
-import { legislacaoModule } from "./modules/legislacao/tools";
+import {
+  callLegislacaoTool,
+  legislacaoTools,
+} from "./modules/legislacao/tools";
 
 type JsonRpcRequest = {
   jsonrpc?: "2.0";
@@ -19,8 +21,6 @@ type JsonRpcResponse = {
     message: string;
   };
 };
-
-const registry = createToolRegistry([legislacaoModule]);
 
 process.stdin.setEncoding("utf8");
 
@@ -89,7 +89,7 @@ async function route(request: JsonRpcRequest) {
   }
 
   if (request.method === "tools/list") {
-    return { tools: registry.tools };
+    return { tools: legislacaoTools };
   }
 
   if (request.method === "tools/call") {
@@ -100,7 +100,14 @@ async function route(request: JsonRpcRequest) {
       throw new Error("Nome da ferramenta ausente");
     }
 
-    return registry.callTool(name, args);
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(await callLegislacaoTool(name, args), null, 2),
+        },
+      ],
+    };
   }
 
   throw new Error(`Metodo nao suportado: ${request.method}`);
