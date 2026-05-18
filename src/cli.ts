@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { Result } from "better-result";
-import { recriarIndiceLocal } from "./modules/legislacao/runtime-store";
+import { recriarIndiceLocal } from "./modules/legislacao/store";
 
 const command = Bun.argv[2];
 

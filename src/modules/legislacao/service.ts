@@ -10,7 +10,7 @@ import {
   getIndiceLocal,
   recriarIndiceLocal,
   statusIndiceLocal,
-} from "./runtime-store";
+} from "./store";
 import type { ArtigoInput, SearchInput } from "./schemas";
 import { getIndexPath, type IndiceLegislacao } from "./store";
 

@@ -25,8 +25,6 @@
     "bun": ">=1.1.0"
   },
   "dependencies": {
-    "@orpc/server": "^1.14.3",
-    "@tanstack/store": "^0.11.0",
     "better-result": "^2.9.2",
     "cheerio": "^1.2.0",
     "ky": "^1.14.3",

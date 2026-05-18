@@ -1,10 +1,25 @@
-import { appClient } from "../../client";
+import { Result, TaggedError } from "better-result";
+import { z } from "zod";
 import type { ToolModule } from "../../mcp/registry";
 import {
+  buscarLegislacao,
+  listarNormas,
+  obterArtigo,
+  recriarIndice,
+  statusIndice,
+} from "./service";
+import {
   buscarLegislacaoJsonSchema,
+  buscarLegislacaoInputSchema,
   emptyInputJsonSchema,
   obterArtigoJsonSchema,
+  obterArtigoInputSchema,
 } from "./schemas";
+
+class ToolInputError extends TaggedError("ToolInputError")<{
+  message: string;
+  issues: string[];
+}>() {}
 
 export const legislacaoModule: ToolModule = {
   name: "legislacao",
@@ -47,27 +62,51 @@ export const legislacaoModule: ToolModule = {
       },
     },
   ],
-  callTool(name, args) {
+  async callTool(name, args) {
     if (name === "listar_normas") {
-      return appClient.legislacao.listarNormas();
+      return listarNormas();
     }
 
     if (name === "buscar_legislacao") {
-      return appClient.legislacao.buscar(args as never);
+      const input = parseToolInput(buscarLegislacaoInputSchema, args);
+
+      if (Result.isError(input)) return Result.serialize(input);
+
+      return Result.serialize(await buscarLegislacao(input.value));
     }
 
     if (name === "obter_artigo") {
-      return appClient.legislacao.obterArtigo(args as never);
+      const input = parseToolInput(obterArtigoInputSchema, args);
+
+      if (Result.isError(input)) return Result.serialize(input);
+
+      return Result.serialize(await obterArtigo(input.value));
     }
 
     if (name === "status_indice") {
-      return appClient.legislacao.statusIndice();
+      return Result.serialize(await statusIndice());
     }
 
     if (name === "indexar_legislacao") {
-      return appClient.legislacao.recriarIndice();
+      return Result.serialize(await recriarIndice());
     }
 
     throw new Error(`Ferramenta de legislacao nao encontrada: ${name}`);
   },
 };
+
+function parseToolInput<TSchema extends z.ZodType>(
+  schema: TSchema,
+  args: unknown
+): Result<z.infer<TSchema>, ToolInputError> {
+  const parsed = schema.safeParse(args);
+
+  if (parsed.success) return Result.ok(parsed.data);
+
+  return Result.err(
+    new ToolInputError({
+      message: "Entrada invalida para ferramenta de legislacao.",
+      issues: parsed.error.issues.map((issue) => issue.message),
+    })
+  );
+}

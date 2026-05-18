@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { Norma } from "./catalog";
 import { getDatasetFilePath } from "../../datasets";
 import { causeMessage, IndexReadError, IndexWriteError } from "./errors";
+import type { LegislacaoError } from "./errors";
+import { legislacaoIndexAdapter } from "./indexer";
 
 export type DocumentoIndexado = {
   norma: Norma;
@@ -16,6 +18,20 @@ export type IndiceLegislacao = {
   criadoEm: string;
   fonte: "planalto";
   documentos: DocumentoIndexado[];
+};
+
+type RuntimeState = {
+  indice: IndiceLegislacao | null;
+  indiceCarregado: boolean;
+  indexando: boolean;
+  erro: string | null;
+};
+
+const runtimeState: RuntimeState = {
+  indice: null,
+  indiceCarregado: false,
+  indexando: false,
+  erro: null,
 };
 
 const normaSchema: z.ZodType<Norma> = z
@@ -111,4 +127,93 @@ export async function saveIndex(
         path,
       }),
   });
+}
+
+export async function getIndiceLocal() {
+  if (runtimeState.indiceCarregado) return Result.ok(runtimeState.indice);
+
+  const loaded = await loadIndex();
+
+  if (Result.isOk(loaded)) {
+    runtimeState.indice = loaded.value;
+    runtimeState.indiceCarregado = true;
+    runtimeState.erro = null;
+
+    return loaded;
+  }
+
+  runtimeState.indice = null;
+  runtimeState.indiceCarregado = false;
+  runtimeState.erro = loaded.error.message;
+
+  return loaded;
+}
+
+export async function statusIndiceLocal(): Promise<
+  ResultType<
+    {
+      caminho: string;
+      existe: boolean;
+      indexando: boolean;
+      erro: string | null;
+      atualizadoEm: string | null;
+      normasIndexadas: string[];
+    },
+    LegislacaoError
+  >
+> {
+  const loaded = await getIndiceLocal();
+
+  if (Result.isError(loaded)) return loaded;
+
+  const indice = loaded.value;
+
+  return Result.ok({
+    caminho: getIndexPath(),
+    existe: Boolean(indice),
+    indexando: runtimeState.indexando,
+    erro: runtimeState.erro,
+    atualizadoEm: indice?.criadoEm ?? null,
+    normasIndexadas: indice?.documentos.map((documento) => documento.norma.id) ?? [],
+  });
+}
+
+export async function recriarIndiceLocal() {
+  runtimeState.indexando = true;
+  runtimeState.erro = null;
+
+  const built = await legislacaoIndexAdapter.build();
+
+  if (Result.isError(built)) {
+    runtimeState.indexando = false;
+    runtimeState.erro = built.error.message;
+
+    return built;
+  }
+
+  const indice: IndiceLegislacao = {
+    versao: 1,
+    criadoEm: new Date().toISOString(),
+    fonte: "planalto",
+    documentos: built.value,
+  };
+  const saved = await saveIndex(indice);
+
+  if (Result.isOk(saved)) {
+    runtimeState.indice = indice;
+    runtimeState.indiceCarregado = true;
+    runtimeState.indexando = false;
+    runtimeState.erro = null;
+
+    return Result.ok({
+      caminho: saved.value,
+      atualizadoEm: indice.criadoEm,
+      normasIndexadas: indice.documentos.map((documento) => documento.norma.id),
+    });
+  }
+
+  runtimeState.indexando = false;
+  runtimeState.erro = saved.error.message;
+
+  return saved;
 }

@@ -88,32 +88,25 @@ DADOS_PUBLICOS_MCP_DATA_DIR=/caminho/local bun run index
 
 O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. Os
 dados ficam separados por dataset para permitir novas fontes, como Portal da
-Transparencia, sem misturar indices. O servidor usa `@tanstack/store` como dono
-do fluxo de indexacao: ele chama o adapter do modulo, salva o indice, cacheia o
-estado carregado e publica status de indexacao e erros.
+Transparencia, sem misturar indices. O modulo mantem um cache simples em memoria
+para evitar reler o indice a cada chamada e publica status de indexacao e erros.
 
 ## Arquitetura
 
 - `src/index.ts`: adapter MCP stdio, sem conhecer detalhes dos dominios.
 - `src/mcp/registry.ts`: registro dos modulos de ferramentas expostas ao MCP.
-- `src/router.ts`: composicao dos routers oRPC da aplicacao.
-- `src/client.ts`: client oRPC usado pelos adapters MCP.
 - `src/datasets.ts`: paths de dados por dataset.
-- `src/modules/legislacao/router.ts`: procedures oRPC do modulo de legislacao.
-- `src/modules/legislacao/tools.ts`: tools MCP registradas pelo modulo e
-  chamadas via client oRPC.
+- `src/modules/legislacao/tools.ts`: tools MCP registradas pelo modulo.
 - `src/modules/legislacao/schemas.ts`: contratos Zod e JSON Schemas das tools.
 - `src/modules/legislacao/service.ts`: casos de uso de legislacao.
 - `src/modules/legislacao/indexer.ts`: adapter que monta os documentos
   indexaveis de legislacao.
-- `src/modules/legislacao/store.ts`: persistencia e validacao Zod do indice
-  local.
-- `src/modules/legislacao/runtime-store.ts`: TanStack Store que orquestra
-  indexacao, cache, persistencia e status do modulo de legislacao.
+- `src/modules/legislacao/store.ts`: persistencia, validacao Zod, cache em
+  memoria, indexacao e status do indice local.
 
 Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
-modulo em `src/modules/<nome>`, expor seu router oRPC, registrar suas tools MCP
-e usar um dataset proprio quando houver persistencia local.
+modulo em `src/modules/<nome>`, registrar suas tools MCP e usar um dataset
+proprio quando houver persistencia local.
 
 ## Desenvolvimento
 
