@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@tanstack/store": "^0.11.0",
+    "better-result": "^2.9.2",
     "cheerio": "^1.2.0",
     "ky": "^1.14.3"
   },
