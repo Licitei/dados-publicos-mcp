@@ -14,12 +14,12 @@ import {
 export const legislacaoRouter = {
   listarNormas: os.handler(() => listarNormas()).callable(),
   buscar: os
-    .handler(({ input }) =>
-      buscarLegislacao(buscarLegislacaoInputSchema.parse(input))
-    )
+    .input(buscarLegislacaoInputSchema)
+    .handler(({ input }) => buscarLegislacao(input))
     .callable(),
   obterArtigo: os
-    .handler(({ input }) => obterArtigo(obterArtigoInputSchema.parse(input)))
+    .input(obterArtigoInputSchema)
+    .handler(({ input }) => obterArtigo(input))
     .callable(),
   statusIndice: os.handler(() => statusIndice()).callable(),
   recriarIndice: os.handler(() => recriarIndice()).callable(),

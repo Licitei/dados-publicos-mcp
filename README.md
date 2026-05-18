@@ -94,17 +94,23 @@ carregado, status de indexacao e erros.
 
 ## Arquitetura
 
-- `src/router.ts`: router oRPC da aplicacao.
-- `src/legislacao-router.ts`: procedures oRPC do dominio de legislacao.
 - `src/index.ts`: adapter MCP stdio, sem conhecer detalhes dos dominios.
-- `src/registry.ts`: registro de modulos de ferramentas expostas ao MCP.
-- `src/legislacao-tools.ts`: mapeia ferramentas MCP para procedures oRPC.
+- `src/mcp/registry.ts`: registro dos modulos de ferramentas expostas ao MCP.
+- `src/router.ts`: composicao dos routers oRPC da aplicacao.
+- `src/client.ts`: client oRPC usado pelos adapters MCP.
 - `src/datasets.ts`: paths de dados por dataset.
-- `src/store.ts` e `src/runtime-store.ts`: indice local e cache runtime do
-  dataset de legislacao.
+- `src/modules/legislacao/router.ts`: procedures oRPC do modulo de legislacao.
+- `src/modules/legislacao/tools.ts`: tools MCP registradas pelo modulo e
+  chamadas via client oRPC.
+- `src/modules/legislacao/schemas.ts`: contratos Zod e JSON Schemas das tools.
+- `src/modules/legislacao/service.ts`: casos de uso de legislacao.
+- `src/modules/legislacao/store.ts` e
+  `src/modules/legislacao/runtime-store.ts`: indice local e cache runtime do
+  modulo de legislacao.
 
 Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
-modulo de ferramentas, um dataset proprio e registrar esse modulo no registry.
+modulo em `src/modules/<nome>`, expor seu router oRPC, registrar suas tools MCP
+e usar um dataset proprio quando houver persistencia local.
 
 ## Desenvolvimento
 

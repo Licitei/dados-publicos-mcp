@@ -1,10 +1,8 @@
-import { appRouter } from "../../router";
+import { appClient } from "../../client";
 import type { ToolModule } from "../../mcp/registry";
 import {
-  buscarLegislacaoInputSchema,
   buscarLegislacaoJsonSchema,
   emptyInputJsonSchema,
-  obterArtigoInputSchema,
   obterArtigoJsonSchema,
 } from "./schemas";
 
@@ -51,23 +49,23 @@ export const legislacaoModule: ToolModule = {
   ],
   callTool(name, args) {
     if (name === "listar_normas") {
-      return appRouter.legislacao.listarNormas();
+      return appClient.legislacao.listarNormas();
     }
 
     if (name === "buscar_legislacao") {
-      return appRouter.legislacao.buscar(buscarLegislacaoInputSchema.parse(args));
+      return appClient.legislacao.buscar(args as never);
     }
 
     if (name === "obter_artigo") {
-      return appRouter.legislacao.obterArtigo(obterArtigoInputSchema.parse(args));
+      return appClient.legislacao.obterArtigo(args as never);
     }
 
     if (name === "status_indice") {
-      return appRouter.legislacao.statusIndice();
+      return appClient.legislacao.statusIndice();
     }
 
     if (name === "indexar_legislacao") {
-      return appRouter.legislacao.recriarIndice();
+      return appClient.legislacao.recriarIndice();
     }
 
     throw new Error(`Ferramenta de legislacao nao encontrada: ${name}`);

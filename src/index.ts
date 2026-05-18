@@ -70,7 +70,7 @@ async function handleLine(line: string) {
       id: request.id,
       error: {
         code: -32000,
-        message: error instanceof Error ? error.message : "Erro interno",
+        message: String(error),
       },
     });
   }

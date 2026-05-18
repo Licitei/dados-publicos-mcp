@@ -1,6 +1,6 @@
 import { createStore } from "@tanstack/store";
 import { Result, type Result as ResultType } from "better-result";
-import { errorMessage, type LegislacaoError } from "./errors";
+import type { LegislacaoError } from "./errors";
 import { indexarLegislacao } from "./indexer";
 import { getIndexPath, loadIndex, type IndiceLegislacao } from "./store";
 
@@ -40,7 +40,7 @@ export async function getIndiceLocal() {
     ...prev,
     indice: null,
     indiceCarregado: true,
-    erro: errorMessage(loaded.error),
+    erro: loaded.error.message,
   }));
 
   return loaded;
@@ -92,7 +92,7 @@ export async function recriarIndiceLocal() {
       runtimeStore.setState((prev) => ({
         ...prev,
         indexando: false,
-        erro: errorMessage(loaded.error),
+        erro: loaded.error.message,
       }));
 
       return loaded;
@@ -112,7 +112,7 @@ export async function recriarIndiceLocal() {
   runtimeStore.setState((prev) => ({
     ...prev,
     indexando: false,
-    erro: errorMessage(indexed.error),
+    erro: indexed.error.message,
   }));
 
   return indexed;

@@ -44,13 +44,8 @@ export type LegislacaoError =
   | PlanaltoFetchError
   | PlanaltoParseError;
 
-export function errorMessage(error: LegislacaoError) {
-  return error.message;
-}
-
 export function causeMessage(cause: unknown) {
-  if (cause instanceof Error) return cause.message;
   if (typeof cause === "string") return cause;
 
-  return "Erro desconhecido";
+  return String(cause);
 }

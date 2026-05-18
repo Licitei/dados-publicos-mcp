@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import { Result } from "better-result";
-import { errorMessage } from "./modules/legislacao/errors";
 import { indexarLegislacao } from "./modules/legislacao/indexer";
 
 const command = Bun.argv[2];
@@ -15,7 +14,7 @@ if (command === "index") {
     process.exit(0);
   }
 
-  console.error(errorMessage(result.error));
+  console.error(result.error.message);
   process.exit(1);
 }
 
