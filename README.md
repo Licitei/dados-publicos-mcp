@@ -295,23 +295,6 @@ processo normalmente e o cliente MCP.
 Tente novamente. O site do Planalto pode fechar conexoes ou responder devagar.
 O adapter usa `fetch` nativo do Bun com timeout, retry e user-agent compatível.
 
-## Texto curto para divulgar
-
-```text
-Lancei o dados-publicos-mcp: um servidor MCP AGPL da Licitei para agentes de IA
-consultarem legislacao brasileira de licitacoes e contratos a partir de fontes
-oficiais do Planalto.
-
-Ele cria um indice local em JSON e permite listar normas, buscar trechos e obter
-artigos especificos via MCP. Depois da indexacao, as consultas rodam offline.
-
-Foco inicial: Lei 14.133/2021, Lei 8.666/1993, Lei das Estatais, LC 123/2006 e
-Decreto 11.462/2023.
-
-Repositorio: https://github.com/Licitei/dados-publicos-mcp
-Licenca: AGPL-3.0-only
-```
-
 ## Limites
 
 Este MCP apoia pesquisa e automacao. Ele nao substitui revisao juridica humana,
