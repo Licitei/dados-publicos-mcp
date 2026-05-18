@@ -1,7 +1,8 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { Result, type Result as ResultType } from "better-result";
 import type { Norma } from "./catalog";
+import { getDatasetFilePath } from "../../datasets";
 import { causeMessage, IndexReadError, IndexWriteError } from "./errors";
 
 export type DocumentoIndexado = {
@@ -16,26 +17,8 @@ export type IndiceLegislacao = {
   documentos: DocumentoIndexado[];
 };
 
-export function getDataDir() {
-  if (Bun.env.DADOS_PUBLICOS_MCP_DATA_DIR) {
-    return Bun.env.DADOS_PUBLICOS_MCP_DATA_DIR;
-  }
-
-  if (Bun.env.XDG_DATA_HOME) {
-    return join(Bun.env.XDG_DATA_HOME, "dados-publicos-mcp");
-  }
-
-  const home = Bun.env.HOME;
-
-  if (!home) {
-    throw new Error("HOME nao definido; configure DADOS_PUBLICOS_MCP_DATA_DIR");
-  }
-
-  return join(home, ".local", "share", "dados-publicos-mcp");
-}
-
 export function getIndexPath() {
-  return join(getDataDir(), "index.json");
+  return getDatasetFilePath("legislacao", "index.json");
 }
 
 export async function loadIndex(): Promise<

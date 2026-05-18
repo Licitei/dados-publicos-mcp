@@ -1,19 +1,7 @@
 #!/usr/bin/env bun
 
-import {
-  Result,
-  type Result as ResultType,
-} from "better-result";
-import {
-  buscarLegislacao,
-  listarNormas,
-  obterArtigo,
-  recriarIndice,
-  statusIndice,
-  type ArtigoInput,
-  type SearchInput,
-} from "./legislacao";
-import { errorMessage, type LegislacaoError } from "./errors";
+import { createToolRegistry } from "./mcp/registry";
+import { legislacaoModule } from "./modules/legislacao/tools";
 
 type JsonRpcRequest = {
   jsonrpc?: "2.0";
@@ -32,80 +20,7 @@ type JsonRpcResponse = {
   };
 };
 
-const tools = [
-  {
-    name: "listar_normas",
-    description: "Lista as normas brasileiras disponiveis no catalogo.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "buscar_legislacao",
-    description:
-      "Busca um termo no indice local de legislacao brasileira.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        termo: {
-          type: "string",
-          description: "Termo a buscar. Exemplo: habilitacao tecnica.",
-        },
-        norma: {
-          type: "string",
-          description:
-            "Opcional. ID ou apelido da norma, como lei-14133-2021 ou 14133.",
-        },
-        limite: {
-          type: "number",
-          description: "Quantidade maxima de resultados. Maximo 25.",
-        },
-      },
-      required: ["termo"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "obter_artigo",
-    description: "Retorna um artigo especifico de uma norma brasileira.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        norma: {
-          type: "string",
-          description: "ID ou apelido da norma, como lei-14133-2021 ou 14133.",
-        },
-        artigo: {
-          type: ["string", "number"],
-          description: "Numero do artigo. Exemplo: 67.",
-        },
-      },
-      required: ["norma", "artigo"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "status_indice",
-    description: "Mostra o status e o caminho do indice local.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "indexar_legislacao",
-    description:
-      "Baixa fontes oficiais do Planalto e recria o indice local neste computador.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-];
+const registry = createToolRegistry([legislacaoModule]);
 
 process.stdin.setEncoding("utf8");
 
@@ -174,7 +89,7 @@ async function route(request: JsonRpcRequest) {
   }
 
   if (request.method === "tools/list") {
-    return { tools };
+    return { tools: registry.tools };
   }
 
   if (request.method === "tools/call") {
@@ -185,61 +100,10 @@ async function route(request: JsonRpcRequest) {
       throw new Error("Nome da ferramenta ausente");
     }
 
-    return callTool(name, args);
+    return registry.callTool(name, args);
   }
 
   throw new Error(`Metodo nao suportado: ${request.method}`);
-}
-
-async function callTool(name: string, args: unknown) {
-  if (name === "listar_normas") {
-    return asToolResult(listarNormas());
-  }
-
-  if (name === "buscar_legislacao") {
-    return asToolResult(await buscarLegislacao(args as SearchInput));
-  }
-
-  if (name === "obter_artigo") {
-    return asToolResult(await obterArtigo(args as ArtigoInput));
-  }
-
-  if (name === "status_indice") {
-    return asToolResult(await statusIndice());
-  }
-
-  if (name === "indexar_legislacao") {
-    return asToolResult(await recriarIndice());
-  }
-
-  throw new Error(`Ferramenta nao encontrada: ${name}`);
-}
-
-function asToolResult(
-  data: unknown | ResultType<unknown, LegislacaoError>
-) {
-  if (isResult(data)) {
-    if (Result.isError(data)) {
-      throw new Error(errorMessage(data.error));
-    }
-
-    data = data.value;
-  }
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(data, null, 2),
-      },
-    ],
-  };
-}
-
-function isResult(value: unknown): value is ResultType<unknown, LegislacaoError> {
-  if (!value || typeof value !== "object") return false;
-
-  return "status" in value && (value.status === "ok" || value.status === "error");
 }
 
 function write(response: JsonRpcResponse) {

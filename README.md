@@ -77,7 +77,7 @@ recriar o indice, ou consultar diretamente `buscar_legislacao` e
 Por padrao, o indice fica em:
 
 ```text
-~/.local/share/dados-publicos-mcp/index.json
+~/.local/share/dados-publicos-mcp/legislacao/index.json
 ```
 
 Voce pode mudar o diretorio com:
@@ -86,9 +86,25 @@ Voce pode mudar o diretorio com:
 DADOS_PUBLICOS_MCP_DATA_DIR=/caminho/local bun run index
 ```
 
-O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. O
-servidor usa `@tanstack/store` apenas como estado runtime em memoria para
-cachear o indice carregado, status de indexacao e erros.
+O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. Os
+dados ficam separados por dataset para permitir novas fontes, como Portal da
+Transparencia, sem misturar indices ou cache runtime. O servidor usa
+`@tanstack/store` apenas como estado runtime em memoria para cachear o indice
+carregado, status de indexacao e erros.
+
+## Arquitetura
+
+- `src/router.ts`: router oRPC da aplicacao.
+- `src/legislacao-router.ts`: procedures oRPC do dominio de legislacao.
+- `src/index.ts`: adapter MCP stdio, sem conhecer detalhes dos dominios.
+- `src/registry.ts`: registro de modulos de ferramentas expostas ao MCP.
+- `src/legislacao-tools.ts`: mapeia ferramentas MCP para procedures oRPC.
+- `src/datasets.ts`: paths de dados por dataset.
+- `src/store.ts` e `src/runtime-store.ts`: indice local e cache runtime do
+  dataset de legislacao.
+
+Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
+modulo de ferramentas, um dataset proprio e registrar esse modulo no registry.
 
 ## Desenvolvimento
 

@@ -11,18 +11,8 @@ import {
   recriarIndiceLocal,
   statusIndiceLocal,
 } from "./runtime-store";
+import type { ArtigoInput, SearchInput } from "./schemas";
 import { getIndexPath, type IndiceLegislacao } from "./store";
-
-export type SearchInput = {
-  termo: string;
-  norma?: string;
-  limite?: number;
-};
-
-export type ArtigoInput = {
-  norma: string;
-  artigo: string | number;
-};
 
 export function listarNormas() {
   return normas.map((norma) => ({

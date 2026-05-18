@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { Result } from "better-result";
-import { errorMessage } from "./errors";
-import { indexarLegislacao } from "./indexer";
+import { errorMessage } from "./modules/legislacao/errors";
+import { indexarLegislacao } from "./modules/legislacao/indexer";
 
 const command = Bun.argv[2];
 
