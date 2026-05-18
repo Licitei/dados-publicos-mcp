@@ -55,6 +55,14 @@ bun run index
 bun start
 ```
 
+Tambem da para chamar a CLI diretamente:
+
+```bash
+bun src/index.ts --help
+bun src/index.ts index
+bun src/index.ts serve
+```
+
 Config exemplo para um cliente MCP:
 
 ```json
@@ -93,8 +101,8 @@ para evitar reler o indice a cada chamada e publica status de indexacao e erros.
 
 ## Arquitetura
 
-- `src/index.ts`: adapter MCP stdio, sem conhecer detalhes dos dominios.
-- `src/modules/legislacao/tools.ts`: tools MCP, contratos Zod e JSON Schemas.
+- `src/index.ts`: CLI com `cac` e servidor MCP stdio via SDK oficial.
+- `src/modules/legislacao/tools.ts`: registro das tools MCP e contratos Zod.
 - `src/modules/legislacao/service.ts`: casos de uso de legislacao.
 - `src/modules/legislacao/indexer.ts`: adapter que monta os documentos
   indexaveis de legislacao.

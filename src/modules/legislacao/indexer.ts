@@ -16,6 +16,8 @@ export class PlanaltoParseError extends TaggedError("PlanaltoParseError")<{
 export type PlanaltoIndexError = PlanaltoFetchError | PlanaltoParseError;
 
 const retryableStatusCodes = new Set([408, 413, 429, 500, 502, 503, 504]);
+const planaltoUserAgent =
+  "Mozilla/5.0 (compatible; dados-publicos-mcp/0.1.0; +https://github.com/Licitei/dados-publicos-mcp)";
 
 export const legislacaoIndexAdapter = {
   name: "legislacao",
@@ -69,7 +71,7 @@ async function fetchWithRetry(url: string) {
     try {
       const response = await fetch(url, {
         headers: {
-          "user-agent": "dados-publicos-mcp/0.1.0",
+          "user-agent": planaltoUserAgent,
           accept: "text/html,application/xhtml+xml",
         },
         signal: AbortSignal.timeout(30_000),

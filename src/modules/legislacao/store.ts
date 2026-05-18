@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Result, TaggedError, type Result as ResultType } from "better-result";
+import dayjs from "dayjs";
 import { z } from "zod";
 import type { Norma } from "./catalog";
 import { legislacaoIndexAdapter, type PlanaltoIndexError } from "./indexer";
@@ -223,7 +224,7 @@ export async function recriarIndiceLocal(): Promise<
 
   const indice: IndiceLegislacao = {
     versao: 1,
-    criadoEm: new Date().toISOString(),
+    criadoEm: dayjs().toISOString(),
     fonte: "planalto",
     documentos: built.value,
   };

@@ -1,3 +1,4 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Result, TaggedError } from "better-result";
 import { z } from "zod";
 import {
@@ -8,17 +9,7 @@ import {
   statusIndice,
 } from "./service";
 
-type ToolDefinition = {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-};
-
-const emptyInputJsonSchema = {
-  type: "object",
-  properties: {},
-  additionalProperties: false,
-} as const;
+const emptyInputSchema = z.object({}).strict();
 
 const buscarLegislacaoInputSchema = z
   .object({
@@ -35,87 +26,60 @@ const obterArtigoInputSchema = z
   })
   .strict();
 
-const buscarLegislacaoJsonSchema = {
-  type: "object",
-  properties: {
-    termo: {
-      type: "string",
-      description: "Termo a buscar. Exemplo: habilitacao tecnica.",
-    },
-    norma: {
-      type: "string",
-      description:
-        "Opcional. ID ou apelido da norma, como lei-14133-2021 ou 14133.",
-    },
-    limite: {
-      type: "number",
-      description: "Quantidade maxima de resultados. Maximo 25.",
-    },
-  },
-  required: ["termo"],
-  additionalProperties: false,
-} as const;
-
-const obterArtigoJsonSchema = {
-  type: "object",
-  properties: {
-    norma: {
-      type: "string",
-      description: "ID ou apelido da norma, como lei-14133-2021 ou 14133.",
-    },
-    artigo: {
-      type: ["string", "number"],
-      description: "Numero do artigo. Exemplo: 67.",
-    },
-  },
-  required: ["norma", "artigo"],
-  additionalProperties: false,
-} as const;
-
 class ToolInputError extends TaggedError("ToolInputError")<{
   message: string;
   issues: string[];
 }>() {}
 
-export const legislacaoTools: ToolDefinition[] = [
-  {
-    name: "listar_normas",
-    description: "Lista as normas brasileiras disponiveis no catalogo.",
-    inputSchema: {
-      ...emptyInputJsonSchema,
+export function registerLegislacaoTools(server: McpServer) {
+  server.registerTool(
+    "listar_normas",
+    {
+      description: "Lista as normas brasileiras disponiveis no catalogo.",
+      inputSchema: emptyInputSchema,
     },
-  },
-  {
-    name: "buscar_legislacao",
-    description:
-      "Busca um termo no indice local de legislacao brasileira.",
-    inputSchema: {
-      ...buscarLegislacaoJsonSchema,
+    async (args) => toolContent(await callLegislacaoTool("listar_normas", args))
+  );
+
+  server.registerTool(
+    "buscar_legislacao",
+    {
+      description: "Busca um termo no indice local de legislacao brasileira.",
+      inputSchema: buscarLegislacaoInputSchema,
     },
-  },
-  {
-    name: "obter_artigo",
-    description: "Retorna um artigo especifico de uma norma brasileira.",
-    inputSchema: {
-      ...obterArtigoJsonSchema,
+    async (args) =>
+      toolContent(await callLegislacaoTool("buscar_legislacao", args))
+  );
+
+  server.registerTool(
+    "obter_artigo",
+    {
+      description: "Retorna um artigo especifico de uma norma brasileira.",
+      inputSchema: obterArtigoInputSchema,
     },
-  },
-  {
-    name: "status_indice",
-    description: "Mostra o status e o caminho do indice local.",
-    inputSchema: {
-      ...emptyInputJsonSchema,
+    async (args) => toolContent(await callLegislacaoTool("obter_artigo", args))
+  );
+
+  server.registerTool(
+    "status_indice",
+    {
+      description: "Mostra o status e o caminho do indice local.",
+      inputSchema: emptyInputSchema,
     },
-  },
-  {
-    name: "indexar_legislacao",
-    description:
-      "Baixa fontes oficiais do Planalto e recria o indice local neste computador.",
-    inputSchema: {
-      ...emptyInputJsonSchema,
+    async (args) => toolContent(await callLegislacaoTool("status_indice", args))
+  );
+
+  server.registerTool(
+    "indexar_legislacao",
+    {
+      description:
+        "Baixa fontes oficiais do Planalto e recria o indice local neste computador.",
+      inputSchema: emptyInputSchema,
     },
-  },
-];
+    async (args) =>
+      toolContent(await callLegislacaoTool("indexar_legislacao", args))
+  );
+}
 
 export async function callLegislacaoTool(name: string, args: unknown) {
   if (name === "listar_normas") {
@@ -163,4 +127,15 @@ function parseToolInput<TSchema extends z.ZodType>(
       issues: parsed.error.issues.map((issue) => issue.message),
     })
   );
+}
+
+function toolContent(value: unknown) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(value, null, 2),
+      },
+    ],
+  };
 }

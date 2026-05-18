@@ -129,10 +129,7 @@ export async function obterArtigo(input: ArtigoInput) {
   }
 
   const artigo = String(input.artigo).replace(/^art\.?\s*/i, "");
-  const pattern = new RegExp(`^Art\\.?\\s*${escapeRegExp(artigo)}[ºo°]?[\\s.]`, "i");
-  const start = documento.paragrafos.findIndex((paragrafo) =>
-    pattern.test(paragrafo)
-  );
+  const start = findArticleStart(documento.paragrafos, artigo);
 
   if (start === -1) {
     return Result.ok({
@@ -146,12 +143,12 @@ export async function obterArtigo(input: ArtigoInput) {
 
   const trechos = [];
 
-  for (const paragrafo of documento.paragrafos.slice(start)) {
-    if (trechos.length > 0 && /^Art\.?\s*\d+[ºo°]?[\s.]/i.test(paragrafo)) {
+  for (let index = start; index < documento.paragrafos.length; index++) {
+    if (index > start && isArticleStart(documento.paragrafos, index)) {
       break;
     }
 
-    trechos.push(paragrafo);
+    trechos.push(documento.paragrafos[index]);
   }
 
   return Result.ok({
@@ -201,4 +198,33 @@ async function requireIndex(): Promise<ResultType<IndiceLegislacao, LegislacaoEr
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findArticleStart(paragrafos: string[], artigo: string) {
+  return paragrafos.findIndex((_, index) =>
+    isArticleStart(paragrafos, index, artigo)
+  );
+}
+
+function isArticleStart(paragrafos: string[], index: number, artigo?: string) {
+  const current = paragrafos[index]?.trim() ?? "";
+  const next = paragrafos[index + 1]?.trim() ?? "";
+
+  if (!/^Art\.?$/i.test(current) && !/^Art\.?\s+/i.test(current)) {
+    return false;
+  }
+
+  const inlineNumber = current.replace(/^Art\.?\s*/i, "");
+
+  if (startsWithArticleNumber(inlineNumber, artigo)) return true;
+
+  return startsWithArticleNumber(next, artigo);
+}
+
+function startsWithArticleNumber(value: string, artigo?: string) {
+  if (!value) return false;
+
+  const number = artigo ? escapeRegExp(artigo) : "\\d+";
+
+  return new RegExp(`^${number}[ºo°]?[\\s.]`, "i").test(value);
 }
