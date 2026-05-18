@@ -1,8 +1,13 @@
 import { createStore } from "@tanstack/store";
 import { Result, type Result as ResultType } from "better-result";
 import type { LegislacaoError } from "./errors";
-import { indexarLegislacao } from "./indexer";
-import { getIndexPath, loadIndex, type IndiceLegislacao } from "./store";
+import { legislacaoIndexAdapter } from "./indexer";
+import {
+  getIndexPath,
+  loadIndex,
+  saveIndex,
+  type IndiceLegislacao,
+} from "./store";
 
 type RuntimeState = {
   indice: IndiceLegislacao | null;
@@ -39,7 +44,7 @@ export async function getIndiceLocal() {
   runtimeStore.setState((prev) => ({
     ...prev,
     indice: null,
-    indiceCarregado: true,
+    indiceCarregado: false,
     erro: loaded.error.message,
   }));
 
@@ -83,37 +88,47 @@ export async function recriarIndiceLocal() {
     erro: null,
   }));
 
-  const indexed = await indexarLegislacao();
+  const built = await legislacaoIndexAdapter.build();
 
-  if (Result.isOk(indexed)) {
-    const loaded = await loadIndex();
-
-    if (Result.isError(loaded)) {
-      runtimeStore.setState((prev) => ({
-        ...prev,
-        indexando: false,
-        erro: loaded.error.message,
-      }));
-
-      return loaded;
-    }
-
+  if (Result.isError(built)) {
     runtimeStore.setState((prev) => ({
       ...prev,
-      indice: loaded.value,
+      indexando: false,
+      erro: built.error.message,
+    }));
+
+    return built;
+  }
+
+  const indice: IndiceLegislacao = {
+    versao: 1,
+    criadoEm: new Date().toISOString(),
+    fonte: "planalto",
+    documentos: built.value,
+  };
+  const saved = await saveIndex(indice);
+
+  if (Result.isOk(saved)) {
+    runtimeStore.setState((prev) => ({
+      ...prev,
+      indice,
       indiceCarregado: true,
       indexando: false,
       erro: null,
     }));
 
-    return indexed;
+    return Result.ok({
+      caminho: saved.value,
+      atualizadoEm: indice.criadoEm,
+      normasIndexadas: indice.documentos.map((documento) => documento.norma.id),
+    });
   }
 
   runtimeStore.setState((prev) => ({
     ...prev,
     indexando: false,
-    erro: indexed.error.message,
+    erro: saved.error.message,
   }));
 
-  return indexed;
+  return saved;
 }

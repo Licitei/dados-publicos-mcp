@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
 import { Result } from "better-result";
-import { indexarLegislacao } from "./modules/legislacao/indexer";
+import { recriarIndiceLocal } from "./modules/legislacao/runtime-store";
 
 const command = Bun.argv[2];
 
 if (command === "index") {
-  const result = await indexarLegislacao();
+  const result = await recriarIndiceLocal();
 
   if (Result.isOk(result)) {
     console.info(`Indice criado em ${result.value.caminho}`);

@@ -88,9 +88,9 @@ DADOS_PUBLICOS_MCP_DATA_DIR=/caminho/local bun run index
 
 O arquivo e JSON para facilitar auditoria, backup e distribuicao offline. Os
 dados ficam separados por dataset para permitir novas fontes, como Portal da
-Transparencia, sem misturar indices ou cache runtime. O servidor usa
-`@tanstack/store` apenas como estado runtime em memoria para cachear o indice
-carregado, status de indexacao e erros.
+Transparencia, sem misturar indices. O servidor usa `@tanstack/store` como dono
+do fluxo de indexacao: ele chama o adapter do modulo, salva o indice, cacheia o
+estado carregado e publica status de indexacao e erros.
 
 ## Arquitetura
 
@@ -104,9 +104,12 @@ carregado, status de indexacao e erros.
   chamadas via client oRPC.
 - `src/modules/legislacao/schemas.ts`: contratos Zod e JSON Schemas das tools.
 - `src/modules/legislacao/service.ts`: casos de uso de legislacao.
-- `src/modules/legislacao/store.ts` e
-  `src/modules/legislacao/runtime-store.ts`: indice local e cache runtime do
-  modulo de legislacao.
+- `src/modules/legislacao/indexer.ts`: adapter que monta os documentos
+  indexaveis de legislacao.
+- `src/modules/legislacao/store.ts`: persistencia e validacao Zod do indice
+  local.
+- `src/modules/legislacao/runtime-store.ts`: TanStack Store que orquestra
+  indexacao, cache, persistencia e status do modulo de legislacao.
 
 Para conectar o Portal da Transparencia, o caminho esperado e criar um novo
 modulo em `src/modules/<nome>`, expor seu router oRPC, registrar suas tools MCP

@@ -3,7 +3,7 @@ import { Result, type Result as ResultType } from "better-result";
 import { normas } from "./catalog";
 import { causeMessage, type LegislacaoError, PlanaltoFetchError } from "./errors";
 import { parsePlanaltoHtml } from "./parser";
-import { saveIndex, type DocumentoIndexado } from "./store";
+import type { DocumentoIndexado } from "./store";
 
 const http = ky.create({
   timeout: 30_000,
@@ -19,15 +19,13 @@ const http = ky.create({
   },
 });
 
-export async function indexarLegislacao(): Promise<
-  ResultType<
-    {
-      caminho: string;
-      atualizadoEm: string;
-      normasIndexadas: string[];
-    },
-    LegislacaoError
-  >
+export const legislacaoIndexAdapter = {
+  name: "legislacao",
+  build: buildLegislacaoIndex,
+};
+
+async function buildLegislacaoIndex(): Promise<
+  ResultType<DocumentoIndexado[], LegislacaoError>
 > {
   const documentos: DocumentoIndexado[] = [];
 
@@ -46,21 +44,7 @@ export async function indexarLegislacao(): Promise<
     });
   }
 
-  const indice = {
-    versao: 1 as const,
-    criadoEm: new Date().toISOString(),
-    fonte: "planalto" as const,
-    documentos,
-  };
-  const saved = await saveIndex(indice);
-
-  if (Result.isError(saved)) return saved;
-
-  return Result.ok({
-    caminho: saved.value,
-    atualizadoEm: indice.criadoEm,
-    normasIndexadas: documentos.map((documento) => documento.norma.id),
-  });
+  return Result.ok(documentos);
 }
 
 async function fetchNorma(
