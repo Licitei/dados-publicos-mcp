@@ -10,7 +10,7 @@ fornecedores e orgaos.
 
 O servidor trabalha em tres camadas:
 
-1. **Legislacao oficial**, baixada do Planalto e indexada localmente em JSON.
+1. **Legislacao oficial**, baixada do Planalto e indexada localmente.
    Depois da indexacao, a consulta de normas, trechos e artigos roda offline.
 2. **Dados transacionais online**, consultados em tempo real no PNCP e em
    provedores publicos de CNPJ (BrasilAPI/MinhaReceita): licitacoes, contratos,
@@ -30,7 +30,7 @@ Agentes que trabalham com licitacoes precisam citar a base legal com rapidez e
 previsibilidade. Busca aberta na web e scraping em tempo de resposta sao lentos,
 ruidosos e pouco auditaveis.
 
-Este MCP faz o caminho oposto:
+Este servidor reune:
 
 - fontes oficiais (Planalto, PNCP, Receita Federal, CGU, IBGE, Tesouro, TSE,
   Camara, Querido Diario);
@@ -64,10 +64,10 @@ Este servidor cobre tres camadas:
   reconstruidos na maquina do usuario para busca por nome, cruzamento de socios
   e FTS.
 
-A indexacao e sempre client-side (na maquina de quem roda o MCP): nao ha banco
+A indexacao roda client-side (na maquina de quem roda o MCP). Nao ha banco
 proprio compartilhado, matching proprietario, scoring de fornecedores, analise
 de viabilidade nem geracao de propostas. As tools entregam dado bruto
-estruturado para o agente raciocinar — a decisao continua sendo humana.
+estruturado para o agente raciocinar, e a decisao continua humana.
 
 ## Ferramentas MCP
 
@@ -110,7 +110,7 @@ registry central de indices. Reconstrua qualquer uma com `index <fonte>`.
 
 | Fonte (`key`) | Storage | Download pesado | Conteudo |
 | --- | --- | --- | --- |
-| `legislacao` | json | nao | Normas oficiais do Planalto (catalogo). |
+| `legislacao` | sqlite | nao | Normas oficiais do Planalto (catalogo, FTS5). |
 | `ibge-localidades` | json | nao | UFs e municipios do IBGE (codigos e nomes). |
 | `cnae` | memory | nao | Tabela CNAE 2.0 (secoes a subclasses). |
 | `sancoes-cgu` | sqlite | nao | Sancoes (CEIS, CNEP, etc.) da CGU. |
@@ -150,7 +150,7 @@ das tabelas abaixo por brevidade).
 | --- | --- | --- |
 | `verificar_sancoes` | `sancoes-cgu` | CNPJ/CPF -> sancoes vigentes e historicas cruzando CEIS, CNEP, CEPIM, CEAF e Acordos de Leniencia. |
 | `buscar_sancionado_por_nome` | `sancoes-cgu` | Nome/razao social (FTS) -> sancionados nas cinco listas. |
-| `sancoes_vigentes_na_data` | `sancoes-cgu` | Filtra sancoes ativas em um intervalo — due diligence na data do certame. |
+| `sancoes_vigentes_na_data` | `sancoes-cgu` | Filtra sancoes ativas em um intervalo, para due diligence na data do certame. |
 | `consultar_cnpj` | `receita-cnpj` | CNPJ completo -> razao social, situacao cadastral, CNAE, endereco, capital, porte, Simples/MEI (offline, sem rate limit). |
 | `buscar_empresa_por_nome` | `receita-cnpj` | Razao social / nome fantasia (FTS) -> empresas. Impossivel na consulta CNPJ oficial, que exige o numero. |
 | `buscar_socio_por_nome` | `receita-cnpj` | Nome do socio (QSA) -> todas as empresas em que aparece. |
@@ -428,7 +428,7 @@ Por padrao, cada fonte tem seu proprio diretorio sob:
 
 ```text
 ~/.local/share/dados-publicos-mcp/<fonte>/
-  legislacao/index.json
+  legislacao/legislacao.db
   ibge-localidades/index.json
   cnae/index.json
   sancoes-cgu/sancoes-cgu.db
@@ -436,10 +436,11 @@ Por padrao, cada fonte tem seu proprio diretorio sob:
   ...
 ```
 
-Fontes leves usam JSON (auditavel, versionavel, offline). Fontes grandes usam
-SQLite com FTS5 (`bun:sqlite` nativo, sem dependencia externa) para busca por
-nome e cruzamentos em milhoes de registros. Os arquivos `.db` ficam fora do
-controle de versao (`.gitignore`) e do pacote npm — sao gerados localmente.
+Cada fonte escolhe seu storage. Tabelas pequenas ficam em JSON (auditavel,
+versionavel, offline). Fontes que precisam de busca por nome e cruzamentos em
+milhoes de registros usam SQLite com FTS5 (`bun:sqlite` nativo, sem dependencia
+externa). Os arquivos `.db` ficam fora do controle de versao (`.gitignore`) e do
+pacote npm, gerados localmente.
 
 Voce pode mudar o diretorio raiz:
 
@@ -532,8 +533,8 @@ E coloque esse caminho em `command`.
 
 ### O servidor parece travado no terminal
 
-Normal. MCP stdio espera mensagens JSON-RPC pelo `stdin`. Quem deve iniciar o
-processo normalmente e o cliente MCP.
+Normal. MCP stdio espera mensagens JSON-RPC pelo `stdin`. Quem inicia o
+processo e o cliente MCP.
 
 ### A indexacao falhou ao acessar o Planalto
 
