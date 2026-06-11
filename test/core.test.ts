@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 import { deflateRawSync } from "node:zlib";
+import { getDataDir } from "../src/core/dataDir";
 import { normalize, normalizeCnpj, onlyDigits } from "../src/core/normalize";
 import { parseNumeroBr } from "../src/core/parse/numero-br";
 import { parseDataBr } from "../src/core/parse/data-br";
@@ -278,6 +280,110 @@ test("unzipFirst devolve a primeira entrada", () => {
   const zip = buildZip([{ name: "only.txt", content: "ola mundo" }]);
 
   expect(new TextDecoder().decode(unzipFirst(zip))).toBe("ola mundo");
+});
+
+// ---------------------------------------------------------------------------
+// getDataDir (resolucao de diretorio consciente de plataforma)
+// ---------------------------------------------------------------------------
+
+const DATA_ENV_KEYS = [
+  "DADOS_PUBLICOS_MCP_DATA_DIR",
+  "LOCALAPPDATA",
+  "APPDATA",
+  "XDG_DATA_HOME",
+  "HOME",
+] as const;
+
+/** Roda fn com platform/env controlados e restaura tudo no fim. */
+function withDataEnv(
+  platform: string,
+  env: Partial<Record<(typeof DATA_ENV_KEYS)[number], string>>,
+  fn: () => void
+): void {
+  const savedPlatform = process.platform;
+  const savedEnv = Object.fromEntries(
+    DATA_ENV_KEYS.map((key) => [key, process.env[key]])
+  );
+
+  Object.defineProperty(process, "platform", {
+    value: platform,
+    configurable: true,
+  });
+
+  for (const key of DATA_ENV_KEYS) {
+    const value = env[key];
+
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, "platform", {
+      value: savedPlatform,
+      configurable: true,
+    });
+
+    for (const key of DATA_ENV_KEYS) {
+      const value = savedEnv[key];
+
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("getDataDir prioriza DADOS_PUBLICOS_MCP_DATA_DIR sobre tudo", () => {
+  withDataEnv(
+    "win32",
+    {
+      DADOS_PUBLICOS_MCP_DATA_DIR: "/override/explicito",
+      LOCALAPPDATA: "C:\\Users\\ze\\AppData\\Local",
+      HOME: "/home/ze",
+    },
+    () => {
+      expect(getDataDir()).toBe("/override/explicito");
+    }
+  );
+});
+
+test("getDataDir usa LOCALAPPDATA no Windows", () => {
+  withDataEnv(
+    "win32",
+    { LOCALAPPDATA: "C:\\Users\\ze\\AppData\\Local", HOME: "/home/ze" },
+    () => {
+      expect(getDataDir()).toBe(
+        join("C:\\Users\\ze\\AppData\\Local", "dados-publicos-mcp")
+      );
+    }
+  );
+});
+
+test("getDataDir cai em APPDATA quando nao ha LOCALAPPDATA no Windows", () => {
+  withDataEnv(
+    "win32",
+    { APPDATA: "C:\\Users\\ze\\AppData\\Roaming" },
+    () => {
+      expect(getDataDir()).toBe(
+        join("C:\\Users\\ze\\AppData\\Roaming", "dados-publicos-mcp")
+      );
+    }
+  );
+});
+
+test("getDataDir usa XDG_DATA_HOME fora do Windows", () => {
+  withDataEnv("linux", { XDG_DATA_HOME: "/data/xdg", HOME: "/home/ze" }, () => {
+    expect(getDataDir()).toBe(join("/data/xdg", "dados-publicos-mcp"));
+  });
+});
+
+test("getDataDir cai em ~/.local/share via HOME", () => {
+  withDataEnv("linux", { HOME: "/home/ze" }, () => {
+    expect(getDataDir()).toBe(
+      join("/home/ze", ".local", "share", "dados-publicos-mcp")
+    );
+  });
 });
 
 test("unzipEntries roundtrip com payload grande comprimivel", () => {

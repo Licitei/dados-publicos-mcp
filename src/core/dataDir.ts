@@ -1,23 +1,44 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { panic } from "better-result";
 
+const APP_DIR = "dados-publicos-mcp";
+
 /**
- * Diretorio base de dados do MCP.
- * Usa DADOS_PUBLICOS_MCP_DATA_DIR quando definido; caso contrario,
- * ~/.local/share/dados-publicos-mcp. Lanca erro claro se HOME ausente.
+ * Diretorio base de dados do MCP, consciente de plataforma.
+ *
+ * Ordem de resolucao:
+ * 1. DADOS_PUBLICOS_MCP_DATA_DIR (override explicito);
+ * 2. Windows: %LOCALAPPDATA% ou %APPDATA%;
+ * 3. XDG_DATA_HOME (Linux/Unix);
+ * 4. ~/.local/share (HOME ou os.homedir(), que cobre USERPROFILE no Windows).
+ *
+ * So da panic se nenhuma das fontes acima resolver um diretorio base.
  */
 export function getDataDir(): string {
   const configured = process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
 
   if (configured) return configured;
 
-  const home = process.env.HOME;
+  if (process.platform === "win32") {
+    const winBase = process.env.LOCALAPPDATA ?? process.env.APPDATA;
 
-  if (!home) {
-    panic("HOME nao definido; configure DADOS_PUBLICOS_MCP_DATA_DIR");
+    if (winBase) return join(winBase, APP_DIR);
   }
 
-  return join(home, ".local", "share", "dados-publicos-mcp");
+  const xdg = process.env.XDG_DATA_HOME;
+
+  if (xdg) return join(xdg, APP_DIR);
+
+  const home = process.env.HOME ?? homedir();
+
+  if (!home) {
+    panic(
+      "Sem HOME/USERPROFILE; configure DADOS_PUBLICOS_MCP_DATA_DIR"
+    );
+  }
+
+  return join(home, ".local", "share", APP_DIR);
 }
 
 /** Diretorio de um dominio: getDataDir()/<dominio>. */

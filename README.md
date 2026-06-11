@@ -367,6 +367,25 @@ No `config.json` ou `config.yaml` do Continue:
 }
 ```
 
+### Windows
+
+No Windows, use o caminho do projeto com barras invertidas (ou `bun` no `PATH`):
+
+```json
+{
+  "mcpServers": {
+    "dados-publicos-mcp": {
+      "command": "bun",
+      "args": ["C:\\caminho\\para\\dados-publicos-mcp\\src\\index.ts"]
+    }
+  }
+}
+```
+
+O diretorio de indices e resolvido para `%LOCALAPPDATA%\dados-publicos-mcp\`
+automaticamente. Para fixar outro local, defina `DADOS_PUBLICOS_MCP_DATA_DIR`
+em `env`.
+
 ## Como testar no cliente
 
 Depois de conectar o MCP no cliente, pergunte:
@@ -424,7 +443,12 @@ Qual a nota CAPAG do municipio de Campinas/SP?
 
 ## Indice local
 
-Por padrao, cada fonte tem seu proprio diretorio sob:
+O diretorio base depende da plataforma:
+
+- Linux/macOS: `$XDG_DATA_HOME` ou `~/.local/share/dados-publicos-mcp/`;
+- Windows: `%LOCALAPPDATA%\dados-publicos-mcp\` (ou `%APPDATA%`).
+
+Cada fonte tem seu proprio subdiretorio (exemplo no Linux):
 
 ```text
 ~/.local/share/dados-publicos-mcp/<fonte>/
