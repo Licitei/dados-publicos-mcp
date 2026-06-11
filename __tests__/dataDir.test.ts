@@ -171,7 +171,7 @@ describe("dominioDir / dominioPath composicao", () => {
     process.env.DADOS_PUBLICOS_MCP_DATA_DIR = base;
 
     expect(dominioPath("legislacao", "leis.db")).toBe(
-      join(base, "legislacao", "leis.db")
+      join(base, "legislacao", "leis.db"),
     );
   });
 

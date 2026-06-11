@@ -88,18 +88,24 @@ export type DominioRow = {
   descricao: string;
 };
 
-const csvOpts = { delimiter: RFB_DELIMITER, hasHeader: false, encoding: RFB_ENCODING };
+const csvOpts = {
+  delimiter: RFB_DELIMITER,
+  hasHeader: false,
+  encoding: RFB_ENCODING,
+};
 
 /** Decodifica os bytes do CSV (Latin-1) em matriz de linhas/celulas. */
 function rows(bytes: Uint8Array | ArrayBuffer | string): string[][] {
-  return parseCsv(bytes, csvOpts).filter((r) => r.length > 1 || (r[0] ?? "").trim() !== "");
+  return parseCsv(bytes, csvOpts).filter(
+    (r) => r.length > 1 || (r[0] ?? "").trim() !== "",
+  );
 }
 
 /** Monta o CNPJ completo de 14 digitos a partir de basico+ordem+dv. */
 export function montarCnpjCompleto(
   basico: string,
   ordem: string,
-  dv: string
+  dv: string,
 ): string {
   return (
     onlyDigits(basico).padStart(8, "0") +
@@ -127,7 +133,7 @@ function cell(row: string[], idx: number): string {
 }
 
 export function parseEmpresas(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): EmpresaRow[] {
   const c = EMPRESAS_COLUNAS;
   return rows(bytes).map((r) => ({
@@ -138,12 +144,15 @@ export function parseEmpresas(
     qualificacao_responsavel: cell(r, c.indexOf("qualificacao_responsavel")),
     capital_social: parseNumeroBr(cell(r, c.indexOf("capital_social"))),
     porte_empresa: cell(r, c.indexOf("porte_empresa")),
-    ente_federativo_responsavel: cell(r, c.indexOf("ente_federativo_responsavel")),
+    ente_federativo_responsavel: cell(
+      r,
+      c.indexOf("ente_federativo_responsavel"),
+    ),
   }));
 }
 
 export function parseEstabelecimentos(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): EstabelecimentoRow[] {
   const c = ESTABELECIMENTOS_COLUNAS;
   return rows(bytes).map((r) => {
@@ -156,15 +165,25 @@ export function parseEstabelecimentos(
       cnpj_ordem: ordem,
       cnpj_dv: dv,
       cnpj_completo: montarCnpjCompleto(basico, ordem, dv),
-      identificador_matriz_filial: cell(r, c.indexOf("identificador_matriz_filial")),
+      identificador_matriz_filial: cell(
+        r,
+        c.indexOf("identificador_matriz_filial"),
+      ),
       nome_fantasia: nomeFantasia,
       nome_fantasia_norm: normalize(nomeFantasia),
       situacao_cadastral: cell(r, c.indexOf("situacao_cadastral")),
-      data_situacao_cadastral: parseDataBr(cell(r, c.indexOf("data_situacao_cadastral"))),
-      motivo_situacao_cadastral: cell(r, c.indexOf("motivo_situacao_cadastral")),
+      data_situacao_cadastral: parseDataBr(
+        cell(r, c.indexOf("data_situacao_cadastral")),
+      ),
+      motivo_situacao_cadastral: cell(
+        r,
+        c.indexOf("motivo_situacao_cadastral"),
+      ),
       nome_cidade_exterior: cell(r, c.indexOf("nome_cidade_exterior")),
       pais: cell(r, c.indexOf("pais")),
-      data_inicio_atividade: parseDataBr(cell(r, c.indexOf("data_inicio_atividade"))),
+      data_inicio_atividade: parseDataBr(
+        cell(r, c.indexOf("data_inicio_atividade")),
+      ),
       cnae_fiscal_principal: cell(r, c.indexOf("cnae_fiscal_principal")),
       cnae_fiscal_secundaria: cell(r, c.indexOf("cnae_fiscal_secundaria")),
       logradouro: cell(r, c.indexOf("logradouro")),
@@ -182,7 +201,7 @@ export function parseEstabelecimentos(
 }
 
 export function parseSocios(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): SocioRow[] {
   const c = SOCIOS_COLUNAS;
   return rows(bytes).map((r) => {
@@ -196,25 +215,32 @@ export function parseSocios(
       cnpj_cpf_socio: cpfCnpj,
       cpf_visivel: cpfVisivel(cpfCnpj),
       qualificacao_socio: cell(r, c.indexOf("qualificacao_socio")),
-      data_entrada_sociedade: parseDataBr(cell(r, c.indexOf("data_entrada_sociedade"))),
+      data_entrada_sociedade: parseDataBr(
+        cell(r, c.indexOf("data_entrada_sociedade")),
+      ),
       pais: cell(r, c.indexOf("pais")),
       representante_legal: cell(r, c.indexOf("representante_legal")),
       nome_representante: cell(r, c.indexOf("nome_representante")),
-      qualificacao_representante_legal: cell(r, c.indexOf("qualificacao_representante_legal")),
+      qualificacao_representante_legal: cell(
+        r,
+        c.indexOf("qualificacao_representante_legal"),
+      ),
       faixa_etaria: cell(r, c.indexOf("faixa_etaria")),
     };
   });
 }
 
 export function parseSimples(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): SimplesRow[] {
   const c = SIMPLES_COLUNAS;
   return rows(bytes).map((r) => ({
     cnpj_basico: cell(r, c.indexOf("cnpj_basico")),
     opcao_simples: cell(r, c.indexOf("opcao_simples")),
     data_opcao_simples: parseDataBr(cell(r, c.indexOf("data_opcao_simples"))),
-    data_exclusao_simples: parseDataBr(cell(r, c.indexOf("data_exclusao_simples"))),
+    data_exclusao_simples: parseDataBr(
+      cell(r, c.indexOf("data_exclusao_simples")),
+    ),
     opcao_mei: cell(r, c.indexOf("opcao_mei")),
     data_opcao_mei: parseDataBr(cell(r, c.indexOf("data_opcao_mei"))),
     data_exclusao_mei: parseDataBr(cell(r, c.indexOf("data_exclusao_mei"))),
@@ -223,7 +249,7 @@ export function parseSimples(
 
 /** Tabelas de dominio: 2 colunas (codigo;descricao). */
 export function parseDominio(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): DominioRow[] {
   return rows(bytes).map((r) => ({
     codigo: cell(r, 0),

@@ -24,7 +24,7 @@ export function parseDataBr(s: string | undefined | null): string | null {
     return buildDate(
       slashed[3],
       slashed[2].padStart(2, "0"),
-      slashed[1].padStart(2, "0")
+      slashed[1].padStart(2, "0"),
     );
   }
 

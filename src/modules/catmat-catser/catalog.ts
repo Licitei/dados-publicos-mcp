@@ -40,7 +40,7 @@ export const ENDPOINTS = {
 export function pageUrl(
   endpoint: string,
   pagina: number,
-  tamanhoPagina: number = PAGE_SIZE
+  tamanhoPagina: number = PAGE_SIZE,
 ): string {
   return `${endpoint}?pagina=${pagina}&tamanhoPagina=${tamanhoPagina}`;
 }

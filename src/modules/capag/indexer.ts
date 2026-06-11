@@ -83,7 +83,7 @@ export const capagIndexAdapter: IndexAdapter = {
 };
 
 async function build(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, AdapterError>> {
   const progress = (msg: string) => opts?.onProgress?.(msg);
   const db = openCapagDb();
@@ -96,14 +96,18 @@ async function build(
 
   const municipiosResources = await discoverResources(
     PACKAGE_SHOW.municipios,
-    "XLSX"
+    "XLSX",
   );
 
   if (Result.isError(municipiosResources)) return municipiosResources;
 
   // 1) Estados: baixa todos os anos para a serie historica (arquivos ~1KB).
   progress("Baixando CAPAG Estados (historico)...");
-  const estadosResult = await indexEstados(db, estadosResources.value, progress);
+  const estadosResult = await indexEstados(
+    db,
+    estadosResources.value,
+    progress,
+  );
 
   if (Result.isError(estadosResult)) return estadosResult;
 
@@ -112,7 +116,7 @@ async function build(
   const municipiosResult = await indexMunicipios(
     db,
     municipiosResources.value,
-    progress
+    progress,
   );
 
   if (Result.isError(municipiosResult)) return municipiosResult;
@@ -177,7 +181,7 @@ async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
 
 function discoverResources(
   url: string,
-  format: string
+  format: string,
 ): Promise<ResultType<CkanResource[], EvlogError>> {
   return Result.gen(async function* () {
     const json = yield* Result.await(fetchJson<CkanPackage>(url));
@@ -188,7 +192,7 @@ function discoverResources(
     }
 
     const resources = pkg.result.resources.filter(
-      (r) => (r.format ?? "").toUpperCase() === format.toUpperCase()
+      (r) => (r.format ?? "").toUpperCase() === format.toUpperCase(),
     );
 
     if (resources.length === 0) {
@@ -204,7 +208,7 @@ function discoverResources(
 async function indexEstados(
   db: Database,
   resources: CkanResource[],
-  progress: (msg: string) => void
+  progress: (msg: string) => void,
 ): Promise<ResultType<number, EvlogError>> {
   // Mantem o resource mais recente (por last_modified) de cada ano.
   const porAno = new Map<number, CkanResource>();
@@ -215,15 +219,16 @@ async function indexEstados(
     if (ano === null) continue;
 
     const atual = porAno.get(ano);
-    const newer =
-      !atual || timeOf(resource) >= timeOf(atual);
+    const newer = !atual || timeOf(resource) >= timeOf(atual);
 
     if (newer) porAno.set(ano, resource);
   }
 
   let inseridos = 0;
 
-  for (const [ano, resource] of [...porAno.entries()].sort((a, b) => a[0] - b[0])) {
+  for (const [ano, resource] of [...porAno.entries()].sort(
+    (a, b) => a[0] - b[0],
+  )) {
     progress(`Estados ${ano}...`);
     const bytes = await download(resource.url);
 
@@ -252,7 +257,7 @@ async function indexEstados(
         r.capag,
         r.qualidadeInfo,
         r.observacao,
-      ]
+      ],
     );
 
     inseridos += rows.length;
@@ -266,7 +271,7 @@ async function indexEstados(
 async function indexMunicipios(
   db: Database,
   resources: CkanResource[],
-  progress: (msg: string) => void
+  progress: (msg: string) => void,
 ): Promise<ResultType<number, EvlogError>> {
   // Posicao mais recente: maior ano + data de posicao no nome / last_modified.
   const latest = [...resources].sort((a, b) => {
@@ -299,7 +304,7 @@ async function indexMunicipios(
   const built = Result.try({
     try: () => {
       const rows = readXlsxSheet(bytes.value, (name) =>
-        name.trim().startsWith(MUNICIPIOS_XLSX.sheetPrefix)
+        name.trim().startsWith(MUNICIPIOS_XLSX.sheetPrefix),
       );
 
       return mapMunicipiosRows(rows);
@@ -334,14 +339,14 @@ async function indexMunicipios(
       r.indicador3,
       r.nota3,
       r.capag,
-    ]
+    ],
   );
 
   batchInsert(
     db,
     `INSERT INTO capag_municipios_fts (cod_ibge, nome, uf) VALUES (?,?,?)`,
     rows,
-    (r) => [r.codIbge, r.nome, r.uf]
+    (r) => [r.codIbge, r.nome, r.uf],
   );
 
   return Result.ok(rows.length);
@@ -364,7 +369,7 @@ function inferAnoBaseMunicipios(name: string): number {
 
 function indexEntes(
   db: Database,
-  progress: (msg: string) => void
+  progress: (msg: string) => void,
 ): Promise<ResultType<number, EvlogError>> {
   return Result.gen(async function* () {
     const all: SiconfiEnte[] = [];
@@ -422,7 +427,7 @@ function dedupAndInsertEntes(db: Database, all: SiconfiEnte[]): number {
       e.populacao ?? null,
       e.cnpj ? String(e.cnpj).replace(/\D/g, "") : null,
       e.exercicio ?? null,
-    ]
+    ],
   );
 
   return rows.length;
@@ -431,13 +436,16 @@ function dedupAndInsertEntes(db: Database, all: SiconfiEnte[]): number {
 // ----------------------- helpers -----------------------
 
 async function download(
-  url: string
+  url: string,
 ): Promise<ResultType<Uint8Array, EvlogError>> {
   const fetched = await fetchWithRetry(url);
 
   if (Result.isError(fetched)) {
     return Result.err(
-      capagErrors.FONTE_DOWNLOAD({ url, internal: { cause: fetched.error.message } })
+      capagErrors.FONTE_DOWNLOAD({
+        url,
+        internal: { cause: fetched.error.message },
+      }),
     );
   }
 

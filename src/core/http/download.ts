@@ -27,13 +27,13 @@ const userAgent =
 export async function fetchWithRetry(
   url: string,
   init?: RequestInit,
-  opts?: RetryOptions
+  opts?: RetryOptions,
 ): Promise<ResultType<Response, HttpError>> {
   const timeoutMs = opts?.timeoutMs ?? defaultTimeoutMs;
   const retries = opts?.retries ?? defaultRetries;
 
   const attempt = async (
-    n: number
+    n: number,
   ): Promise<ResultType<Response, HttpError>> => {
     const attemptResult = await Result.tryPromise({
       try: () =>
@@ -53,7 +53,11 @@ export async function fetchWithRetry(
         const aborted = name === "AbortError" || name === "TimeoutError";
 
         return aborted
-          ? httpErrors.TIMEOUT({ url, timeoutMs, internal: { cause: String(cause) } })
+          ? httpErrors.TIMEOUT({
+              url,
+              timeoutMs,
+              internal: { cause: String(cause) },
+            })
           : httpErrors.REDE({ url, internal: { cause: String(cause) } });
       },
     });
@@ -84,12 +88,12 @@ export async function fetchWithRetry(
 export async function fetchJson<T = unknown>(
   url: string,
   init?: RequestInit,
-  opts?: RetryOptions
+  opts?: RetryOptions,
 ): Promise<ResultType<T, HttpError>> {
   const fetched = await fetchWithRetry(
     url,
     { ...init, headers: withJsonHeaders(init?.headers) },
-    opts
+    opts,
   );
 
   if (Result.isError(fetched)) return Result.err(fetched.error);
@@ -121,7 +125,7 @@ export async function downloadToFile(
   destPath: string,
   opts?: {
     onProgress?: (got: number, total: number) => void;
-  }
+  },
 ): Promise<ResultType<string, HttpError>> {
   const fetched = await fetchWithRetry(url);
 

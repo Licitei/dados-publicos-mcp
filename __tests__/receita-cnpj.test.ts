@@ -131,7 +131,8 @@ describe("mappers (puros, Latin-1)", () => {
   });
 
   test("parseSimples mapeia 7 colunas e datas vazias viram null", () => {
-    const csv = '"00000000";"S";"20070701";"00000000";"N";"00000000";"00000000"';
+    const csv =
+      '"00000000";"S";"20070701";"00000000";"N";"00000000";"00000000"';
     const rows = parseSimples(latin1(csv));
     expect(rows).toHaveLength(1);
     expect(rows[0].opcao_simples).toBe("S");
@@ -163,7 +164,11 @@ describe("extrairPastasMensais (PROPFIND XML)", () => {
         <d:response><d:href>/public.php/webdav/2026-05/</d:href></d:response>
         <d:response><d:href>/public.php/webdav/2025-12/</d:href></d:response>
       </d:multistatus>`;
-    expect(extrairPastasMensais(xml)).toEqual(["2026-05", "2025-12", "2023-05"]);
+    expect(extrairPastasMensais(xml)).toEqual([
+      "2026-05",
+      "2025-12",
+      "2023-05",
+    ]);
   });
 });
 
@@ -180,8 +185,12 @@ function makeDb(): Database {
     { codigo: "4120400", descricao: "Construcao de edificios" },
   ]);
   insertDominio(db, "municipios", [{ codigo: "7107", descricao: "SAO PAULO" }]);
-  insertDominio(db, "naturezas", [{ codigo: "2062", descricao: "Sociedade Empresaria Limitada" }]);
-  insertDominio(db, "qualificacoes", [{ codigo: "49", descricao: "Socio-Administrador" }]);
+  insertDominio(db, "naturezas", [
+    { codigo: "2062", descricao: "Sociedade Empresaria Limitada" },
+  ]);
+  insertDominio(db, "qualificacoes", [
+    { codigo: "49", descricao: "Socio-Administrador" },
+  ]);
   insertDominio(db, "motivos", [{ codigo: "00", descricao: "Sem motivo" }]);
 
   insertEmpresas(db, [
@@ -339,7 +348,9 @@ describe("consultarCnpj", () => {
     expect(ficha.nome_fantasia).toBe("PADARIA CENTRAL");
     expect(ficha.situacao_cadastral).toBe("ativa");
     expect(ficha.cnae_principal_descricao).toBe("Comercio de mercadorias");
-    expect(ficha.natureza_juridica_descricao).toBe("Sociedade Empresaria Limitada");
+    expect(ficha.natureza_juridica_descricao).toBe(
+      "Sociedade Empresaria Limitada",
+    );
     expect(ficha.porte).toBe("empresa de pequeno porte");
     expect(ficha.endereco.municipio).toBe("SAO PAULO");
     expect(ficha.endereco.uf).toBe("SP");
@@ -394,7 +405,9 @@ describe("buscarSocioPorNome (FTS5)", () => {
     const db = makeDb();
     const out = buscarSocioPorNome(db, "joao silva", { cpfVisivel: "456789" });
     expect(out.length).toBe(2);
-    const vazio = buscarSocioPorNome(db, "joao silva", { cpfVisivel: "000000" });
+    const vazio = buscarSocioPorNome(db, "joao silva", {
+      cpfVisivel: "000000",
+    });
     expect(vazio.length).toBe(0);
     db.close();
   });
@@ -407,7 +420,10 @@ describe("sociosEmComum", () => {
     expect(out.length).toBe(1);
     expect(out[0].nome_socio).toBe("JOAO DA SILVA");
     expect(out[0].quantidade_empresas).toBe(2);
-    expect((out[0].cnpjs_basicos as string[]).sort()).toEqual(["00000000", "00000001"]);
+    expect((out[0].cnpjs_basicos as string[]).sort()).toEqual([
+      "00000000",
+      "00000001",
+    ]);
     db.close();
   });
 

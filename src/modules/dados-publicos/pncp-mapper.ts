@@ -208,7 +208,7 @@ export function mapAta(raw: Raw): AtaRow | null {
     raw,
     "numeroControlePNCPAta",
     "numeroControlePncpAta",
-    "numeroControlePNCP"
+    "numeroControlePNCP",
   );
   if (!numeroControlePNCPAta) return null;
 
@@ -245,7 +245,7 @@ export function extractPageData(payload: unknown): {
   if (Array.isArray(payload)) {
     return {
       data: payload.filter(
-        (item): item is Raw => !!item && typeof item === "object"
+        (item): item is Raw => !!item && typeof item === "object",
       ),
       totalRegistros: null,
       totalPaginas: null,
@@ -262,7 +262,7 @@ export function extractPageData(payload: unknown): {
 
   return {
     data: rawData.filter(
-      (item): item is Raw => !!item && typeof item === "object"
+      (item): item is Raw => !!item && typeof item === "object",
     ),
     totalRegistros: num(object.totalRegistros),
     totalPaginas: num(object.totalPaginas),
@@ -278,17 +278,17 @@ export type PncpEntidade = "contratacoes" | "contratos" | "atas";
  */
 export function mapPageRows(
   entidade: "contratacoes",
-  rows: Raw[]
+  rows: Raw[],
 ): ContratacaoRow[];
 export function mapPageRows(entidade: "contratos", rows: Raw[]): ContratoRow[];
 export function mapPageRows(entidade: "atas", rows: Raw[]): AtaRow[];
 export function mapPageRows(
   entidade: PncpEntidade,
-  rows: Raw[]
+  rows: Raw[],
 ): (ContratacaoRow | ContratoRow | AtaRow)[];
 export function mapPageRows(
   entidade: PncpEntidade,
-  rows: Raw[]
+  rows: Raw[],
 ): (ContratacaoRow | ContratoRow | AtaRow)[] {
   const mapper =
     entidade === "contratacoes"

@@ -40,7 +40,13 @@ export const ibgeLocalidadesErrors = defineErrorCatalog("ibge-localidades", {
   },
   CODIGO_NAO_ENCONTRADO: {
     status: 404,
-    message: ({ codigo, normalizado }: { codigo: string; normalizado: string }) =>
+    message: ({
+      codigo,
+      normalizado,
+    }: {
+      codigo: string;
+      normalizado: string;
+    }) =>
       `Codigo IBGE nao encontrado: ${codigo} (normalizado: ${normalizado}). O codigo de municipio tem 7 digitos.`,
     fix: "Use resolver_municipio para descobrir o codigo IBGE de 7 digitos a partir do nome.",
     tags: ["ibge-localidades", "busca"],

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { Result } from "better-result";
 import { findNorma, normas } from "../src/modules/legislacao/catalog";
 import { htmlToParagraphs } from "../src/modules/legislacao/indexer";
-import { buscarLegislacao, obterArtigo } from "../src/modules/legislacao/service";
+import {
+  buscarLegislacao,
+  obterArtigo,
+} from "../src/modules/legislacao/service";
 import {
   abrirLeitura,
   createSchema,
@@ -27,7 +30,7 @@ const documentos = [
 
 beforeAll(async () => {
   process.env.DADOS_PUBLICOS_MCP_DATA_DIR = await mkdtemp(
-    join(tmpdir(), "dados-publicos-mcp-test-")
+    join(tmpdir(), "dados-publicos-mcp-test-"),
   );
 
   const db = abrirLeitura();
@@ -68,7 +71,7 @@ test("obtem artigo quando Art. e numero estao em paragrafos separados", async ()
 
   expect(result.value.encontrado).toBe(true);
   expect(result.value.texto).toBe(
-    "Art.\n67. Texto do artigo sessenta e sete.\nParagrafo complementar."
+    "Art.\n67. Texto do artigo sessenta e sete.\nParagrafo complementar.",
   );
 });
 
@@ -87,7 +90,7 @@ test("busca FTS encontra trecho por palavra normalizada", async () => {
 test("busca sem indice retorna erro declarativo INDICE_AUSENTE", async () => {
   const previo = process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
   process.env.DADOS_PUBLICOS_MCP_DATA_DIR = await mkdtemp(
-    join(tmpdir(), "dados-publicos-mcp-vazio-")
+    join(tmpdir(), "dados-publicos-mcp-vazio-"),
   );
 
   const result = await buscarLegislacao({ termo: "qualquer" });

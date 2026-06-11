@@ -1,7 +1,10 @@
 import { Database } from "bun:sqlite";
 import { Result } from "better-result";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { buildPageUrl, TAMANHO_PAGINA_MAX } from "../src/modules/sicaf-fornecedores/catalog";
+import {
+  buildPageUrl,
+  TAMANHO_PAGINA_MAX,
+} from "../src/modules/sicaf-fornecedores/catalog";
 import {
   createSchema,
   insertFornecedores,
@@ -193,7 +196,9 @@ describe("buscarFornecedor (FTS por nome)", () => {
     const rows = Result.unwrap(res);
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.nomeRazaoSocialFornecedor).toBe("CONSTRUTORA SAO JOAO LTDA");
+    expect(rows[0]!.nomeRazaoSocialFornecedor).toBe(
+      "CONSTRUTORA SAO JOAO LTDA",
+    );
     expect(rows[0]!.cnpj).toBe("00000000000191");
   });
 
@@ -209,7 +214,7 @@ describe("buscarFornecedor (FTS por nome)", () => {
   test("apenasAtivos filtra inativos", () => {
     const todos = Result.unwrap(buscarFornecedor({ nome: "silva" }, db));
     const ativos = Result.unwrap(
-      buscarFornecedor({ nome: "silva", apenasAtivos: true }, db)
+      buscarFornecedor({ nome: "silva", apenasAtivos: true }, db),
     );
 
     expect(todos.length).toBe(1);
@@ -231,15 +236,13 @@ describe("fornecedorHabilitado (por CNPJ)", () => {
   });
 
   test("ativo e habilitado", () => {
-    const res = Result.unwrap(
-      fornecedorHabilitado("00.000.000/0001-91", db)
-    );
+    const res = Result.unwrap(fornecedorHabilitado("00.000.000/0001-91", db));
 
     expect(res.encontrado).toBe(true);
     expect(res.ativo).toBe(true);
     expect(res.habilitadoLicitar).toBe(true);
     expect(res.fornecedor?.nomeRazaoSocialFornecedor).toBe(
-      "CONSTRUTORA SAO JOAO LTDA"
+      "CONSTRUTORA SAO JOAO LTDA",
     );
   });
 
@@ -278,13 +281,13 @@ describe("listarFornecedoresUfCnae (segmentacao)", () => {
 
     expect(rows.length).toBe(1);
     expect(rows[0]!.nomeRazaoSocialFornecedor).toBe(
-      "TECNOLOGIA E SOFTWARE BRASIL S.A."
+      "TECNOLOGIA E SOFTWARE BRASIL S.A.",
     );
   });
 
   test("filtra por municipio (LIKE)", () => {
     const rows = Result.unwrap(
-      listarFornecedoresUfCnae({ municipio: "Campinas" }, db)
+      listarFornecedoresUfCnae({ municipio: "Campinas" }, db),
     );
 
     expect(rows.length).toBe(1);
@@ -293,20 +296,21 @@ describe("listarFornecedoresUfCnae (segmentacao)", () => {
 
   test("combina UF + apenasAtivos", () => {
     const rows = Result.unwrap(
-      listarFornecedoresUfCnae({ uf: "SP", apenasAtivos: true }, db)
+      listarFornecedoresUfCnae({ uf: "SP", apenasAtivos: true }, db),
     );
 
     // dois em SP, mas MARIA SILVA SANTOS esta inativa
     expect(rows.length).toBe(1);
-    expect(rows[0]!.nomeRazaoSocialFornecedor).toBe("CONSTRUTORA SAO JOAO LTDA");
+    expect(rows[0]!.nomeRazaoSocialFornecedor).toBe(
+      "CONSTRUTORA SAO JOAO LTDA",
+    );
   });
 });
 
 describe("adapter", () => {
   test("expoe metadados corretos", async () => {
-    const { sicafFornecedoresIndexAdapter } = await import(
-      "../src/modules/sicaf-fornecedores/indexer"
-    );
+    const { sicafFornecedoresIndexAdapter } =
+      await import("../src/modules/sicaf-fornecedores/indexer");
 
     expect(sicafFornecedoresIndexAdapter.key).toBe("sicaf-fornecedores");
     expect(sicafFornecedoresIndexAdapter.storage).toBe("sqlite");

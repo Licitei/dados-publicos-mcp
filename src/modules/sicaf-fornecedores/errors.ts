@@ -20,26 +20,14 @@ export const sicafErrors = defineErrorCatalog("sicaf-fornecedores", {
   },
   FONTE_DOWNLOAD: {
     status: 502,
-    message: ({
-      pagina,
-      ativo,
-    }: {
-      pagina: number;
-      ativo: boolean;
-    }) =>
+    message: ({ pagina, ativo }: { pagina: number; ativo: boolean }) =>
       `Falha ao baixar pagina ${pagina} (ativo=${ativo}) do SICAF.`,
     why: "A consulta paginada ao Compras.gov.br nao retornou uma resposta valida.",
     tags: ["sicaf-fornecedores", "rede", "retryable"],
   },
   FONTE_INVALIDA: {
     status: 502,
-    message: ({
-      pagina,
-      ativo,
-    }: {
-      pagina: number;
-      ativo: boolean;
-    }) =>
+    message: ({ pagina, ativo }: { pagina: number; ativo: boolean }) =>
       `Resposta inesperada da API SICAF na pagina ${pagina} (ativo=${ativo}).`,
     why: "O envelope retornado pela API nao contem o array `resultado` esperado.",
     tags: ["sicaf-fornecedores", "parse"],

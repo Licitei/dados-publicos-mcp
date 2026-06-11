@@ -1,6 +1,10 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { headerKey, parseEfeitos, parseSancoes } from "../src/modules/sancoes-cgu/parse";
+import {
+  headerKey,
+  parseEfeitos,
+  parseSancoes,
+} from "../src/modules/sancoes-cgu/parse";
 import {
   createSchema,
   insertEfeitos,
@@ -35,10 +39,10 @@ const CEIS_CSV =
 
 test("headerKey normaliza acento, caixa e espacos repetidos", () => {
   expect(headerKey("RAZÃO SOCIAL  CADASTRO RECEITA")).toBe(
-    "razao social cadastro receita"
+    "razao social cadastro receita",
   );
   expect(headerKey("SITUAÇÃO DO ACORDO DE LENIÊNICA")).toBe(
-    "situacao do acordo de lenienica"
+    "situacao do acordo de lenienica",
   );
 });
 
@@ -192,7 +196,7 @@ test("buscarSancionadoPorNome encontra por razao social via FTS (sem acento)", (
 
   expect(r.total).toBeGreaterThan(0);
   expect(
-    r.sancoes.every((s) => (s.razaoSocial ?? "").includes("CONSTRU"))
+    r.sancoes.every((s) => (s.razaoSocial ?? "").includes("CONSTRU")),
   ).toBe(true);
 
   // Tambem casa buscando com acento na entrada do usuario.

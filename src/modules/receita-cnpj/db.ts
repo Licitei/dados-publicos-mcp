@@ -140,7 +140,10 @@ export function insertEmpresas(db: Database, items: EmpresaRow[]): void {
     e.porte_empresa,
     e.ente_federativo_responsavel,
   ]);
-  batchInsert(db, EMPRESAS_FTS_SQL, items, (e) => [e.cnpj_basico, e.razao_social]);
+  batchInsert(db, EMPRESAS_FTS_SQL, items, (e) => [
+    e.cnpj_basico,
+    e.razao_social,
+  ]);
 }
 
 const ESTAB_SQL = `INSERT OR REPLACE INTO estabelecimentos
@@ -155,7 +158,7 @@ const ESTAB_FTS_SQL = `INSERT INTO estabelecimentos_fts (cnpj_completo, nome_fan
 
 export function insertEstabelecimentos(
   db: Database,
-  items: EstabelecimentoRow[]
+  items: EstabelecimentoRow[],
 ): void {
   batchInsert(db, ESTAB_SQL, items, (e) => [
     e.cnpj_completo,
@@ -184,7 +187,10 @@ export function insertEstabelecimentos(
     e.telefone1,
     e.correio_eletronico,
   ]);
-  batchInsert(db, ESTAB_FTS_SQL, items, (e) => [e.cnpj_completo, e.nome_fantasia]);
+  batchInsert(db, ESTAB_FTS_SQL, items, (e) => [
+    e.cnpj_completo,
+    e.nome_fantasia,
+  ]);
 }
 
 const SOCIOS_SQL = `INSERT INTO socios
@@ -237,7 +243,7 @@ const DOMINIO_SQL = `INSERT OR REPLACE INTO dominios (tabela, codigo, descricao)
 export function insertDominio(
   db: Database,
   tabela: DominioTabela,
-  items: DominioRow[]
+  items: DominioRow[],
 ): void {
   batchInsert(db, DOMINIO_SQL, items, (d) => [tabela, d.codigo, d.descricao]);
 }

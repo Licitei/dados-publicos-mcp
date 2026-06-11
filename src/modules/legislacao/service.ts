@@ -5,11 +5,7 @@ import { z } from "zod";
 import { openReadonly } from "../../core/store/sqlite-store";
 import { findNorma, normalize, normas } from "./catalog";
 import { legislacaoErrors } from "./errors";
-import {
-  indiceExiste,
-  recriarIndiceLocal,
-  statusIndiceLocal,
-} from "./store";
+import { indiceExiste, recriarIndiceLocal, statusIndiceLocal } from "./store";
 
 const DOMINIO = "legislacao";
 const DB_FILE = "legislacao.db";
@@ -64,7 +60,7 @@ export async function recriarIndice() {
 }
 
 export async function buscarLegislacao(
-  input: SearchInput
+  input: SearchInput,
 ): Promise<ResultType<Trecho[], EvlogError>> {
   return Result.gen(function* () {
     if (!indiceExiste()) {
@@ -76,7 +72,7 @@ export async function buscarLegislacao(
     const trechos = yield* consultarFts(
       normalize(input.termo),
       normaId,
-      clampLimite(input.limite)
+      clampLimite(input.limite),
     );
 
     return Result.ok(trechos);
@@ -84,14 +80,14 @@ export async function buscarLegislacao(
 }
 
 export async function obterArtigo(
-  input: ArtigoInput
+  input: ArtigoInput,
 ): Promise<ResultType<Artigo, EvlogError>> {
   return Result.gen(function* () {
     const norma = findNorma(input.norma);
 
     if (!norma) {
       return yield* Result.err(
-        legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma: input.norma })
+        legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma: input.norma }),
       );
     }
 
@@ -103,7 +99,7 @@ export async function obterArtigo(
 
     if (paragrafos.length === 0) {
       return yield* Result.err(
-        legislacaoErrors.NORMA_NAO_INDEXADA({ norma: norma.id })
+        legislacaoErrors.NORMA_NAO_INDEXADA({ norma: norma.id }),
       );
     }
 
@@ -119,7 +115,7 @@ export async function obterArtigo(
           encontrado: false,
           texto: null,
           url: norma.url,
-        })
+        }),
       );
     }
 
@@ -139,7 +135,7 @@ export async function obterArtigo(
         encontrado: true,
         texto: trechos.join("\n"),
         url: norma.url,
-      })
+      }),
     );
   });
 }
@@ -159,7 +155,7 @@ type RowBusca = { norma: string; indice: number; trecho: string };
 function consultarFts(
   termoNorm: string,
   normaId: string | null,
-  limite: number
+  limite: number,
 ): ResultType<Trecho[], EvlogError> {
   const fts = toFtsQuery(termoNorm);
 
@@ -243,14 +239,14 @@ function escapeRegExp(value: string): string {
 
 function findArticleStart(paragrafos: string[], artigo: string): number {
   return paragrafos.findIndex((_, index) =>
-    isArticleStart(paragrafos, index, artigo)
+    isArticleStart(paragrafos, index, artigo),
   );
 }
 
 function isArticleStart(
   paragrafos: string[],
   index: number,
-  artigo?: string
+  artigo?: string,
 ): boolean {
   const current = paragrafos[index]?.trim() ?? "";
   const next = paragrafos[index + 1]?.trim() ?? "";

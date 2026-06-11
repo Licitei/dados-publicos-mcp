@@ -4,9 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Result } from "better-result";
 import dayjs from "dayjs";
-import {
-  flattenMunicipiosPayload,
-} from "../src/modules/ibge-localidades/indexer";
+import { flattenMunicipiosPayload } from "../src/modules/ibge-localidades/indexer";
 import {
   flattenMunicipio,
   formatCodigoIbge,
@@ -248,7 +246,7 @@ test("validarUf rejeita sigla inexistente", () => {
 
 async function seedIndex() {
   process.env.DADOS_PUBLICOS_MCP_DATA_DIR = await mkdtemp(
-    join(tmpdir(), "ibge-localidades-test-")
+    join(tmpdir(), "ibge-localidades-test-"),
   );
 
   const payload = flattenMunicipiosPayload([

@@ -186,7 +186,8 @@ const toolDefinitions = {
     handler: searchAtasRp,
   },
   get_ata_rp: {
-    description: "Retorna uma ata de registro de preco e opcionalmente itens/arquivos.",
+    description:
+      "Retorna uma ata de registro de preco e opcionalmente itens/arquivos.",
     schema: ataInputSchema,
     handler: getAtaRp,
   },
@@ -244,15 +245,15 @@ export function registerDadosPublicosTools(server: McpServer) {
       },
       async (args: unknown) =>
         toolContent(
-          await callDadosPublicosTool(name as DadosPublicosToolName, args)
-        )
+          await callDadosPublicosTool(name as DadosPublicosToolName, args),
+        ),
     );
   }
 }
 
 export async function callDadosPublicosTool(
   name: DadosPublicosToolName,
-  args: unknown
+  args: unknown,
 ) {
   const definition = toolDefinitions[name];
   const input = parseToolInput(definition.schema, args);
@@ -264,7 +265,7 @@ export async function callDadosPublicosTool(
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args ?? {});
 
@@ -276,7 +277,7 @@ function parseToolInput<TSchema extends z.ZodType>(
     dadosPublicosErrors.ENTRADA_INVALIDA({
       detalhe: issues.join("; "),
       internal: { issues },
-    })
+    }),
   );
 }
 

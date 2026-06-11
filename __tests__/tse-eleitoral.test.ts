@@ -89,20 +89,20 @@ const DESPESA_CSV =
 describe("catalog", () => {
   test("monta URLs CDN no padrao verificado", () => {
     expect(zipUrl("consulta_cand", 2024)).toBe(
-      "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2024.zip"
+      "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2024.zip",
     );
     expect(zipUrl("bem_candidato", 2022)).toBe(
-      "https://cdn.tse.jus.br/estatistica/sead/odsele/bem_candidato/bem_candidato_2022.zip"
+      "https://cdn.tse.jus.br/estatistica/sead/odsele/bem_candidato/bem_candidato_2022.zip",
     );
     expect(zipUrl("prestacao_contas", 2024)).toBe(
-      "https://cdn.tse.jus.br/estatistica/sead/odsele/prestacao_contas/prestacao_de_contas_eleitorais_candidatos_2024.zip"
+      "https://cdn.tse.jus.br/estatistica/sead/odsele/prestacao_contas/prestacao_de_contas_eleitorais_candidatos_2024.zip",
     );
   });
 
   test("ckanPackageId resolve ids de descoberta", () => {
     expect(ckanPackageId("consulta_cand", 2024)).toBe("candidatos-2024");
     expect(ckanPackageId("prestacao_contas", 2022)).toBe(
-      "prestacao-de-contas-eleitorais-2022"
+      "prestacao-de-contas-eleitorais-2022",
     );
   });
 
@@ -113,18 +113,20 @@ describe("catalog", () => {
   });
 
   test("classifyPrestacao classifica so os *_BRASIL.csv corretos", () => {
+    expect(classifyPrestacao("receitas_candidatos_2024_BRASIL.csv")).toBe(
+      "receitas",
+    );
     expect(
-      classifyPrestacao("receitas_candidatos_2024_BRASIL.csv")
-    ).toBe("receitas");
-    expect(
-      classifyPrestacao("receitas_candidatos_doador_originario_2024_BRASIL.csv")
+      classifyPrestacao(
+        "receitas_candidatos_doador_originario_2024_BRASIL.csv",
+      ),
     ).toBe("receitas_doador_originario");
     expect(
-      classifyPrestacao("despesas_contratadas_candidatos_2024_BRASIL.csv")
+      classifyPrestacao("despesas_contratadas_candidatos_2024_BRASIL.csv"),
     ).toBe("despesas_contratadas");
     // despesas_pagas nao tem CPF/CNPJ de fornecedor -> ignorada
     expect(
-      classifyPrestacao("despesas_pagas_candidatos_2024_BRASIL.csv")
+      classifyPrestacao("despesas_pagas_candidatos_2024_BRASIL.csv"),
     ).toBeNull();
     // arquivos por UF nao sao indexados (evita duplicar)
     expect(classifyPrestacao("receitas_candidatos_2024_SP.csv")).toBeNull();
@@ -274,10 +276,10 @@ describe("loaders + tools de busca", () => {
     const db = buildMemoryDb();
 
     expect(
-      (db.query("SELECT COUNT(*) c FROM candidatos").get() as { c: number }).c
+      (db.query("SELECT COUNT(*) c FROM candidatos").get() as { c: number }).c,
     ).toBe(2);
     expect(
-      (db.query("SELECT COUNT(*) c FROM receitas").get() as { c: number }).c
+      (db.query("SELECT COUNT(*) c FROM receitas").get() as { c: number }).c,
     ).toBe(2);
     db.close();
   });
@@ -344,9 +346,9 @@ describe("loaders + tools de busca", () => {
     const out = dueDiligenceCandidato(db, { cpf: "111.222.333-44" });
 
     expect(out.candidaturas).toHaveLength(1);
-    expect(
-      (out.candidaturas[0] as { nome: string }).nome
-    ).toBe("JOSE DA CONCEICAO");
+    expect((out.candidaturas[0] as { nome: string }).nome).toBe(
+      "JOSE DA CONCEICAO",
+    );
     expect(out.bens).toHaveLength(2);
     expect(out.totalBensDeclarado).toBeCloseTo(535500.5, 2);
     db.close();

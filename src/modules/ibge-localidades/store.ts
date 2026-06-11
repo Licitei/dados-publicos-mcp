@@ -116,7 +116,7 @@ export function flattenMunicipio(raw: MunicipioRaw): MunicipioIndexado {
 
   if (!fallback) {
     panic(
-      `Municipio ${raw.id} (${raw.nome}) sem microrregiao nem regiao-imediata; nao da para derivar UF.`
+      `Municipio ${raw.id} (${raw.nome}) sem microrregiao nem regiao-imediata; nao da para derivar UF.`,
     );
   }
 
@@ -185,7 +185,7 @@ export async function getIndex(): Promise<
 }
 
 export async function saveIndex(
-  indice: IndiceIbgeLocalidades
+  indice: IndiceIbgeLocalidades,
 ): Promise<ResultType<string, StoreError>> {
   return store.save(indice);
 }

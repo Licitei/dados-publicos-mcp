@@ -187,7 +187,7 @@ export function resolveEscopo(scope?: Record<string, unknown>): Escopo {
   const tiposResolvidos =
     Array.isArray(tiposRaw) && tiposRaw.length > 0
       ? tiposRaw.filter((t): t is DatasetTipo =>
-          (TODOS_TIPOS as string[]).includes(String(t))
+          (TODOS_TIPOS as string[]).includes(String(t)),
         )
       : [...TODOS_TIPOS];
 
@@ -212,7 +212,7 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
   requiresHeavyDownload: true,
 
   async build(
-    opts?: BuildOptions
+    opts?: BuildOptions,
   ): Promise<ResultType<BuildSummary, AdapterError>> {
     const escopo = resolveEscopo(opts?.scope);
     const onProgress = opts?.onProgress ?? (() => {});
@@ -237,7 +237,7 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
             tseEleitoralErrors.DOWNLOAD({
               url,
               internal: { cause: downloaded.error.message },
-            })
+            }),
           );
         }
 
@@ -289,11 +289,11 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
     const atualizadoEm = new Date().toISOString();
 
     db.exec(
-      `CREATE TABLE IF NOT EXISTS meta (chave TEXT PRIMARY KEY, valor TEXT)`
+      `CREATE TABLE IF NOT EXISTS meta (chave TEXT PRIMARY KEY, valor TEXT)`,
     );
     db.query(
       `INSERT INTO meta(chave,valor) VALUES('atualizadoEm',?)
-       ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor`
+       ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor`,
     ).run(atualizadoEm);
 
     return Result.ok({
@@ -301,7 +301,11 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
       registros,
       atualizadoEm,
       caminho: dbPath(),
-      detalhes: { ...detalhes, anos: escopo.anos.join(","), licenca: "CC-BY (TSE)" },
+      detalhes: {
+        ...detalhes,
+        anos: escopo.anos.join(","),
+        licenca: "CC-BY (TSE)",
+      },
     });
   },
 
@@ -350,7 +354,10 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
 
     const dados = Result.isOk(lido)
       ? lido.value
-      : { registros: null as number | null, atualizadoEm: null as string | null };
+      : {
+          registros: null as number | null,
+          atualizadoEm: null as string | null,
+        };
 
     return Result.ok({
       key: KEY,

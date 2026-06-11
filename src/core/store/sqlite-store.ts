@@ -15,7 +15,10 @@ const defaultFile = "index.sqlite";
 const cache = new Map<string, Database>();
 
 /** Abre o banco UMA vez por (caminho, modo) e reusa o handle no processo. */
-export function getDb(absPath: string, opts?: { readonly?: boolean }): Database {
+export function getDb(
+  absPath: string,
+  opts?: { readonly?: boolean },
+): Database {
   const readonly = opts?.readonly === true;
   const key = `${absPath}::${readonly ? "ro" : "rw"}`;
   const cached = cache.get(key);
@@ -26,7 +29,7 @@ export function getDb(absPath: string, opts?: { readonly?: boolean }): Database 
 
   const db = new Database(
     absPath,
-    readonly ? { readonly: true } : { create: true }
+    readonly ? { readonly: true } : { create: true },
   );
 
   if (!readonly) {
@@ -71,7 +74,7 @@ export function batchInsert<T>(
   sql: string,
   rows: T[],
   bind: (row: T) => unknown[],
-  batch = 1_000
+  batch = 1_000,
 ): void {
   if (rows.length === 0) return;
 
@@ -89,9 +92,9 @@ export function batchInsert<T>(
 
 /** Conta linhas de uma tabela. */
 export function countRows(db: Database, table: string): number {
-  const row = db
-    .query(`SELECT COUNT(*) AS total FROM "${table}"`)
-    .get() as { total: number } | null;
+  const row = db.query(`SELECT COUNT(*) AS total FROM "${table}"`).get() as {
+    total: number;
+  } | null;
 
   return row?.total ?? 0;
 }

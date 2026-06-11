@@ -32,7 +32,7 @@ export function unzipEntries(zip: Uint8Array | ArrayBuffer): ZipEntry[] {
   for (let i = 0; i < totalEntries; i++) {
     if (view.getUint32(offset, true) !== CDFH_SIGNATURE) {
       panic(
-        "ZIP invalido: assinatura de Central Directory File Header incorreta."
+        "ZIP invalido: assinatura de Central Directory File Header incorreta.",
       );
     }
 
@@ -55,7 +55,7 @@ export function unzipEntries(zip: Uint8Array | ArrayBuffer): ZipEntry[] {
           localHeaderOffset,
           compressionMethod,
           compressedSize,
-          uncompressedSize
+          uncompressedSize,
         ),
     });
 
@@ -82,7 +82,7 @@ function readLocalEntry(
   localHeaderOffset: number,
   compressionMethod: number,
   compressedSize: number,
-  uncompressedSize: number
+  uncompressedSize: number,
 ): Uint8Array {
   if (view.getUint32(localHeaderOffset, true) !== LFH_SIGNATURE) {
     panic("ZIP invalido: assinatura de Local File Header incorreta.");
@@ -102,7 +102,7 @@ function readLocalEntry(
   }
 
   return panic(
-    `ZIP nao suportado: metodo de compressao ${compressionMethod} (tamanho ${uncompressedSize}).`
+    `ZIP nao suportado: metodo de compressao ${compressionMethod} (tamanho ${uncompressedSize}).`,
   );
 }
 

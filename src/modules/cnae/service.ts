@@ -45,7 +45,7 @@ function hierarquia(sub: CnaeSubclasse): CnaeHierarquia {
  */
 export function resolverSubclasse(
   index: CnaeMemoryIndex,
-  codigo: string
+  codigo: string,
 ): {
   encontrado: boolean;
   codigoConsultado: string;
@@ -83,7 +83,7 @@ export type CnaeBuscaItem = {
 export function buscarSubclasses(
   index: CnaeMemoryIndex,
   termo: string,
-  limite = 10
+  limite = 10,
 ): CnaeBuscaItem[] {
   const tokens = tokenize(termo);
 
@@ -164,7 +164,7 @@ export function detectarNivel(codigo: string): {
 function subclasseEstaSob(
   sub: CnaeSubclasse,
   nivel: CnaeNivel,
-  valor: string
+  valor: string,
 ): boolean {
   switch (nivel) {
     case "secao":
@@ -186,7 +186,7 @@ function subclasseEstaSob(
  */
 export function listarSubclassesPorNivel(
   index: CnaeMemoryIndex,
-  codigo: string
+  codigo: string,
 ):
   | {
       ok: true;
@@ -229,7 +229,7 @@ async function requireIndex(): Promise<
 
     if (!loaded) {
       return yield* Result.err(
-        cnaeErrors.INDICE_AUSENTE({ path: getIndexPath() })
+        cnaeErrors.INDICE_AUSENTE({ path: getIndexPath() }),
       );
     }
 
@@ -238,29 +238,29 @@ async function requireIndex(): Promise<
 }
 
 export async function resolverCnae(
-  codigo: string
+  codigo: string,
 ): Promise<ResultType<ReturnType<typeof resolverSubclasse>, CnaeServiceError>> {
   return (await requireIndex()).map((index) =>
-    resolverSubclasse(index, codigo)
+    resolverSubclasse(index, codigo),
   );
 }
 
 export async function buscarCnae(
   termo: string,
-  limite?: number
+  limite?: number,
 ): Promise<ResultType<CnaeBuscaItem[], CnaeServiceError>> {
   return (await requireIndex()).map((index) =>
-    buscarSubclasses(index, termo, limite)
+    buscarSubclasses(index, termo, limite),
   );
 }
 
 export async function listarCnaesPorNivel(
-  codigo: string
+  codigo: string,
 ): Promise<
   ResultType<ReturnType<typeof listarSubclassesPorNivel>, CnaeServiceError>
 > {
   return (await requireIndex()).map((index) =>
-    listarSubclassesPorNivel(index, codigo)
+    listarSubclassesPorNivel(index, codigo),
   );
 }
 

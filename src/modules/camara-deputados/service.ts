@@ -35,7 +35,7 @@ export type FornecedorCotaInput = {
  */
 export function fornecedorCotaParlamentarDb(
   db: Database,
-  input: FornecedorCotaInput
+  input: FornecedorCotaInput,
 ) {
   const alvo = onlyDigits(input.cnpjCpf);
   const limite = Math.min(Math.max(input.limite ?? 50, 1), 500);
@@ -54,7 +54,7 @@ export function fornecedorCotaParlamentarDb(
       `SELECT COUNT(*) AS docs,
               SUM(vlr_liquido) AS total_liquido,
               MAX(txt_fornecedor) AS fornecedor
-       FROM despesas WHERE ${where}`
+       FROM despesas WHERE ${where}`,
     )
     .get(...params) as {
     docs: number;
@@ -73,7 +73,7 @@ export function fornecedorCotaParlamentarDb(
        FROM despesas WHERE ${where}
        GROUP BY nu_deputado_id
        ORDER BY totalLiquido DESC
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(...params, limite) as Array<Record<string, unknown>>;
 
@@ -103,7 +103,7 @@ export type GastosPorFornecedorInput = {
  */
 export function gastosPorFornecedorDb(
   db: Database,
-  input: GastosPorFornecedorInput
+  input: GastosPorFornecedorInput,
 ) {
   const limite = Math.min(Math.max(input.limite ?? 50, 1), 500);
   const filtros: string[] = [];
@@ -128,8 +128,7 @@ export function gastosPorFornecedorDb(
 
   if (input.fornecedor) {
     // Usa FTS para casar o nome do fornecedor.
-    from =
-      "FROM despesas_fts f JOIN despesas d ON d.id = f.rowid";
+    from = "FROM despesas_fts f JOIN despesas d ON d.id = f.rowid";
     filtros.unshift("f.txt_fornecedor MATCH ?");
     params.unshift(ftsPhrase(input.fornecedor));
   }
@@ -145,7 +144,7 @@ export function gastosPorFornecedorDb(
        ${from} ${where}
        GROUP BY d.cnpj_cpf_norm
        ORDER BY totalLiquido DESC
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(...params, limite) as Array<Record<string, unknown>>;
 
@@ -193,7 +192,7 @@ export function buscarDeputadoDb(db: Database, input: BuscarDeputadoInput) {
               id_legislatura_final AS idLegislaturaFinal
        FROM deputados ${where}
        ORDER BY nome
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(...params, limite) as Array<Record<string, unknown>>;
 
@@ -239,7 +238,7 @@ export function buscarProposicaoDb(db: Database, input: BuscarProposicaoInput) {
        FROM proposicoes_fts f JOIN proposicoes p ON p.id = f.rowid
        WHERE ${where}
        ORDER BY p.ano DESC, p.numero DESC
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(...params, limite) as Array<Record<string, unknown>>;
 
@@ -247,7 +246,7 @@ export function buscarProposicaoDb(db: Database, input: BuscarProposicaoInput) {
     const stmt = db.query(
       `SELECT id_deputado_autor AS idDeputadoAutor, nome_autor AS nomeAutor,
               proponente
-       FROM proposicoes_autores WHERE id_proposicao = ?`
+       FROM proposicoes_autores WHERE id_proposicao = ?`,
     );
 
     for (const linha of linhas) {

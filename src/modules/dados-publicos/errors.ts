@@ -56,7 +56,8 @@ export const dadosPublicosErrors = defineErrorCatalog("dados-publicos", {
   },
   IDENTIFICADOR_AUSENTE: {
     status: 400,
-    message: "Informe numeroControlePNCP ou o trio orgaoCnpj, ano e sequencial.",
+    message:
+      "Informe numeroControlePNCP ou o trio orgaoCnpj, ano e sequencial.",
     tags: ["dados-publicos", "validation"],
   },
   DATA_INVALIDA: {

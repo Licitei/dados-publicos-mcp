@@ -10,16 +10,8 @@
 
 import type { Database } from "bun:sqlite";
 import { batchInsert } from "../../core/store/sqlite-store";
-import {
-  FTS_TABELAS,
-  META_TABELA,
-  TABELAS,
-} from "./pncp-catalog";
-import type {
-  AtaRow,
-  ContratacaoRow,
-  ContratoRow,
-} from "./pncp-mapper";
+import { FTS_TABELAS, META_TABELA, TABELAS } from "./pncp-catalog";
+import type { AtaRow, ContratacaoRow, ContratoRow } from "./pncp-mapper";
 
 /**
  * Cria (IF NOT EXISTS) tabelas, indices e tabelas FTS5 com triggers de sync.
@@ -361,7 +353,7 @@ export function insertAtas(db: Database, rows: AtaRow[]): void {
 export function setMeta(db: Database, chave: string, valor: string): void {
   db.prepare(
     `INSERT INTO "${META_TABELA}" (chave, valor) VALUES (?, ?)
-     ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor`
+     ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor`,
   ).run(chave, valor);
 }
 

@@ -306,7 +306,7 @@ export type ReceitaOrigRow = {
 };
 
 export function mapReceitaOriginario(
-  row: Record<string, string>
+  row: Record<string, string>,
 ): ReceitaOrigRow {
   return {
     sq_receita: clean(pick(row, "SQ_RECEITA")),
@@ -314,7 +314,9 @@ export function mapReceitaOriginario(
     cpf_cnpj_orig: digits(row, "NR_CPF_CNPJ_DOADOR_ORIGINARIO"),
     nome_orig: clean(pick(row, "NM_DOADOR_ORIGINARIO")),
     nome_orig_rfb: clean(pick(row, "NM_DOADOR_ORIGINARIO_RFB")),
-    tp_orig: clean(pick(row, "TP_DOADOR_ORIGINARIO", "DS_TP_DOADOR_ORIGINARIO")),
+    tp_orig: clean(
+      pick(row, "TP_DOADOR_ORIGINARIO", "DS_TP_DOADOR_ORIGINARIO"),
+    ),
     cd_cnae_orig: clean(pick(row, "CD_CNAE_DOADOR_ORIGINARIO")),
     vr_receita: num(row, "VR_RECEITA"),
     dt_receita: data(row, "DT_RECEITA"),
@@ -338,9 +340,7 @@ export type DespesaRow = {
   nr_documento: string;
 };
 
-export function mapDespesaContratada(
-  row: Record<string, string>
-): DespesaRow {
+export function mapDespesaContratada(row: Record<string, string>): DespesaRow {
   return {
     sq_despesa: clean(pick(row, "SQ_DESPESA")),
     sq_candidato: clean(pick(row, "SQ_CANDIDATO")),
@@ -369,9 +369,20 @@ export const INSERT_CANDIDATO = `INSERT INTO candidatos
 
 export function bindCandidato(r: CandidatoRow): unknown[] {
   return [
-    r.sq_candidato, r.cpf, r.nome, r.nome_urna, r.ano_eleicao, r.sg_uf,
-    r.sg_ue, r.cd_cargo, r.ds_cargo, r.nr_partido, r.sg_partido,
-    r.ds_sit_tot_turno, r.dt_nascimento, r.ds_ocupacao,
+    r.sq_candidato,
+    r.cpf,
+    r.nome,
+    r.nome_urna,
+    r.ano_eleicao,
+    r.sg_uf,
+    r.sg_ue,
+    r.cd_cargo,
+    r.ds_cargo,
+    r.nr_partido,
+    r.sg_partido,
+    r.ds_sit_tot_turno,
+    r.dt_nascimento,
+    r.ds_ocupacao,
   ];
 }
 
@@ -381,8 +392,14 @@ export const INSERT_BEM = `INSERT INTO bens
 
 export function bindBem(r: BemRow): unknown[] {
   return [
-    r.sq_candidato, r.ano_eleicao, r.sg_uf, r.nr_ordem, r.cd_tipo_bem,
-    r.ds_tipo_bem, r.ds_bem, r.vr_bem,
+    r.sq_candidato,
+    r.ano_eleicao,
+    r.sg_uf,
+    r.nr_ordem,
+    r.cd_tipo_bem,
+    r.ds_tipo_bem,
+    r.ds_bem,
+    r.vr_bem,
   ];
 }
 
@@ -392,10 +409,21 @@ export const INSERT_RECEITA = `INSERT INTO receitas
 
 export function bindReceita(r: ReceitaRow): unknown[] {
   return [
-    r.sq_receita, r.sq_candidato, r.cpf_candidato, r.ano_eleicao,
-    r.cpf_cnpj_doador, r.nome_doador, r.nome_doador_rfb, r.cd_cnae_doador,
-    r.ds_cnae_doador, r.sg_uf_doador, r.vr_receita, r.dt_receita, r.ds_origem,
-    r.ds_natureza, r.nr_recibo,
+    r.sq_receita,
+    r.sq_candidato,
+    r.cpf_candidato,
+    r.ano_eleicao,
+    r.cpf_cnpj_doador,
+    r.nome_doador,
+    r.nome_doador_rfb,
+    r.cd_cnae_doador,
+    r.ds_cnae_doador,
+    r.sg_uf_doador,
+    r.vr_receita,
+    r.dt_receita,
+    r.ds_origem,
+    r.ds_natureza,
+    r.nr_recibo,
   ];
 }
 
@@ -405,8 +433,15 @@ export const INSERT_RECEITA_ORIG = `INSERT INTO receitas_doador_originario
 
 export function bindReceitaOrig(r: ReceitaOrigRow): unknown[] {
   return [
-    r.sq_receita, r.ano_eleicao, r.cpf_cnpj_orig, r.nome_orig, r.nome_orig_rfb,
-    r.tp_orig, r.cd_cnae_orig, r.vr_receita, r.dt_receita,
+    r.sq_receita,
+    r.ano_eleicao,
+    r.cpf_cnpj_orig,
+    r.nome_orig,
+    r.nome_orig_rfb,
+    r.tp_orig,
+    r.cd_cnae_orig,
+    r.vr_receita,
+    r.dt_receita,
   ];
 }
 
@@ -416,9 +451,19 @@ export const INSERT_DESPESA = `INSERT INTO despesas_contratadas
 
 export function bindDespesa(r: DespesaRow): unknown[] {
   return [
-    r.sq_despesa, r.sq_candidato, r.cpf_candidato, r.ano_eleicao,
-    r.cpf_cnpj_forn, r.nome_forn, r.nome_forn_rfb, r.cd_cnae_forn,
-    r.ds_cnae_forn, r.sg_uf_forn, r.vr_despesa, r.dt_despesa, r.ds_despesa,
+    r.sq_despesa,
+    r.sq_candidato,
+    r.cpf_candidato,
+    r.ano_eleicao,
+    r.cpf_cnpj_forn,
+    r.nome_forn,
+    r.nome_forn_rfb,
+    r.cd_cnae_forn,
+    r.ds_cnae_forn,
+    r.sg_uf_forn,
+    r.vr_despesa,
+    r.dt_despesa,
+    r.ds_despesa,
     r.nr_documento,
   ];
 }

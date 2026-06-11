@@ -40,7 +40,7 @@ export function registerCnaeTools(server: McpServer): void {
         "Resolve um codigo de subclasse CNAE (7 digitos, com ou sem mascara de pontuacao, ex 4929-9/02 ou 4929902) para a descricao oficial e a hierarquia completa (classe > grupo > divisao > secao).",
       inputSchema: resolverCnaeInputSchema,
     },
-    async (args) => toolContent(await callCnaeTool("resolver_cnae", args))
+    async (args) => toolContent(await callCnaeTool("resolver_cnae", args)),
   );
 
   server.registerTool(
@@ -50,7 +50,7 @@ export function registerCnaeTools(server: McpServer): void {
         "Busca subclasses CNAE por palavra-chave na descricao e nas atividades economicas (indice invertido em memoria sobre texto normalizado, sem acento).",
       inputSchema: buscarCnaeInputSchema,
     },
-    async (args) => toolContent(await callCnaeTool("buscar_cnae", args))
+    async (args) => toolContent(await callCnaeTool("buscar_cnae", args)),
   );
 
   server.registerTool(
@@ -61,7 +61,7 @@ export function registerCnaeTools(server: McpServer): void {
       inputSchema: listarPorNivelInputSchema,
     },
     async (args) =>
-      toolContent(await callCnaeTool("listar_cnaes_por_nivel", args))
+      toolContent(await callCnaeTool("listar_cnaes_por_nivel", args)),
   );
 
   server.registerTool(
@@ -71,7 +71,7 @@ export function registerCnaeTools(server: McpServer): void {
         "Mostra o status e o caminho do indice local CNAE (existencia, data, total de subclasses).",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callCnaeTool("status_cnae", args))
+    async (args) => toolContent(await callCnaeTool("status_cnae", args)),
   );
 
   server.registerTool(
@@ -81,7 +81,7 @@ export function registerCnaeTools(server: McpServer): void {
         "Baixa a tabela CNAE 2.0 do IBGE (~3,6 MB, 1332 subclasses) e recria o indice local neste computador.",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callCnaeTool("indexar_cnae", args))
+    async (args) => toolContent(await callCnaeTool("indexar_cnae", args)),
   );
 }
 
@@ -100,7 +100,7 @@ export async function callCnaeTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return Result.serialize(
-      await buscarCnae(input.value.termo, input.value.limite)
+      await buscarCnae(input.value.termo, input.value.limite),
     );
   }
 
@@ -125,7 +125,7 @@ export async function callCnaeTool(name: string, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -136,7 +136,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

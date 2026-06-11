@@ -57,7 +57,7 @@ export function registerCatmatCatserTools(server: McpServer) {
         "Busca materiais do CATMAT por nome/descricao (FTS local sobre descricaoItem). A API oficial nao oferece busca textual util; este indice local resolve por nome.",
       inputSchema: buscarInputSchema,
     },
-    async (args) => toolContent(callTool("buscar_material", args))
+    async (args) => toolContent(callTool("buscar_material", args)),
   );
 
   server.registerTool(
@@ -67,7 +67,7 @@ export function registerCatmatCatserTools(server: McpServer) {
         "Busca servicos do CATSER por nome (FTS local sobre nomeServico).",
       inputSchema: buscarInputSchema,
     },
-    async (args) => toolContent(callTool("buscar_servico", args))
+    async (args) => toolContent(callTool("buscar_servico", args)),
   );
 
   server.registerTool(
@@ -77,7 +77,7 @@ export function registerCatmatCatserTools(server: McpServer) {
         "Resolve um codigoItem (CATMAT) ou codigoServico (CATSER) para descricao e hierarquia. Material: Grupo>Classe>PDM>Item. Servico: Secao>Divisao>Grupo>Classe>Subclasse>Servico.",
       inputSchema: resolverInputSchema,
     },
-    async (args) => toolContent(callTool("resolver_catmat_catser", args))
+    async (args) => toolContent(callTool("resolver_catmat_catser", args)),
   );
 
   server.registerTool(
@@ -87,7 +87,7 @@ export function registerCatmatCatserTools(server: McpServer) {
         "Recebe uma descricao livre de item de edital e devolve os CATMAT/CATSER mais provaveis (FTS) para deduplicar e casar com PNCP.",
       inputSchema: normalizarInputSchema,
     },
-    async (args) => toolContent(callTool("normalizar_item_edital", args))
+    async (args) => toolContent(callTool("normalizar_item_edital", args)),
   );
 
   server.registerTool(
@@ -98,7 +98,7 @@ export function registerCatmatCatserTools(server: McpServer) {
       inputSchema: emptyInputSchema,
     },
     async () =>
-      toolContent(Result.serialize(await catmatCatserIndexAdapter.status()))
+      toolContent(Result.serialize(await catmatCatserIndexAdapter.status())),
   );
 
   server.registerTool(
@@ -109,7 +109,7 @@ export function registerCatmatCatserTools(server: McpServer) {
       inputSchema: emptyInputSchema,
     },
     async () =>
-      toolContent(Result.serialize(await catmatCatserIndexAdapter.build()))
+      toolContent(Result.serialize(await catmatCatserIndexAdapter.build())),
   );
 }
 
@@ -121,7 +121,7 @@ function callTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return withDb((db) =>
-      buscarMaterial(db, input.value.termo, input.value.limite)
+      buscarMaterial(db, input.value.termo, input.value.limite),
     );
   }
 
@@ -131,7 +131,7 @@ function callTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return withDb((db) =>
-      buscarServico(db, input.value.termo, input.value.limite)
+      buscarServico(db, input.value.termo, input.value.limite),
     );
   }
 
@@ -141,7 +141,7 @@ function callTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return withDb((db) =>
-      resolverCatmatCatser(db, input.value.codigo, input.value.tipo)
+      resolverCatmatCatser(db, input.value.codigo, input.value.tipo),
     );
   }
 
@@ -151,7 +151,7 @@ function callTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return withDb((db) =>
-      normalizarItemEdital(db, input.value.descricao, input.value.limite)
+      normalizarItemEdital(db, input.value.descricao, input.value.limite),
     );
   }
 
@@ -162,7 +162,7 @@ function callTool(name: string, args: unknown) {
 function withDb<T>(fn: (db: Database) => T) {
   if (!dbExists(DOMINIO, DB_FILE)) {
     return Result.serialize(
-      Result.err(catmatCatserErrors.INDICE_AUSENTE({ path: dbPath() }))
+      Result.err(catmatCatserErrors.INDICE_AUSENTE({ path: dbPath() })),
     );
   }
 
@@ -173,7 +173,7 @@ function withDb<T>(fn: (db: Database) => T) {
 
 function parseInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -184,7 +184,7 @@ function parseInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

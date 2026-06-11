@@ -109,7 +109,7 @@ export function inserirProposicoes(db: Database, rows: ProposicaoRow[]): void {
 
 export function inserirProposicoesAutores(
   db: Database,
-  rows: ProposicaoAutorRow[]
+  rows: ProposicaoAutorRow[],
 ): void {
   batchInsert(db, AUTOR_SQL, rows, (r) => [
     r.idProposicao,
@@ -125,15 +125,15 @@ export function inserirProposicoesAutores(
 export function setMeta(db: Database, chave: string, valor: string): void {
   db.prepare("INSERT OR REPLACE INTO meta(chave, valor) VALUES (?, ?)").run(
     chave,
-    valor
+    valor,
   );
 }
 
 /** Le um valor da tabela meta (ou null). */
 export function getMeta(db: Database, chave: string): string | null {
-  const row = db
-    .query("SELECT valor FROM meta WHERE chave = ?")
-    .get(chave) as { valor: string } | null;
+  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as {
+    valor: string;
+  } | null;
 
   return row?.valor ?? null;
 }

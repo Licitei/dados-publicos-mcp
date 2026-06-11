@@ -69,7 +69,9 @@ export function resolverEscopo(scope?: Record<string, unknown>): Escopo {
   if (Array.isArray(raw.anos)) {
     anos = raw.anos
       .map((a) => Number(a))
-      .filter((a) => Number.isInteger(a) && a >= CEAP_ANO_MIN && a <= CEAP_ANO_MAX);
+      .filter(
+        (a) => Number.isInteger(a) && a >= CEAP_ANO_MIN && a <= CEAP_ANO_MAX,
+      );
   } else if (raw.anoInicial !== undefined || raw.anoFinal !== undefined) {
     const ini = Number(raw.anoInicial ?? raw.anoFinal);
     const fim = Number(raw.anoFinal ?? raw.anoInicial);
@@ -89,13 +91,16 @@ export function resolverEscopo(scope?: Record<string, unknown>): Escopo {
 }
 
 async function baixarBytes(
-  url: string
+  url: string,
 ): Promise<ResultType<Uint8Array, EvlogError>> {
   const fetched = await fetchWithRetry(url, undefined, { timeoutMs: 600_000 });
 
   if (Result.isError(fetched)) {
     return Result.err(
-      camaraErrors.DOWNLOAD({ url, internal: { cause: fetched.error.message } })
+      camaraErrors.DOWNLOAD({
+        url,
+        internal: { cause: fetched.error.message },
+      }),
     );
   }
 
@@ -109,7 +114,7 @@ async function baixarBytes(
 }
 
 async function buildCamaraIndex(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, CamaraIndexError>> {
   const escopo = resolverEscopo(opts?.scope);
   const log = (msg: string) => opts?.onProgress?.(msg);
@@ -168,7 +173,9 @@ async function buildCamaraIndex(
 
       inserirProposicoesAutores(db, autores);
       totalAutores += autores.length;
-      log(`Proposicoes ${ano} indexadas: ${props.length} (autores: ${autores.length})`);
+      log(
+        `Proposicoes ${ano} indexadas: ${props.length} (autores: ${autores.length})`,
+      );
     }
   }
 
@@ -202,7 +209,7 @@ export const camaraDeputadosIndexAdapter: IndexAdapter = {
   storage: "sqlite",
   requiresHeavyDownload: true,
   async build(
-    options?: BuildOptions
+    options?: BuildOptions,
   ): Promise<ResultType<BuildSummary, AdapterError>> {
     return buildCamaraIndex(options);
   },

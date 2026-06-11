@@ -55,7 +55,7 @@ export function registerTseEleitoralTools(server: McpServer) {
         "Retorna para quais candidatos a pessoa/empresa doou e quanto. Fonte: TSE (CC-BY).",
       inputSchema: buscarDoacoesInputSchema,
     },
-    async (args) => toolContent(callTseTool("buscar_doacoes", args))
+    async (args) => toolContent(callTseTool("buscar_doacoes", args)),
   );
 
   server.registerTool(
@@ -66,7 +66,8 @@ export function registerTseEleitoralTools(server: McpServer) {
         "Retorna quais campanhas contrataram a empresa/pessoa. Fonte: TSE (CC-BY).",
       inputSchema: buscarFornecedorInputSchema,
     },
-    async (args) => toolContent(callTseTool("buscar_fornecedor_campanha", args))
+    async (args) =>
+      toolContent(callTseTool("buscar_fornecedor_campanha", args)),
   );
 
   server.registerTool(
@@ -77,7 +78,8 @@ export function registerTseEleitoralTools(server: McpServer) {
         "Mostra dinheiro repassado por partido/comite ate o candidato final. Fonte: TSE (CC-BY).",
       inputSchema: rastrearOriginarioInputSchema,
     },
-    async (args) => toolContent(callTseTool("rastrear_doador_originario", args))
+    async (args) =>
+      toolContent(callTseTool("rastrear_doador_originario", args)),
   );
 
   server.registerTool(
@@ -88,7 +90,7 @@ export function registerTseEleitoralTools(server: McpServer) {
         "(util para risco politico / pessoa politicamente exposta). Fonte: TSE (CC-BY).",
       inputSchema: dueDiligenceInputSchema,
     },
-    async (args) => toolContent(callTseTool("due_diligence_candidato", args))
+    async (args) => toolContent(callTseTool("due_diligence_candidato", args)),
   );
 }
 
@@ -141,7 +143,7 @@ function runQuery<T>(fn: (db: import("bun:sqlite").Database) => T) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -152,7 +154,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

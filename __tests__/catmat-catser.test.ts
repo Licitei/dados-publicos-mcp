@@ -70,7 +70,8 @@ const rawCatmat: RawCatmatItem[] = [
     nomeClasse: "PRODUTOS QUÍMICOS",
     codigoPdm: 10081,
     nomePdm: "BETA-NICOTINAMIDA ADENINA DINUCLEOTÍDEO",
-    descricaoItem: "BETA-NICOTINAMIDA ADENINA DINUCLEOTÍDEO, ASPECTO FÍSICO: PÓ BRANCO",
+    descricaoItem:
+      "BETA-NICOTINAMIDA ADENINA DINUCLEOTÍDEO, ASPECTO FÍSICO: PÓ BRANCO",
     statusItem: true,
     itemSustentavel: false,
     codigo_ncm: null,
@@ -83,7 +84,8 @@ const rawCatmat: RawCatmatItem[] = [
 const rawCatser: RawCatserItem[] = [
   {
     codigoServico: 7250,
-    nomeServico: "ENDOSCOPIA DIGESTIVA CIRURGICA - DRENAGEM CAVITARIA POR LAPAROSCOPIA",
+    nomeServico:
+      "ENDOSCOPIA DIGESTIVA CIRURGICA - DRENAGEM CAVITARIA POR LAPAROSCOPIA",
     codigoSecao: 9,
     nomeSecao: "SERVIÇOS DA COMUNIDADE, PESSOAIS E SOCIAIS E OUTROS SERVIÇOS",
     codigoDivisao: 93,
@@ -196,7 +198,9 @@ describe("mapeamento de itens", () => {
 
 describe("buildFtsQuery", () => {
   test("normaliza acentos, descarta tokens curtos e adiciona prefixo", () => {
-    expect(buildFtsQuery("Cadeira Escritório")).toBe('"cadeira"* "escritorio"*');
+    expect(buildFtsQuery("Cadeira Escritório")).toBe(
+      '"cadeira"* "escritorio"*',
+    );
   });
 
   test("descarta tokens com menos de 2 caracteres", () => {
@@ -211,7 +215,7 @@ describe("buildFtsQuery", () => {
   test("escapa caracteres de sintaxe FTS (sem quebrar)", () => {
     // Aspas/dois-pontos viram separadores e os tokens sao citados.
     expect(buildFtsQuery('cadeira "OR" : nivel')).toBe(
-      '"cadeira"* "or"* "nivel"*'
+      '"cadeira"* "or"* "nivel"*',
     );
   });
 });

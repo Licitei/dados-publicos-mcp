@@ -61,7 +61,7 @@ function anosEfetivos(scope: QdScope): number[] | undefined {
 /** Descobre os pares UF/ano disponiveis para as UFs do escopo (via API). */
 async function descobrirAlvos(
   scope: QdScope,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ResultType<{ uf: string; ano: number }[], QdIndexError>> {
   return Result.gen(async function* () {
     // DEFAULT-2026: sem --ufs => todas as UFs com dados; sem --anos => ano corrente.
@@ -86,7 +86,7 @@ async function descobrirAlvos(
           queridoDiarioErrors.FONTE_DOWNLOAD({
             url,
             internal: { cause: res.error.message },
-          })
+          }),
         );
       }
 
@@ -112,7 +112,7 @@ async function indexarAlvo(
   db: ReturnType<typeof openDb>,
   uf: string,
   ano: number,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ResultType<number, QdIndexError>> {
   const url = buildAggregateZipUrl(uf, ano);
 
@@ -128,7 +128,7 @@ async function indexarAlvo(
       queridoDiarioErrors.FONTE_DOWNLOAD({
         url,
         internal: { cause: got.error.message },
-      })
+      }),
     );
   }
 
@@ -155,7 +155,7 @@ async function indexarAlvo(
         if (!entry.name.toLowerCase().endsWith(".xml")) continue;
 
         const xml = new TextDecoder("utf-8", { fatal: false }).decode(
-          entry.bytes()
+          entry.bytes(),
         );
         const registros = parseMunicipioXml(xml);
 
@@ -179,7 +179,7 @@ async function indexarAlvo(
  * (parseMunicipioXml, insertDiarios) — aqui apenas orquestra rede + disco.
  */
 export async function buildQueridoDiario(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, QdIndexError>> {
   const scope = readScope(opts);
   const onProgress = opts?.onProgress;
@@ -223,7 +223,9 @@ export const queridoDiarioIndexAdapter: IndexAdapter & {
   storage: "sqlite",
   requiresHeavyDownload: true,
   buildQueridoDiario,
-  async build(opts?: BuildOptions): Promise<ResultType<BuildSummary, AdapterError>> {
+  async build(
+    opts?: BuildOptions,
+  ): Promise<ResultType<BuildSummary, AdapterError>> {
     return buildQueridoDiario(opts);
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {

@@ -66,7 +66,7 @@ export type BuscarDoacoesInput = {
 
 export function buscarDoacoes(
   db: Database,
-  input: BuscarDoacoesInput
+  input: BuscarDoacoesInput,
 ): unknown[] {
   const limite = clampLimite(input.limite);
   const anoFiltro = input.ano ? " AND r.ano_eleicao = ?" : "";
@@ -111,7 +111,7 @@ export type BuscarFornecedorInput = {
 
 export function buscarFornecedorCampanha(
   db: Database,
-  input: BuscarFornecedorInput
+  input: BuscarFornecedorInput,
 ): unknown[] {
   const limite = clampLimite(input.limite);
   const anoFiltro = input.ano ? " AND d.ano_eleicao = ?" : "";
@@ -157,7 +157,7 @@ export type RastrearOriginarioInput = {
 
 export function rastrearDoadorOriginario(
   db: Database,
-  input: RastrearOriginarioInput
+  input: RastrearOriginarioInput,
 ): unknown[] {
   const limite = clampLimite(input.limite);
   const doc = onlyDigits(input.cpfCnpj);
@@ -194,7 +194,7 @@ export type DueDiligenceInput = {
 
 export function dueDiligenceCandidato(
   db: Database,
-  input: DueDiligenceInput
+  input: DueDiligenceInput,
 ): {
   candidaturas: unknown[];
   bens: unknown[];
@@ -234,13 +234,13 @@ export function dueDiligenceCandidato(
           .query(
             `SELECT sq_candidato, ano_eleicao, ds_tipo_bem, ds_bem, vr_bem
                  FROM bens WHERE sq_candidato IN (${sqs.map(() => "?").join(",")})
-                 ORDER BY vr_bem DESC`
+                 ORDER BY vr_bem DESC`,
           )
           .all(...(sqs as never[]))
       : [];
   const totalBensDeclarado = bens.reduce<number>(
     (acc, b) => acc + ((b as { vr_bem?: number }).vr_bem ?? 0),
-    0
+    0,
   );
 
   return { candidaturas, bens, totalBensDeclarado };

@@ -39,10 +39,7 @@ export type CnaeNivel = "secao" | "divisao" | "grupo" | "classe" | "subclasse";
  * Tamanho (em digitos) do id de cada nivel hierarquico, ja sem mascara.
  * A secao usa letra (A-U), portanto nao tem tamanho fixo de digitos.
  */
-export const CNAE_NIVEL_TAMANHO: Record<
-  Exclude<CnaeNivel, "secao">,
-  number
-> = {
+export const CNAE_NIVEL_TAMANHO: Record<Exclude<CnaeNivel, "secao">, number> = {
   divisao: 2,
   grupo: 3,
   classe: 5,

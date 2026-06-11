@@ -33,7 +33,14 @@ const skippedSegments = new Set([
   "test",
 ]);
 const skippedSuffixes = [".tsbuildinfo", "README.md"];
-const checkedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+const checkedExtensions = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+]);
 
 const checks = [
   {
@@ -88,7 +95,8 @@ function* walk(root: string): Generator<string> {
 
     const stats = statSync(path);
     if (stats.isDirectory()) yield* walk(path);
-    else if (stats.isFile() && hasCheckedExtension(normalized)) yield normalized;
+    else if (stats.isFile() && hasCheckedExtension(normalized))
+      yield normalized;
   }
 }
 
@@ -100,8 +108,12 @@ for (const file of roots.flatMap((root) => [...walk(root)])) {
   for (const check of checks) {
     for (const [index, line] of lines.entries()) {
       if (!check.pattern.test(line)) continue;
-      console.error(`${relative(process.cwd(), file)}:${index + 1}: ${line.trim()}`);
-      console.error(`Declarative error handling check failed. ${check.message}`);
+      console.error(
+        `${relative(process.cwd(), file)}:${index + 1}: ${line.trim()}`,
+      );
+      console.error(
+        `Declarative error handling check failed. ${check.message}`,
+      );
       failed = true;
     }
   }

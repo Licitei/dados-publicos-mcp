@@ -55,7 +55,7 @@ export const sancoesCguIndexAdapter: IndexAdapter = {
   storage: "sqlite",
   requiresHeavyDownload: false,
   async build(
-    opts?: BuildOptions
+    opts?: BuildOptions,
   ): Promise<ResultType<BuildSummary, AdapterError>> {
     return build(opts);
   },
@@ -65,7 +65,7 @@ export const sancoesCguIndexAdapter: IndexAdapter = {
 };
 
 async function build(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, EvlogError>> {
   const onProgress = opts?.onProgress ?? (() => {});
   const todasSancoes: SancaoRow[] = [];
@@ -95,7 +95,7 @@ async function build(
     };
 
     onProgress(
-      `${dataset.label}: ${processado.value.sancoes.length} registros (${dataUsada}).`
+      `${dataset.label}: ${processado.value.sancoes.length} registros (${dataUsada}).`,
     );
   }
 
@@ -107,7 +107,7 @@ async function build(
 function gravar(
   todasSancoes: SancaoRow[],
   efeitos: ReturnType<typeof parseEfeitos>,
-  detalhes: Record<string, unknown>
+  detalhes: Record<string, unknown>,
 ): ResultType<BuildSummary, EvlogError> {
   return Result.try({
     try: () => {
@@ -182,10 +182,8 @@ async function status(): Promise<ResultType<StatusInfo, EvlogError>> {
  * regressao; outros erros (rede/status) abortam a busca daquele dataset.
  */
 async function baixarDataset(
-  dataset: DatasetSpec
-): Promise<
-  ResultType<{ bytes: Uint8Array; dataUsada: string }, EvlogError>
-> {
+  dataset: DatasetSpec,
+): Promise<ResultType<{ bytes: Uint8Array; dataUsada: string }, EvlogError>> {
   for (let offset = 1; offset <= MAX_LOOKBACK_DAYS; offset++) {
     const yyyymmdd = diaAtrasFrom(new Date(), offset);
     const url = zipUrl(dataset, yyyymmdd);
@@ -207,7 +205,7 @@ async function baixarDataset(
     sancoesCguErrors.SNAPSHOT_AUSENTE({
       dataset: dataset.key,
       dias: MAX_LOOKBACK_DAYS,
-    })
+    }),
   );
 }
 
@@ -219,7 +217,7 @@ async function baixarDataset(
  * EvlogError).
  */
 async function baixarUrl(
-  url: string
+  url: string,
 ): Promise<ResultType<Uint8Array | null, EvlogError>> {
   return Result.gen(async function* () {
     const response = yield* Result.await(
@@ -227,7 +225,7 @@ async function baixarUrl(
         try: () => fetch(url, { signal: AbortSignal.timeout(30_000) }),
         catch: (cause): EvlogError =>
           sancoesCguErrors.FETCH({ url, internal: { cause: String(cause) } }),
-      })
+      }),
     );
 
     if (response.ok) {
@@ -239,7 +237,7 @@ async function baixarUrl(
               url,
               internal: { cause: String(cause) },
             }),
-        })
+        }),
       );
 
       return Result.ok<Uint8Array | null>(bytes);
@@ -251,7 +249,10 @@ async function baixarUrl(
     }
 
     return yield* Result.err(
-      sancoesCguErrors.FETCH({ url, internal: { httpStatus: response.status } })
+      sancoesCguErrors.FETCH({
+        url,
+        internal: { httpStatus: response.status },
+      }),
     );
   });
 }
@@ -264,14 +265,14 @@ type ZipConteudo = {
 /** Descompacta e parseia o(s) CSV(s) de um dataset. */
 function processarZip(
   dataset: DatasetSpec,
-  zip: Uint8Array
+  zip: Uint8Array,
 ): ResultType<ZipConteudo, EvlogError> {
   return Result.gen(function* () {
     const conteudo = yield* extrairCsvs(dataset, zip);
 
     if (conteudo.csvEntries.length === 0) {
       return yield* Result.err(
-        sancoesCguErrors.PARSE({ dataset: dataset.key })
+        sancoesCguErrors.PARSE({ dataset: dataset.key }),
       );
     }
 
@@ -284,13 +285,13 @@ type CsvEntry = ReturnType<typeof unzipEntries>[number];
 /** Descompacta o zip e isola os CSVs internos (IO que pode lancar). */
 function extrairCsvs(
   dataset: DatasetSpec,
-  zip: Uint8Array
+  zip: Uint8Array,
 ): ResultType<{ csvEntries: CsvEntry[] }, EvlogError> {
   return Result.try({
     try: () => {
       const entries = unzipEntries(zip);
       const csvEntries = entries.filter((entry) =>
-        entry.name.toLowerCase().endsWith(".csv")
+        entry.name.toLowerCase().endsWith(".csv"),
       );
 
       return { csvEntries };
@@ -306,7 +307,7 @@ function extrairCsvs(
 /** Parseia os CSVs ja isolados em SancaoRow[] (+ efeitos, para acordos). */
 function parsearEntries(
   dataset: DatasetSpec,
-  csvEntries: CsvEntry[]
+  csvEntries: CsvEntry[],
 ): ResultType<ZipConteudo, EvlogError> {
   return Result.try({
     try: () => {

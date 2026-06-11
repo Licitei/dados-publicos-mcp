@@ -81,7 +81,8 @@ const rawSoja: RawSubclasse = {
         descricao: "AGRICULTURA, PECUÁRIA E SERVIÇOS RELACIONADOS",
         secao: {
           id: "A",
-          descricao: "AGRICULTURA, PECUÁRIA, PRODUÇÃO FLORESTAL, PESCA E AQÜICULTURA",
+          descricao:
+            "AGRICULTURA, PECUÁRIA, PRODUÇÃO FLORESTAL, PESCA E AQÜICULTURA",
         },
       },
     },
@@ -89,7 +90,10 @@ const rawSoja: RawSubclasse = {
 };
 
 const rawList = [rawFretamento, rawEscolar, rawSoja];
-const index = buildMemoryIndex(rawList.map(mapSubclasse), "2026-06-11T00:00:00.000Z");
+const index = buildMemoryIndex(
+  rawList.map(mapSubclasse),
+  "2026-06-11T00:00:00.000Z",
+);
 
 describe("limparTexto", () => {
   test("remove \\r\\n embutidos e colapsa espacos", () => {
@@ -114,7 +118,7 @@ describe("mapSubclasse", () => {
     const mapped = mapSubclasse(rawFretamento);
 
     expect(mapped.observacoes[0]).toBe(
-      "Esta subclasse compreende - o transporte rodoviário coletivo - a organização de excursões"
+      "Esta subclasse compreende - o transporte rodoviário coletivo - a organização de excursões",
     );
   });
 });

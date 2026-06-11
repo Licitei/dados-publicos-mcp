@@ -60,7 +60,7 @@ export function createJsonStore<T>(opts: {
               path: filePath,
               internal: { cause: String(cause) },
             }),
-        })
+        }),
       );
 
       if (raw === null) {
@@ -78,7 +78,7 @@ export function createJsonStore<T>(opts: {
             detalhe: parsed.error.issues
               .map((issue) => issue.message)
               .join("; "),
-          })
+          }),
         );
       }
 

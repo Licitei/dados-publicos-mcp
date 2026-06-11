@@ -88,9 +88,7 @@ test("parseCsv respeita aspas, CRLF e delimitador padrao ;", () => {
 
 test("parseCsv decodifica iso-8859-1", () => {
   // "Razão;São Paulo" em ISO-8859-1 (latin1).
-  const latin1 = Uint8Array.from(
-    Buffer.from("Razão;São Paulo", "latin1")
-  );
+  const latin1 = Uint8Array.from(Buffer.from("Razão;São Paulo", "latin1"));
   const rows = parseCsv(latin1, { encoding: "iso-8859-1" });
 
   expect(rows).toEqual([["Razão", "São Paulo"]]);
@@ -212,8 +210,7 @@ function buildZip(files: FixtureFile[]): Uint8Array {
   eocdView.setUint32(16, centralStart, true);
   eocdView.setUint16(20, 0, true); // comment len
 
-  const total =
-    centralStart + centralSize + eocd.length;
+  const total = centralStart + centralSize + eocd.length;
   const out = new Uint8Array(total);
   let cursor = 0;
 
@@ -272,7 +269,7 @@ test("unzipEntries le entradas deflate de um zip real", () => {
 
   expect(decoder.decode(entries[0].bytes())).toBe("a;b;c\n1;2;3");
   expect(decoder.decode(entries[1].bytes())).toBe(
-    "conteudo do segundo arquivo"
+    "conteudo do segundo arquivo",
   );
 });
 
@@ -298,11 +295,11 @@ const DATA_ENV_KEYS = [
 function withDataEnv(
   platform: string,
   env: Partial<Record<(typeof DATA_ENV_KEYS)[number], string>>,
-  fn: () => void
+  fn: () => void,
 ): void {
   const savedPlatform = process.platform;
   const savedEnv = Object.fromEntries(
-    DATA_ENV_KEYS.map((key) => [key, process.env[key]])
+    DATA_ENV_KEYS.map((key) => [key, process.env[key]]),
   );
 
   Object.defineProperty(process, "platform", {
@@ -344,7 +341,7 @@ test("getDataDir prioriza DADOS_PUBLICOS_MCP_DATA_DIR sobre tudo", () => {
     },
     () => {
       expect(getDataDir()).toBe("/override/explicito");
-    }
+    },
   );
 });
 
@@ -354,22 +351,18 @@ test("getDataDir usa LOCALAPPDATA no Windows", () => {
     { LOCALAPPDATA: "C:\\Users\\ze\\AppData\\Local", HOME: "/home/ze" },
     () => {
       expect(getDataDir()).toBe(
-        join("C:\\Users\\ze\\AppData\\Local", "dados-publicos-mcp")
+        join("C:\\Users\\ze\\AppData\\Local", "dados-publicos-mcp"),
       );
-    }
+    },
   );
 });
 
 test("getDataDir cai em APPDATA quando nao ha LOCALAPPDATA no Windows", () => {
-  withDataEnv(
-    "win32",
-    { APPDATA: "C:\\Users\\ze\\AppData\\Roaming" },
-    () => {
-      expect(getDataDir()).toBe(
-        join("C:\\Users\\ze\\AppData\\Roaming", "dados-publicos-mcp")
-      );
-    }
-  );
+  withDataEnv("win32", { APPDATA: "C:\\Users\\ze\\AppData\\Roaming" }, () => {
+    expect(getDataDir()).toBe(
+      join("C:\\Users\\ze\\AppData\\Roaming", "dados-publicos-mcp"),
+    );
+  });
 });
 
 test("getDataDir usa XDG_DATA_HOME fora do Windows", () => {
@@ -381,7 +374,7 @@ test("getDataDir usa XDG_DATA_HOME fora do Windows", () => {
 test("getDataDir cai em ~/.local/share via HOME", () => {
   withDataEnv("linux", { HOME: "/home/ze" }, () => {
     expect(getDataDir()).toBe(
-      join("/home/ze", ".local", "share", "dados-publicos-mcp")
+      join("/home/ze", ".local", "share", "dados-publicos-mcp"),
     );
   });
 });

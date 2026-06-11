@@ -46,7 +46,9 @@ export const sicafFornecedoresIndexAdapter: IndexAdapter = {
   titulo: TITULO_ADAPTER,
   storage: "sqlite",
   requiresHeavyDownload: false,
-  async build(opts?: BuildOptions): Promise<ResultType<BuildSummary, AdapterError>> {
+  async build(
+    opts?: BuildOptions,
+  ): Promise<ResultType<BuildSummary, AdapterError>> {
     return indexarSicaf(opts);
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
@@ -82,8 +84,12 @@ async function fetchPage(opts: {
         sicafErrors.FONTE_DOWNLOAD({
           pagina: opts.pagina,
           ativo: opts.ativo,
-          internal: { url, cause: json.error.message, status: json.error.status },
-        })
+          internal: {
+            url,
+            cause: json.error.message,
+            status: json.error.status,
+          },
+        }),
       );
     }
 
@@ -95,7 +101,7 @@ async function fetchPage(opts: {
           pagina: opts.pagina,
           ativo: opts.ativo,
           internal: { url },
-        })
+        }),
       );
     }
 
@@ -108,10 +114,13 @@ async function fetchPage(opts: {
  * gravando lotes no SQLite. Recria o schema e limpa a tabela antes.
  */
 export async function indexarSicaf(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, SicafIndexError>> {
   const scope = opts?.scope ?? {};
-  const tamanhoPagina = clampScopeNumber(scope.tamanhoPagina, TAMANHO_PAGINA_MAX);
+  const tamanhoPagina = clampScopeNumber(
+    scope.tamanhoPagina,
+    TAMANHO_PAGINA_MAX,
+  );
   const maxPaginas = clampScopeNumber(scope.maxPaginas, HARD_PAGE_CAP);
   const onProgress = opts?.onProgress;
 
@@ -142,7 +151,7 @@ export async function indexarSicaf(
       onProgress?.(
         `SICAF ativo=${ativo} pagina ${pagina}/${
           Number.isFinite(totalPaginas) ? totalPaginas : "?"
-        } (+${records.length})`
+        } (+${records.length})`,
       );
 
       if (records.length === 0) break;

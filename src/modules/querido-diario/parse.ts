@@ -65,10 +65,10 @@ export function decodeXmlText(raw: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_m, dec: string) =>
-      String.fromCodePoint(Number.parseInt(dec, 10))
+      String.fromCodePoint(Number.parseInt(dec, 10)),
     )
     .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16))
+      String.fromCodePoint(Number.parseInt(hex, 16)),
     )
     .replace(/&amp;/g, "&");
 }
@@ -100,7 +100,9 @@ export function parseMeta(xml: string): DiarioMeta {
     uf: (extractTag(metaBlock, "uf") ?? "").toUpperCase(),
     ano: anoRaw ? Number.parseInt(anoRaw, 10) || null : null,
     municipio: extractTag(metaBlock, "municipio") ?? "",
-    territoryId: onlyDigits(extractTag(metaBlock, "municipio_codigo_ibge") ?? ""),
+    territoryId: onlyDigits(
+      extractTag(metaBlock, "municipio_codigo_ibge") ?? "",
+    ),
   };
 }
 

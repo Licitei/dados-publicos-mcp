@@ -15,7 +15,12 @@ import {
   openReadonly as openReadonlyDb,
 } from "../../core/store/sqlite-store";
 import { dadosPublicosErrors } from "./errors";
-import { FTS_TABELAS, PNCP_DB_FILE, PNCP_DOMINIO, TABELAS } from "./pncp-catalog";
+import {
+  FTS_TABELAS,
+  PNCP_DB_FILE,
+  PNCP_DOMINIO,
+  TABELAS,
+} from "./pncp-catalog";
 
 /** Canal de erro das funcoes de busca no indice offline (declarativo evlog). */
 export type PncpServiceError = EvlogError;
@@ -32,7 +37,9 @@ export function pncpDbExists(): boolean {
 
 function openReadonly(): ResultType<Database, EvlogError> {
   if (!pncpDbExists()) {
-    return Result.err(dadosPublicosErrors.INDICE_AUSENTE({ path: pncpDbPath() }));
+    return Result.err(
+      dadosPublicosErrors.INDICE_AUSENTE({ path: pncpDbPath() }),
+    );
   }
   return Result.try({
     try: () => openReadonlyDb(PNCP_DOMINIO, PNCP_DB_FILE),
@@ -56,7 +63,7 @@ export function toFtsQuery(termo: string): string {
     .map((token) => token.replace(/"/g, "").trim())
     .filter((token) => token.length > 0);
 
-  if (tokens.length === 0) return "\"\"";
+  if (tokens.length === 0) return '""';
 
   return tokens.map((token) => `"${token}"`).join(" ");
 }
@@ -95,7 +102,7 @@ export function buscarPncpLocalDb(db: Database, input: BuscarLocalInput) {
          WHERE f."${FTS_TABELAS.contratacao}" MATCH $match
            AND ($uf IS NULL OR c.ufSigla = $uf)
          ORDER BY rank
-         LIMIT $limite`
+         LIMIT $limite`,
       )
       .all({ $match: match, $uf: uf, $limite: limite });
   }
@@ -111,7 +118,7 @@ export function buscarPncpLocalDb(db: Database, input: BuscarLocalInput) {
          WHERE f.objetoContrato MATCH $match
            AND ($uf IS NULL OR c.ufSigla = $uf)
          ORDER BY rank
-         LIMIT $limite`
+         LIMIT $limite`,
       )
       .all({ $match: match, $uf: uf, $limite: limite });
   }
@@ -126,7 +133,7 @@ export function buscarPncpLocalDb(db: Database, input: BuscarLocalInput) {
          WHERE f."${FTS_TABELAS.ata}" MATCH $match
            AND ($uf IS NULL OR a.ufSigla = $uf)
          ORDER BY rank
-         LIMIT $limite`
+         LIMIT $limite`,
       )
       .all({ $match: match, $uf: uf, $limite: limite });
   }
@@ -140,7 +147,7 @@ export function buscarPncpLocalDb(db: Database, input: BuscarLocalInput) {
 }
 
 export async function buscarPncpLocal(
-  input: BuscarLocalInput
+  input: BuscarLocalInput,
 ): Promise<ResultType<ReturnType<typeof buscarPncpLocalDb>, PncpServiceError>> {
   return openReadonly().map((db) => buscarPncpLocalDb(db, input));
 }
@@ -156,7 +163,7 @@ export type FornecedorPorNomeInput = {
 
 export function fornecedorPncpPorNomeDb(
   db: Database,
-  input: FornecedorPorNomeInput
+  input: FornecedorPorNomeInput,
 ) {
   const match = toFtsQuery(input.nome);
   const limite = clampLimit(input.limite);
@@ -172,7 +179,7 @@ export function fornecedorPncpPorNomeDb(
        WHERE f.nomeRazaoSocialFornecedor MATCH $match
        GROUP BY c.niFornecedor, c.nomeRazaoSocialFornecedor
        ORDER BY valorTotal DESC
-       LIMIT $limite`
+       LIMIT $limite`,
     )
     .all({ $match: match, $limite: limite });
 
@@ -183,7 +190,7 @@ export function fornecedorPncpPorNomeDb(
 }
 
 export async function fornecedorPncpPorNome(
-  input: FornecedorPorNomeInput
+  input: FornecedorPorNomeInput,
 ): Promise<
   ResultType<ReturnType<typeof fornecedorPncpPorNomeDb>, PncpServiceError>
 > {
@@ -203,7 +210,7 @@ export type ContratosDoFornecedorInput = {
 
 export function contratosDoFornecedorDb(
   db: Database,
-  input: ContratosDoFornecedorInput
+  input: ContratosDoFornecedorInput,
 ) {
   const ni = input.ni.replace(/\D/g, "");
   const limite = clampLimit(input.limite, 50);
@@ -218,7 +225,7 @@ export function contratosDoFornecedorDb(
        FROM "${TABELAS.contrato}"
        WHERE niFornecedor = $ni
        ORDER BY COALESCE(valorGlobal, valorInicial, 0) DESC
-       LIMIT $limite`
+       LIMIT $limite`,
     )
     .all({ $ni: ni, $limite: limite });
 
@@ -227,7 +234,7 @@ export function contratosDoFornecedorDb(
       `SELECT COUNT(*) AS contratos,
               SUM(COALESCE(valorGlobal, valorInicial, 0)) AS valorTotal
        FROM "${TABELAS.contrato}"
-       WHERE niFornecedor = $ni`
+       WHERE niFornecedor = $ni`,
     )
     .get({ $ni: ni }) as { contratos: number; valorTotal: number | null };
 
@@ -241,7 +248,7 @@ export function contratosDoFornecedorDb(
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY orgaoCnpj, orgaoRazaoSocial
-         ORDER BY valorTotal DESC`
+         ORDER BY valorTotal DESC`,
           )
           .all({ $ni: ni })
       : agruparPor === "municipio"
@@ -253,7 +260,7 @@ export function contratosDoFornecedorDb(
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY codigoIbge, ufSigla
-         ORDER BY valorTotal DESC`
+         ORDER BY valorTotal DESC`,
             )
             .all({ $ni: ni })
         : agruparPor === "uf"
@@ -265,7 +272,7 @@ export function contratosDoFornecedorDb(
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY ufSigla
-         ORDER BY valorTotal DESC`
+         ORDER BY valorTotal DESC`,
               )
               .all({ $ni: ni })
           : [];
@@ -284,7 +291,7 @@ export function contratosDoFornecedorDb(
 }
 
 export async function contratosDoFornecedor(
-  input: ContratosDoFornecedorInput
+  input: ContratosDoFornecedorInput,
 ): Promise<
   ResultType<ReturnType<typeof contratosDoFornecedorDb>, PncpServiceError>
 > {
@@ -322,18 +329,25 @@ export function alertasPncpDb(db: Database, input: AlertasInput) {
          AND ($uf IS NULL OR c.ufSigla = $uf)
          AND ($desde IS NULL OR c.dataAtualizacaoGlobal > $desde)
        ORDER BY c.dataAtualizacaoGlobal DESC
-       LIMIT $limite`
+       LIMIT $limite`,
     )
     .all({ $match: match, $uf: uf, $desde: desde, $limite: limite });
 
   return {
-    meta: { termo: input.termo, match, uf, desde, limite, total: results.length },
+    meta: {
+      termo: input.termo,
+      match,
+      uf,
+      desde,
+      limite,
+      total: results.length,
+    },
     results,
   };
 }
 
 export async function alertasPncp(
-  input: AlertasInput
+  input: AlertasInput,
 ): Promise<ResultType<ReturnType<typeof alertasPncpDb>, PncpServiceError>> {
   return openReadonly().map((db) => alertasPncpDb(db, input));
 }

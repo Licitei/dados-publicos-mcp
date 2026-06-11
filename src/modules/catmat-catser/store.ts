@@ -221,7 +221,10 @@ export function insertCatmatGrupos(db: Database, rows: RawCatmatGrupo[]): void {
   ]);
 }
 
-export function insertCatmatClasses(db: Database, rows: RawCatmatClasse[]): void {
+export function insertCatmatClasses(
+  db: Database,
+  rows: RawCatmatClasse[],
+): void {
   batchInsert(db, INSERT_CATMAT_CLASSE, rows, (r) => [
     Number(r.codigoClasse),
     r.codigoGrupo ?? null,
@@ -256,9 +259,10 @@ export function rebuildFts(db: Database): void {
 
 /** Grava um par chave/valor na tabela de metadados. */
 export function setMetadata(db: Database, chave: string, valor: string): void {
-  db.query(
-    `INSERT OR REPLACE INTO metadata (chave, valor) VALUES (?, ?)`
-  ).run(chave, valor);
+  db.query(`INSERT OR REPLACE INTO metadata (chave, valor) VALUES (?, ?)`).run(
+    chave,
+    valor,
+  );
 }
 
 /** Le um valor de metadados (ou null). */

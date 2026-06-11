@@ -67,7 +67,7 @@ const decodeOpts = { encoding: ENCODING, delimiter: ";" } as const;
  */
 function pick(
   record: Record<string, string>,
-  candidates: readonly string[]
+  candidates: readonly string[],
 ): string | null {
   const normalizedRecord = normalizeKeys(record);
 
@@ -120,7 +120,10 @@ const COLS = {
   tipoPessoa: ["TIPO DE PESSOA"],
   documento: ["CPF OU CNPJ DO SANCIONADO"],
   nome: ["NOME DO SANCIONADO"],
-  razaoSocial: ["RAZAO SOCIAL - CADASTRO RECEITA", "RAZAO SOCIAL CADASTRO RECEITA"],
+  razaoSocial: [
+    "RAZAO SOCIAL - CADASTRO RECEITA",
+    "RAZAO SOCIAL CADASTRO RECEITA",
+  ],
   categoria: ["CATEGORIA DA SANCAO"],
   numeroProcesso: ["NUMERO DO PROCESSO"],
   valorMulta: ["VALOR DA MULTA"],
@@ -190,7 +193,10 @@ const ceafMapper: RowMapper = (record) => {
 
 /** CEPIM: schema enxuto de 5 colunas (entidade + convenio + motivo). */
 const cepimMapper: RowMapper = (record) => {
-  const documento = pick(record, ["CNPJ ENTIDADE", "CPF OU CNPJ DO SANCIONADO"]);
+  const documento = pick(record, [
+    "CNPJ ENTIDADE",
+    "CPF OU CNPJ DO SANCIONADO",
+  ]);
   const nome = pick(record, ["NOME ENTIDADE", "NOME DO SANCIONADO"]);
 
   return {
@@ -262,7 +268,7 @@ const MAPPERS: Record<DatasetKey, RowMapper> = {
  */
 export function parseSancoes(
   lista: DatasetKey,
-  csv: Uint8Array | ArrayBuffer | string
+  csv: Uint8Array | ArrayBuffer | string,
 ): SancaoRow[] {
   const records = parseCsvObjects(csv, undefined, decodeOpts);
   const mapper = MAPPERS[lista];
@@ -272,7 +278,7 @@ export function parseSancoes(
 
 /** Parseia o CSV de Efeitos dos acordos de leniencia (1:N por id do acordo). */
 export function parseEfeitos(
-  csv: Uint8Array | ArrayBuffer | string
+  csv: Uint8Array | ArrayBuffer | string,
 ): EfeitoRow[] {
   const records = parseCsvObjects(csv, undefined, decodeOpts);
 
@@ -299,9 +305,9 @@ export function parseEfeitos(
 function hasContent(row: SancaoRow): boolean {
   return Boolean(
     row.codigo ||
-      row.documento ||
-      row.nome ||
-      row.razaoSocial ||
-      row.docNormalizado
+    row.documento ||
+    row.nome ||
+    row.razaoSocial ||
+    row.docNormalizado,
   );
 }

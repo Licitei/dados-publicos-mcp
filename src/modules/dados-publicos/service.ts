@@ -100,8 +100,8 @@ export async function searchLicitacoes(input: SearchLicitacoesInput) {
           cnpj: input.cnpjOrgao ? normalizeCnpj(input.cnpjOrgao) : undefined,
           pagina: input.pagina ?? 1,
           tamanhoPagina: clampPageSize(input.tamanhoPagina),
-        })
-      )
+        }),
+      ),
     );
     const data = [];
     let totalPncp = 0;
@@ -116,7 +116,7 @@ export async function searchLicitacoes(input: SearchLicitacoesInput) {
     const filtered = filterByValue(
       filterByKeyword(data, input.palavraChave),
       input.valorMinimo,
-      input.valorMaximo
+      input.valorMaximo,
     );
 
     return Result.ok({
@@ -140,7 +140,7 @@ export async function getLicitacao(input: PncpIdInput) {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
-      consulta(`orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}`)
+      consulta(`orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}`),
     );
 
     return Result.ok(value);
@@ -152,7 +152,7 @@ export async function listLicitacaoItens(input: PncpIdInput) {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
-      pncp(`orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/itens`)
+      pncp(`orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/itens`),
     );
 
     return Result.ok(value);
@@ -160,15 +160,15 @@ export async function listLicitacaoItens(input: PncpIdInput) {
 }
 
 export async function listLicitacaoResultados(
-  input: PncpIdInput & { numeroItem: number }
+  input: PncpIdInput & { numeroItem: number },
 ) {
   return Result.gen(async function* () {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
       pncp(
-        `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/itens/${input.numeroItem}/resultados`
-      )
+        `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/itens/${input.numeroItem}/resultados`,
+      ),
     );
 
     return Result.ok(value);
@@ -180,7 +180,9 @@ export async function listLicitacaoArquivos(input: PncpIdInput) {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
-      pncp(`orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/arquivos`)
+      pncp(
+        `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/arquivos`,
+      ),
     );
 
     return Result.ok(value);
@@ -200,7 +202,7 @@ export async function searchContratos(input: SearchContratosInput) {
           : undefined,
         pagina: input.pagina ?? 1,
         tamanhoPagina: clampPageSize(input.tamanhoPagina),
-      })
+      }),
     );
 
     const page = pageData(value);
@@ -223,7 +225,7 @@ export async function getContrato(input: PncpIdInput) {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
-      pncp(`orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}`)
+      pncp(`orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}`),
     );
 
     return Result.ok(value);
@@ -235,7 +237,9 @@ export async function listContratoTermos(input: PncpIdInput) {
     const id = yield* resolvePncpId(input);
 
     const value = yield* Result.await(
-      pncp(`orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}/termos`)
+      pncp(
+        `orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}/termos`,
+      ),
     );
 
     return Result.ok(value);
@@ -248,8 +252,8 @@ export async function listContratoInstrumentos(input: PncpIdInput) {
 
     const value = yield* Result.await(
       pncp(
-        `orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}/instrumentocobranca`
-      )
+        `orgaos/${id.orgaoCnpj}/contratos/${id.ano}/${id.sequencial}/instrumentocobranca`,
+      ),
     );
 
     return Result.ok(value);
@@ -266,13 +270,13 @@ export async function searchAtasRp(input: SearchAtasInput) {
         cnpjOrgao: input.cnpjOrgao ? normalizeCnpj(input.cnpjOrgao) : undefined,
         pagina: input.pagina ?? 1,
         tamanhoPagina: clampPageSize(input.tamanhoPagina),
-      })
+      }),
     );
 
     const page = pageData(value);
     const filtered = filterAtasVigentes(
       filterByKeyword(page.data, input.palavraChave),
-      input.somenteVigentes ?? true
+      input.somenteVigentes ?? true,
     );
 
     return Result.ok({
@@ -296,16 +300,16 @@ export async function getAtaRp(input: AtaIdInput) {
     const id = yield* resolvePncpId(input);
     const [ata, itens, arquivos] = await Promise.all([
       pncp(
-        `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}`
+        `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}`,
       ),
       input.incluirItens
         ? pncp(
-            `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}/itens`
+            `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}/itens`,
           )
         : Result.ok(null),
       input.incluirArquivos
         ? pncp(
-            `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}/arquivos`
+            `orgaos/${id.orgaoCnpj}/compras/${id.ano}/${id.sequencial}/atas/${input.sequencialAta}/arquivos`,
           )
         : Result.ok(null),
     ]);
@@ -327,7 +331,7 @@ export async function getOrgao(input: { cnpj: string }) {
 }
 
 export async function getFornecedorContratos(
-  input: Omit<SearchContratosInput, "cnpjFornecedor"> & { cnpj: string }
+  input: Omit<SearchContratosInput, "cnpjFornecedor"> & { cnpj: string },
 ) {
   return searchContratos({
     ...input,
@@ -349,7 +353,7 @@ export async function searchPca(input: {
         dataInicial: input.dataInicio,
         dataFinal: input.dataFim,
       },
-      30
+      30,
     );
     const value = yield* Result.await(
       consulta("pca/atualizacao", {
@@ -358,7 +362,7 @@ export async function searchPca(input: {
         codigoClassificacaoSuperior: input.codigoClassificacaoSuperior ?? "01",
         pagina: input.pagina ?? 1,
         tamanhoPagina: clampPageSize(input.tamanhoPagina),
-      })
+      }),
     );
 
     const page = pageData(value);
@@ -381,7 +385,7 @@ export async function listPcaItens(input: {
   sequencialPca: number;
 }) {
   return pncp(
-    `orgaos/${normalizeCnpj(input.orgaoCnpj)}/pca/${input.anoPca}/${input.sequencialPca}/itens`
+    `orgaos/${normalizeCnpj(input.orgaoCnpj)}/pca/${input.anoPca}/${input.sequencialPca}/itens`,
   );
 }
 
@@ -464,7 +468,8 @@ export async function comparePeriodos(input: {
         totalA,
         totalB,
         delta: totalB - totalA,
-        deltaPercentual: totalA === 0 ? null : ((totalB - totalA) / totalA) * 100,
+        deltaPercentual:
+          totalA === 0 ? null : ((totalB - totalA) / totalA) * 100,
       },
     });
   });
@@ -472,7 +477,7 @@ export async function comparePeriodos(input: {
 
 function resolveRange(
   input: { dataInicial?: string; dataFinal?: string },
-  fallbackDays: number
+  fallbackDays: number,
 ): ResultType<{ dataInicial: string; dataFinal: string }, EvlogError> {
   return Result.gen(function* () {
     const range =
@@ -499,7 +504,7 @@ function publicJson(
   baseUrl: string,
   path: string,
   params?: Record<string, unknown>,
-  cacheTtlMs?: number
+  cacheTtlMs?: number,
 ) {
   return fetchPublicJson({
     baseUrl,
@@ -515,7 +520,8 @@ function clampPageSize(value?: number) {
 
 function filterByValue(data: unknown[], min?: number, max?: number) {
   return data.filter((item) => {
-    if (!item || typeof item !== "object") return min === undefined && max === undefined;
+    if (!item || typeof item !== "object")
+      return min === undefined && max === undefined;
 
     const record = item as Record<string, unknown>;
     const value =
@@ -525,7 +531,8 @@ function filterByValue(data: unknown[], min?: number, max?: number) {
       record.valorGlobal ??
       record.valorTotal;
 
-    if (typeof value !== "number") return min === undefined && max === undefined;
+    if (typeof value !== "number")
+      return min === undefined && max === undefined;
     if (min !== undefined && value < min) return false;
     if (max !== undefined && value > max) return false;
 

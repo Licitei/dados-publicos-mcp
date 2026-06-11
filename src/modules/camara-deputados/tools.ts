@@ -70,7 +70,7 @@ export function registerCamaraDeputadosTools(server: McpServer) {
       inputSchema: fornecedorCotaInputSchema,
     },
     async (args) =>
-      toolContent(await callCamaraTool("fornecedor_cota_parlamentar", args))
+      toolContent(await callCamaraTool("fornecedor_cota_parlamentar", args)),
   );
 
   server.registerTool(
@@ -81,7 +81,7 @@ export function registerCamaraDeputadosTools(server: McpServer) {
       inputSchema: gastosPorFornecedorInputSchema,
     },
     async (args) =>
-      toolContent(await callCamaraTool("gastos_por_fornecedor", args))
+      toolContent(await callCamaraTool("gastos_por_fornecedor", args)),
   );
 
   server.registerTool(
@@ -91,7 +91,7 @@ export function registerCamaraDeputadosTools(server: McpServer) {
         "Busca deputado por nome ou nome civil (busca normalizada, sem acento), por id ou por UF de nascimento. O CPF vem 100% vazio nos arquivos publicos; a identidade confiavel e o id.",
       inputSchema: buscarDeputadoInputSchema,
     },
-    async (args) => toolContent(await callCamaraTool("buscar_deputado", args))
+    async (args) => toolContent(await callCamaraTool("buscar_deputado", args)),
   );
 
   server.registerTool(
@@ -101,7 +101,8 @@ export function registerCamaraDeputadosTools(server: McpServer) {
         "Busca proposicoes por palavra-chave em ementa, ementa detalhada e keywords (busca FTS), com filtros opcionais por ano e tipo. Pode incluir os autores de cada proposicao.",
       inputSchema: buscarProposicaoInputSchema,
     },
-    async (args) => toolContent(await callCamaraTool("buscar_proposicao", args))
+    async (args) =>
+      toolContent(await callCamaraTool("buscar_proposicao", args)),
   );
 
   server.registerTool(
@@ -111,7 +112,7 @@ export function registerCamaraDeputadosTools(server: McpServer) {
         "Mostra o status, o caminho e as contagens do indice local da Camara dos Deputados.",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callCamaraTool("status_camara", args))
+    async (args) => toolContent(await callCamaraTool("status_camara", args)),
   );
 
   server.registerTool(
@@ -121,7 +122,7 @@ export function registerCamaraDeputadosTools(server: McpServer) {
         "DOWNLOAD PESADO: baixa os arquivos da Camara (deputados + CEAP por ano, opcionalmente proposicoes) e recria o indice SQLite local neste computador. Use anos/anoInicial/anoFinal para limitar o escopo.",
       inputSchema: indexarInputSchema,
     },
-    async (args) => toolContent(await callCamaraTool("indexar_camara", args))
+    async (args) => toolContent(await callCamaraTool("indexar_camara", args)),
   );
 }
 
@@ -168,7 +169,7 @@ export async function callCamaraTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return Result.serialize(
-      await camaraDeputadosIndexAdapter.build({ scope: input.value })
+      await camaraDeputadosIndexAdapter.build({ scope: input.value }),
     );
   }
 
@@ -178,7 +179,7 @@ export async function callCamaraTool(name: string, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -187,7 +188,7 @@ function parseToolInput<TSchema extends z.ZodType>(
   return Result.err(
     camaraErrors.ENTRADA_INVALIDA({
       internal: { issues: parsed.error.issues.map((issue) => issue.message) },
-    })
+    }),
   );
 }
 

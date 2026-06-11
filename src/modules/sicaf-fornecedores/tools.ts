@@ -38,7 +38,7 @@ const listarUfCnaeInputSchema = z
   .strict()
   .refine(
     (v) => Boolean(v.uf || v.municipio || v.cnae !== undefined),
-    "Informe ao menos um filtro: uf, municipio ou cnae."
+    "Informe ao menos um filtro: uf, municipio ou cnae.",
   );
 
 export function registerSicafFornecedoresTools(server: McpServer) {
@@ -50,7 +50,9 @@ export function registerSicafFornecedoresTools(server: McpServer) {
       inputSchema: buscarFornecedorInputSchema,
     },
     async (args) =>
-      toolContent(await callSicafFornecedoresTool("buscar_fornecedor_sicaf", args))
+      toolContent(
+        await callSicafFornecedoresTool("buscar_fornecedor_sicaf", args),
+      ),
   );
 
   server.registerTool(
@@ -61,7 +63,9 @@ export function registerSicafFornecedoresTools(server: McpServer) {
       inputSchema: fornecedorHabilitadoInputSchema,
     },
     async (args) =>
-      toolContent(await callSicafFornecedoresTool("fornecedor_habilitado", args))
+      toolContent(
+        await callSicafFornecedoresTool("fornecedor_habilitado", args),
+      ),
   );
 
   server.registerTool(
@@ -73,8 +77,8 @@ export function registerSicafFornecedoresTools(server: McpServer) {
     },
     async (args) =>
       toolContent(
-        await callSicafFornecedoresTool("listar_fornecedores_uf_cnae", args)
-      )
+        await callSicafFornecedoresTool("listar_fornecedores_uf_cnae", args),
+      ),
   );
 
   server.registerTool(
@@ -86,8 +90,8 @@ export function registerSicafFornecedoresTools(server: McpServer) {
     },
     async (args) =>
       toolContent(
-        await callSicafFornecedoresTool("status_sicaf_fornecedores", args)
-      )
+        await callSicafFornecedoresTool("status_sicaf_fornecedores", args),
+      ),
   );
 
   server.registerTool(
@@ -99,8 +103,8 @@ export function registerSicafFornecedoresTools(server: McpServer) {
     },
     async (args) =>
       toolContent(
-        await callSicafFornecedoresTool("indexar_sicaf_fornecedores", args)
-      )
+        await callSicafFornecedoresTool("indexar_sicaf_fornecedores", args),
+      ),
   );
 }
 
@@ -142,7 +146,7 @@ export async function callSicafFornecedoresTool(name: string, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -153,7 +157,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

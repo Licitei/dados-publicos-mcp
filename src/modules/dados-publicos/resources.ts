@@ -50,7 +50,7 @@ export function registerDadosPublicosResources(server: McpServer) {
           text: JSON.stringify(modalidades, null, 2),
         },
       ],
-    })
+    }),
   );
 
   server.registerResource(
@@ -69,6 +69,6 @@ export function registerDadosPublicosResources(server: McpServer) {
           text: JSON.stringify(scope, null, 2),
         },
       ],
-    })
+    }),
   );
 }

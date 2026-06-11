@@ -93,7 +93,7 @@ export function registerPncpBulkTools(server: McpServer): void {
         description: definition.description,
         inputSchema: definition.schema,
       },
-      async (args: unknown) => toolContent(await callPncpBulkTool(name, args))
+      async (args: unknown) => toolContent(await callPncpBulkTool(name, args)),
     );
   }
 }
@@ -105,7 +105,7 @@ export async function callPncpBulkTool(name: PncpToolName, args: unknown) {
   if (Result.isError(input)) return Result.serialize(input);
 
   const handler = definition.handler as (
-    value: never
+    value: never,
   ) => Promise<Result<unknown, unknown>> | Result<unknown, unknown>;
   const output = await handler(input.value as never);
 
@@ -114,7 +114,7 @@ export async function callPncpBulkTool(name: PncpToolName, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args ?? {});
 
@@ -126,7 +126,7 @@ function parseToolInput<TSchema extends z.ZodType>(
     dadosPublicosErrors.ENTRADA_INVALIDA({
       detalhe: issues.join("; "),
       internal: { issues, escopo: "indice offline do PNCP" },
-    })
+    }),
   );
 }
 
