@@ -240,22 +240,18 @@ async function requireIndex(): Promise<
 export async function resolverCnae(
   codigo: string
 ): Promise<ResultType<ReturnType<typeof resolverSubclasse>, CnaeServiceError>> {
-  const index = await requireIndex();
-
-  if (Result.isError(index)) return index;
-
-  return Result.ok(resolverSubclasse(index.value, codigo));
+  return (await requireIndex()).map((index) =>
+    resolverSubclasse(index, codigo)
+  );
 }
 
 export async function buscarCnae(
   termo: string,
   limite?: number
 ): Promise<ResultType<CnaeBuscaItem[], CnaeServiceError>> {
-  const index = await requireIndex();
-
-  if (Result.isError(index)) return index;
-
-  return Result.ok(buscarSubclasses(index.value, termo, limite));
+  return (await requireIndex()).map((index) =>
+    buscarSubclasses(index, termo, limite)
+  );
 }
 
 export async function listarCnaesPorNivel(
@@ -263,11 +259,9 @@ export async function listarCnaesPorNivel(
 ): Promise<
   ResultType<ReturnType<typeof listarSubclassesPorNivel>, CnaeServiceError>
 > {
-  const index = await requireIndex();
-
-  if (Result.isError(index)) return index;
-
-  return Result.ok(listarSubclassesPorNivel(index.value, codigo));
+  return (await requireIndex()).map((index) =>
+    listarSubclassesPorNivel(index, codigo)
+  );
 }
 
 export async function statusCnae() {

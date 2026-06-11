@@ -73,12 +73,10 @@ async function fetchWithRetry(
   timeoutMs: number
 ): Promise<ResultType<unknown, EvlogError>> {
   const target = url.toString();
-  let lastError: EvlogError = dadosPublicosErrors.FETCH_REDE({ url: target });
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
+  const attempt = async (
+    n: number
+  ): Promise<ResultType<unknown, EvlogError>> => {
     const attempted = await Result.tryPromise({
       try: () =>
         fetch(url, {
@@ -86,7 +84,7 @@ async function fetchWithRetry(
             accept: "application/json",
             "user-agent": userAgent,
           },
-          signal: controller.signal,
+          signal: AbortSignal.timeout(timeoutMs),
         }),
       catch: (cause): EvlogError =>
         isAbort(cause)
@@ -100,8 +98,6 @@ async function fetchWithRetry(
               internal: { cause: String(cause) },
             }),
     });
-
-    clearTimeout(timeout);
 
     if (Result.isOk(attempted)) {
       const response = attempted.value;
@@ -123,21 +119,19 @@ async function fetchWithRetry(
         internal: { detail: detail.trim() || response.statusText },
       });
 
-      if (!retryableStatusCodes.has(response.status) || attempt === 2) {
+      if (!retryableStatusCodes.has(response.status) || n === 2) {
         return Result.err(statusError);
       }
-
-      lastError = statusError;
-    } else {
-      if (attempt === 2) return attempted;
-
-      lastError = attempted.error;
+    } else if (n === 2) {
+      return attempted;
     }
 
-    await sleep(Math.min(500 * 2 ** attempt, 3_000));
-  }
+    await Bun.sleep(Math.min(500 * 2 ** n, 3_000));
 
-  return Result.err(lastError);
+    return attempt(n + 1);
+  };
+
+  return attempt(0);
 }
 
 async function parseBody(
@@ -164,14 +158,9 @@ async function parseBody(
 }
 
 function isAbort(cause: unknown): boolean {
-  return (
-    !!cause &&
-    typeof cause === "object" &&
-    "name" in cause &&
-    (cause as { name?: unknown }).name === "AbortError"
-  );
-}
+  if (!cause || typeof cause !== "object" || !("name" in cause)) return false;
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  const name = (cause as { name?: unknown }).name;
+
+  return name === "AbortError" || name === "TimeoutError";
 }

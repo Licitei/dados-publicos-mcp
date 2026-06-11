@@ -142,9 +142,7 @@ export function buscarPncpLocalDb(db: Database, input: BuscarLocalInput) {
 export async function buscarPncpLocal(
   input: BuscarLocalInput
 ): Promise<ResultType<ReturnType<typeof buscarPncpLocalDb>, PncpServiceError>> {
-  const db = openReadonly();
-  if (Result.isError(db)) return db;
-  return Result.ok(buscarPncpLocalDb(db.value, input));
+  return openReadonly().map((db) => buscarPncpLocalDb(db, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -189,9 +187,7 @@ export async function fornecedorPncpPorNome(
 ): Promise<
   ResultType<ReturnType<typeof fornecedorPncpPorNomeDb>, PncpServiceError>
 > {
-  const db = openReadonly();
-  if (Result.isError(db)) return db;
-  return Result.ok(fornecedorPncpPorNomeDb(db.value, input));
+  return openReadonly().map((db) => fornecedorPncpPorNomeDb(db, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -235,44 +231,44 @@ export function contratosDoFornecedorDb(
     )
     .get({ $ni: ni }) as { contratos: number; valorTotal: number | null };
 
-  let agregacao: unknown[] = [];
-  if (agruparPor === "orgao") {
-    agregacao = db
-      .query(
-        `SELECT orgaoCnpj AS chave, orgaoRazaoSocial AS rotulo,
+  const agregacao: unknown[] =
+    agruparPor === "orgao"
+      ? db
+          .query(
+            `SELECT orgaoCnpj AS chave, orgaoRazaoSocial AS rotulo,
                 COUNT(*) AS contratos,
                 SUM(COALESCE(valorGlobal, valorInicial, 0)) AS valorTotal
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY orgaoCnpj, orgaoRazaoSocial
          ORDER BY valorTotal DESC`
-      )
-      .all({ $ni: ni });
-  } else if (agruparPor === "municipio") {
-    agregacao = db
-      .query(
-        `SELECT codigoIbge AS chave, ufSigla AS rotulo,
+          )
+          .all({ $ni: ni })
+      : agruparPor === "municipio"
+        ? db
+            .query(
+              `SELECT codigoIbge AS chave, ufSigla AS rotulo,
                 COUNT(*) AS contratos,
                 SUM(COALESCE(valorGlobal, valorInicial, 0)) AS valorTotal
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY codigoIbge, ufSigla
          ORDER BY valorTotal DESC`
-      )
-      .all({ $ni: ni });
-  } else if (agruparPor === "uf") {
-    agregacao = db
-      .query(
-        `SELECT ufSigla AS chave,
+            )
+            .all({ $ni: ni })
+        : agruparPor === "uf"
+          ? db
+              .query(
+                `SELECT ufSigla AS chave,
                 COUNT(*) AS contratos,
                 SUM(COALESCE(valorGlobal, valorInicial, 0)) AS valorTotal
          FROM "${TABELAS.contrato}"
          WHERE niFornecedor = $ni
          GROUP BY ufSigla
          ORDER BY valorTotal DESC`
-      )
-      .all({ $ni: ni });
-  }
+              )
+              .all({ $ni: ni })
+          : [];
 
   return {
     meta: {
@@ -292,9 +288,7 @@ export async function contratosDoFornecedor(
 ): Promise<
   ResultType<ReturnType<typeof contratosDoFornecedorDb>, PncpServiceError>
 > {
-  const db = openReadonly();
-  if (Result.isError(db)) return db;
-  return Result.ok(contratosDoFornecedorDb(db.value, input));
+  return openReadonly().map((db) => contratosDoFornecedorDb(db, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -341,7 +335,5 @@ export function alertasPncpDb(db: Database, input: AlertasInput) {
 export async function alertasPncp(
   input: AlertasInput
 ): Promise<ResultType<ReturnType<typeof alertasPncpDb>, PncpServiceError>> {
-  const db = openReadonly();
-  if (Result.isError(db)) return db;
-  return Result.ok(alertasPncpDb(db.value, input));
+  return openReadonly().map((db) => alertasPncpDb(db, input));
 }

@@ -114,13 +114,7 @@ export async function resolverMunicipio(input: {
   return Result.gen(async function* () {
     const municipios = yield* Result.await(requireMunicipios());
 
-    let ufFiltro: string | null = null;
-
-    if (input.uf) {
-      const uf = yield* validarUf(input.uf);
-
-      ufFiltro = uf.sigla;
-    }
+    const ufFiltro = input.uf ? (yield* validarUf(input.uf)).sigla : null;
 
     const alvo = normalize(input.nome);
     const pool = ufFiltro

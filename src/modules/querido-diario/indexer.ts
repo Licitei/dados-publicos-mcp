@@ -229,22 +229,23 @@ export const queridoDiarioIndexAdapter: IndexAdapter & {
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const existe = dbExistsOnDisk();
     const caminho = dbPath();
-    let registros: number | null = null;
-    let atualizadoEm: string | null = null;
 
-    if (existe) {
-      const contagem = Result.try({
-        try: () => countRows(openReadonly(DOMINIO, DB_FILE), "diarios"),
-        catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
-      });
-      registros = contagem.unwrapOr(null);
+    const registros = existe
+      ? Result.try({
+          try: () => countRows(openReadonly(DOMINIO, DB_FILE), "diarios"),
+          catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
+        }).unwrapOr(null)
+      : null;
 
-      const mtime = await Result.tryPromise({
-        try: async () => (await Bun.file(caminho).stat()).mtime.toISOString(),
-        catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
-      });
-      atualizadoEm = mtime.unwrapOr(null);
-    }
+    const atualizadoEm = existe
+      ? (
+          await Result.tryPromise({
+            try: async () =>
+              (await Bun.file(caminho).stat()).mtime.toISOString(),
+            catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
+          })
+        ).unwrapOr(null)
+      : null;
 
     return Result.ok({
       key: DOMINIO,

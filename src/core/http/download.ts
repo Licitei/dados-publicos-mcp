@@ -31,9 +31,10 @@ export async function fetchWithRetry(
 ): Promise<ResultType<Response, HttpError>> {
   const timeoutMs = opts?.timeoutMs ?? defaultTimeoutMs;
   const retries = opts?.retries ?? defaultRetries;
-  let lastError: EvlogError = httpErrors.REDE({ url });
 
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  const attempt = async (
+    n: number
+  ): Promise<ResultType<Response, HttpError>> => {
     const attemptResult = await Result.tryPromise({
       try: () =>
         fetch(url, {
@@ -64,21 +65,19 @@ export async function fetchWithRetry(
 
       const statusError = httpErrors.STATUS({ url, status: response.status });
 
-      if (!retryableStatusCodes.has(response.status) || attempt === retries) {
+      if (!retryableStatusCodes.has(response.status) || n === retries) {
         return Result.err(statusError);
       }
-
-      lastError = statusError;
-    } else {
-      if (attempt === retries) return attemptResult;
-
-      lastError = attemptResult.error;
+    } else if (n === retries) {
+      return attemptResult;
     }
 
-    await sleep(Math.min(250 * 2 ** attempt, 3_000));
-  }
+    await Bun.sleep(Math.min(250 * 2 ** n, 3_000));
 
-  return Result.err(lastError);
+    return attempt(n + 1);
+  };
+
+  return attempt(0);
 }
 
 /** Baixa e faz o parse de JSON, devolvendo um Result. */
@@ -160,8 +159,4 @@ function withJsonHeaders(headers: HeadersInit | undefined): HeadersInit {
   if (!result.has("accept")) result.set("accept", "application/json");
 
   return result;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

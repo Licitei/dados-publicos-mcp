@@ -210,10 +210,7 @@ export const camaraDeputadosIndexAdapter: IndexAdapter = {
     const caminho = dbPath();
     const existe = Bun.file(caminho).size > 0;
 
-    let atualizadoEm: string | null = null;
-    let registros: number | null = null;
-
-    if (existe) {
+    const ler = (): { atualizadoEm: string | null; registros: number } => {
       const db = openDb(DOMINIO, DB_FILE);
 
       initDb(db);
@@ -222,17 +219,22 @@ export const camaraDeputadosIndexAdapter: IndexAdapter = {
         .query("SELECT valor FROM meta WHERE chave = 'atualizadoEm'")
         .get() as { valor: string } | null;
 
-      atualizadoEm = meta?.valor ?? null;
-
       const conta = (t: string) =>
         (db.query(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
 
-      registros =
-        conta("deputados") +
-        conta("despesas") +
-        conta("proposicoes") +
-        conta("proposicoes_autores");
-    }
+      return {
+        atualizadoEm: meta?.valor ?? null,
+        registros:
+          conta("deputados") +
+          conta("despesas") +
+          conta("proposicoes") +
+          conta("proposicoes_autores"),
+      };
+    };
+
+    const { atualizadoEm, registros } = existe
+      ? ler()
+      : { atualizadoEm: null, registros: null };
 
     return Result.ok({
       key: DOMINIO,

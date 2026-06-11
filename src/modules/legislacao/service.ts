@@ -71,19 +71,7 @@ export async function buscarLegislacao(
       return yield* Result.err(legislacaoErrors.INDICE_AUSENTE());
     }
 
-    let normaId: string | null = null;
-
-    if (input.norma) {
-      const norma = findNorma(input.norma);
-
-      if (!norma) {
-        return yield* Result.err(
-          legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma: input.norma })
-        );
-      }
-
-      normaId = norma.id;
-    }
+    const normaId = input.norma ? yield* resolverNormaId(input.norma) : null;
 
     const trechos = yield* consultarFts(
       normalize(input.termo),
@@ -154,6 +142,16 @@ export async function obterArtigo(
       })
     );
   });
+}
+
+function resolverNormaId(norma: string): ResultType<string, EvlogError> {
+  const encontrada = findNorma(norma);
+
+  if (!encontrada) {
+    return Result.err(legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma }));
+  }
+
+  return Result.ok(encontrada.id);
 }
 
 type RowBusca = { norma: string; indice: number; trecho: string };

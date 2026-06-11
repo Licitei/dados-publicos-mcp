@@ -118,13 +118,7 @@ export function parseCsv(
     rows.push(row);
   }
 
-  let result = rows;
-
-  if (options.hasHeader && result.length > 0) {
-    result = result.slice(1);
-  }
-
-  return result;
+  return options.hasHeader && rows.length > 0 ? rows.slice(1) : rows;
 }
 
 /**
@@ -143,20 +137,13 @@ export function parseCsvObjects(
     hasHeader: useOverride ? false : true,
   });
 
-  let header: string[];
-  let dataRows: string[][];
+  // No modo override o cabecalho e o informado; senao, reparseia sem remover
+  // a primeira linha (parseCsv com hasHeader:true ja a removeu de `rows`).
+  const header = useOverride
+    ? headerOverride
+    : (parseCsv(bytes, { ...opts, hasHeader: false })[0] ?? []);
 
-  if (useOverride) {
-    header = headerOverride;
-    dataRows = rows;
-  } else {
-    // parseCsv com hasHeader:true ja removeu o cabecalho; precisamos dele.
-    const full = parseCsv(bytes, { ...opts, hasHeader: false });
-    header = full[0] ?? [];
-    dataRows = rows;
-  }
-
-  return dataRows.map((cells) => {
+  return rows.map((cells) => {
     const record: Record<string, string> = {};
 
     for (let i = 0; i < header.length; i++) {

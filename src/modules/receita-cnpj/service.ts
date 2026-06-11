@@ -419,15 +419,14 @@ export function filtrarEmpresas(
     }
   }
 
-  let porteJoin = "";
-  if (filtro.porte) {
-    const codigo = porteCodigo(filtro.porte);
-    if (codigo) {
-      porteJoin = "JOIN empresas emp ON emp.cnpj_basico = est.cnpj_basico";
-      where.push("emp.porte_empresa = ?");
-      params.push(codigo);
-    }
+  const porteCod = filtro.porte ? porteCodigo(filtro.porte) : null;
+  if (porteCod) {
+    where.push("emp.porte_empresa = ?");
+    params.push(porteCod);
   }
+  const porteJoin = porteCod
+    ? "JOIN empresas emp ON emp.cnpj_basico = est.cnpj_basico"
+    : "";
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const rows = db

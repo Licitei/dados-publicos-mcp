@@ -136,9 +136,9 @@ export async function buildSubclasses(): Promise<
     method: "GET",
   });
 
-  if (Result.isError(fetched)) return Result.err(fetched.error);
-
-  return parseSubclasses(fetched.value, CNAE_SUBCLASSES_URL);
+  return fetched.andThen((data) =>
+    parseSubclasses(data, CNAE_SUBCLASSES_URL)
+  );
 }
 
 export const cnaeIndexAdapter: IndexAdapter & {
@@ -156,35 +156,31 @@ export const cnaeIndexAdapter: IndexAdapter & {
     const { recriarIndiceCnae } = await import("./store");
     const built = await recriarIndiceCnae();
 
-    if (Result.isError(built)) return Result.err(built.error);
+    return built.map((value) => {
+      opts?.onProgress?.(`Indice CNAE recriado: ${value.registros} subclasses.`);
 
-    opts?.onProgress?.(
-      `Indice CNAE recriado: ${built.value.registros} subclasses.`
-    );
-
-    return Result.ok({
-      dominio: CNAE_DOMINIO,
-      registros: built.value.registros,
-      atualizadoEm: built.value.atualizadoEm,
-      caminho: built.value.caminho,
-      detalhes: { fonte: "ibge-cnae-v2", arquivo: CNAE_INDEX_FILE },
+      return {
+        dominio: CNAE_DOMINIO,
+        registros: value.registros,
+        atualizadoEm: value.atualizadoEm,
+        caminho: value.caminho,
+        detalhes: { fonte: "ibge-cnae-v2", arquivo: CNAE_INDEX_FILE },
+      };
     });
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const { statusIndiceCnae } = await import("./store");
     const status = await statusIndiceCnae();
 
-    if (Result.isError(status)) return Result.err(status.error);
-
-    return Result.ok({
+    return status.map((value) => ({
       key: CNAE_KEY,
       titulo: CNAE_TITULO,
       storage: "memory",
       requiresHeavyDownload: false,
-      existe: status.value.existe,
-      atualizadoEm: status.value.atualizadoEm,
-      registros: status.value.registros || null,
-      caminho: status.value.caminho,
-    });
+      existe: value.existe,
+      atualizadoEm: value.atualizadoEm,
+      registros: value.registros || null,
+      caminho: value.caminho,
+    }));
   },
 };

@@ -73,10 +73,6 @@ const httpHeaders = {
 /** Pequeno delay entre paginas para nao throttlar o Azure Front Door. */
 const PAGE_DELAY_MS = 100;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * Pagina um endpoint ate esgotar paginasRestantes, chamando onPage para cada
  * lote. Retorna o total de registros processados.
@@ -127,7 +123,7 @@ async function paginate<T>(
     if (restantes <= 0 || rows.length === 0) break;
 
     pagina += 1;
-    await sleep(PAGE_DELAY_MS);
+    await Bun.sleep(PAGE_DELAY_MS);
   }
 
   return Result.ok(total);
@@ -146,70 +142,72 @@ async function build(
   createSchema(db);
   resetTables(db);
 
-  // 1. Hierarquia de material (leve).
-  const grupos = await paginate<RawCatmatGrupo>(
-    ENDPOINTS.catmatGrupo,
-    (rows) => insertCatmatGrupos(db, rows),
-    opts
-  );
+  return Result.gen(async function* () {
+    // 1. Hierarquia de material (leve).
+    const grupos = yield* Result.await(
+      paginate<RawCatmatGrupo>(
+        ENDPOINTS.catmatGrupo,
+        (rows) => insertCatmatGrupos(db, rows),
+        opts
+      )
+    );
 
-  if (Result.isError(grupos)) return Result.err(grupos.error);
+    const classes = yield* Result.await(
+      paginate<RawCatmatClasse>(
+        ENDPOINTS.catmatClasse,
+        (rows) => insertCatmatClasses(db, rows),
+        opts
+      )
+    );
 
-  const classes = await paginate<RawCatmatClasse>(
-    ENDPOINTS.catmatClasse,
-    (rows) => insertCatmatClasses(db, rows),
-    opts
-  );
+    const pdms = yield* Result.await(
+      paginate<RawCatmatPdm>(
+        ENDPOINTS.catmatPdm,
+        (rows) => insertCatmatPdms(db, rows),
+        opts
+      )
+    );
 
-  if (Result.isError(classes)) return Result.err(classes.error);
+    // 2. Itens de servico (CATSER, ~3 mil).
+    const servicos = yield* Result.await(
+      paginate<RawCatserItem>(
+        ENDPOINTS.catserItem,
+        (rows) => insertCatserItens(db, rows.map(mapCatserItem)),
+        opts
+      )
+    );
 
-  const pdms = await paginate<RawCatmatPdm>(
-    ENDPOINTS.catmatPdm,
-    (rows) => insertCatmatPdms(db, rows),
-    opts
-  );
+    // 3. Itens de material (CATMAT, ~342 mil; pesado mas a fonte e pequena).
+    const materiais = yield* Result.await(
+      paginate<RawCatmatItem>(
+        ENDPOINTS.catmatItem,
+        (rows) => insertCatmatItens(db, rows.map(mapCatmatItem)),
+        opts
+      )
+    );
 
-  if (Result.isError(pdms)) return Result.err(pdms.error);
+    rebuildFts(db);
 
-  // 2. Itens de servico (CATSER, ~3 mil).
-  const servicos = await paginate<RawCatserItem>(
-    ENDPOINTS.catserItem,
-    (rows) => insertCatserItens(db, rows.map(mapCatserItem)),
-    opts
-  );
+    const atualizadoEm = dayjs().toISOString();
+    const totalItens = materiais + servicos;
 
-  if (Result.isError(servicos)) return Result.err(servicos.error);
+    setMetadata(db, "atualizadoEm", atualizadoEm);
+    setMetadata(db, "catmatItens", String(materiais));
+    setMetadata(db, "catserItens", String(servicos));
 
-  // 3. Itens de material (CATMAT, ~342 mil; pesado mas a fonte e pequena).
-  const materiais = await paginate<RawCatmatItem>(
-    ENDPOINTS.catmatItem,
-    (rows) => insertCatmatItens(db, rows.map(mapCatmatItem)),
-    opts
-  );
-
-  if (Result.isError(materiais)) return Result.err(materiais.error);
-
-  rebuildFts(db);
-
-  const atualizadoEm = dayjs().toISOString();
-  const totalItens = materiais.value + servicos.value;
-
-  setMetadata(db, "atualizadoEm", atualizadoEm);
-  setMetadata(db, "catmatItens", String(materiais.value));
-  setMetadata(db, "catserItens", String(servicos.value));
-
-  return Result.ok({
-    dominio: DOMINIO,
-    registros: totalItens,
-    atualizadoEm,
-    caminho: dbPath(),
-    detalhes: {
-      catmatItens: materiais.value,
-      catserItens: servicos.value,
-      catmatGrupos: grupos.value,
-      catmatClasses: classes.value,
-      catmatPdms: pdms.value,
-    },
+    return Result.ok({
+      dominio: DOMINIO,
+      registros: totalItens,
+      atualizadoEm,
+      caminho: dbPath(),
+      detalhes: {
+        catmatItens: materiais,
+        catserItens: servicos,
+        catmatGrupos: grupos,
+        catmatClasses: classes,
+        catmatPdms: pdms,
+      },
+    });
   });
 }
 

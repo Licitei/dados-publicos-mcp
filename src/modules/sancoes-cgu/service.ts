@@ -114,26 +114,23 @@ export function buscarSancionadoPorNome(
   const termo = normalizeTermo(termoInput);
   const limit = clampLimite(limite);
 
-  let rows: SancaoResultado[] = [];
-
   const ftsQuery = toFtsQuery(termo);
 
-  if (ftsQuery) {
-    // MATCH com sintaxe invalida lanca; tratamos como "sem resultado FTS" e
-    // caimos no fallback LIKE abaixo.
-    const fts = consultarFts(db, ftsQuery, limit);
-
-    rows = Result.isOk(fts) ? fts.value : [];
-  }
+  // MATCH com sintaxe invalida lanca; tratamos como "sem resultado FTS" e
+  // caimos no fallback LIKE abaixo.
+  const ftsRows = ftsQuery
+    ? consultarFts(db, ftsQuery, limit).unwrapOr([])
+    : [];
 
   // Fallback LIKE quando o FTS nao retornou nada (ex.: termo muito curto).
-  if (rows.length === 0) {
-    rows = db
-      .query(
-        `SELECT ${SELECT_COLS} FROM sancao WHERE busca_texto LIKE ? LIMIT ?`
-      )
-      .all(`%${termo}%`, limit) as SancaoResultado[];
-  }
+  const rows =
+    ftsRows.length > 0
+      ? ftsRows
+      : (db
+          .query(
+            `SELECT ${SELECT_COLS} FROM sancao WHERE busca_texto LIKE ? LIMIT ?`
+          )
+          .all(`%${termo}%`, limit) as SancaoResultado[]);
 
   return { termo: termoInput, total: rows.length, sancoes: rows };
 }

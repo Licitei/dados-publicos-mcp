@@ -200,45 +200,48 @@ export function dueDiligenceCandidato(
   bens: unknown[];
   totalBensDeclarado: number;
 } {
-  let candidaturas: unknown[] = [];
   const anoFiltro = input.ano ? " AND ano_eleicao = ?" : "";
 
-  if (input.sqCandidato) {
-    const sql = `SELECT * FROM candidatos WHERE sq_candidato = ?${anoFiltro}
+  const candidaturas = ((): unknown[] => {
+    if (input.sqCandidato) {
+      const sql = `SELECT * FROM candidatos WHERE sq_candidato = ?${anoFiltro}
                  ORDER BY ano_eleicao DESC`;
-    const params = input.ano
-      ? [input.sqCandidato, input.ano]
-      : [input.sqCandidato];
+      const params = input.ano
+        ? [input.sqCandidato, input.ano]
+        : [input.sqCandidato];
 
-    candidaturas = db.query(sql).all(...(params as never[]));
-  } else if (input.cpf) {
-    const cpf = onlyDigits(input.cpf);
-    const sql = `SELECT * FROM candidatos WHERE cpf = ?${anoFiltro}
+      return db.query(sql).all(...(params as never[]));
+    }
+    if (input.cpf) {
+      const cpf = onlyDigits(input.cpf);
+      const sql = `SELECT * FROM candidatos WHERE cpf = ?${anoFiltro}
                  ORDER BY ano_eleicao DESC`;
-    const params = input.ano ? [cpf, input.ano] : [cpf];
+      const params = input.ano ? [cpf, input.ano] : [cpf];
 
-    candidaturas = db.query(sql).all(...(params as never[]));
-  }
+      return db.query(sql).all(...(params as never[]));
+    }
+
+    return [];
+  })();
 
   const sqs = candidaturas
     .map((c) => (c as { sq_candidato?: string }).sq_candidato)
     .filter((v): v is string => Boolean(v));
 
-  let bens: unknown[] = [];
-  let totalBensDeclarado = 0;
-
-  if (sqs.length > 0) {
-    const placeholders = sqs.map(() => "?").join(",");
-    const sql = `SELECT sq_candidato, ano_eleicao, ds_tipo_bem, ds_bem, vr_bem
-                 FROM bens WHERE sq_candidato IN (${placeholders})
-                 ORDER BY vr_bem DESC`;
-
-    bens = db.query(sql).all(...(sqs as never[]));
-    totalBensDeclarado = bens.reduce<number>(
-      (acc, b) => acc + ((b as { vr_bem?: number }).vr_bem ?? 0),
-      0
-    );
-  }
+  const bens =
+    sqs.length > 0
+      ? db
+          .query(
+            `SELECT sq_candidato, ano_eleicao, ds_tipo_bem, ds_bem, vr_bem
+                 FROM bens WHERE sq_candidato IN (${sqs.map(() => "?").join(",")})
+                 ORDER BY vr_bem DESC`
+          )
+          .all(...(sqs as never[]))
+      : [];
+  const totalBensDeclarado = bens.reduce<number>(
+    (acc, b) => acc + ((b as { vr_bem?: number }).vr_bem ?? 0),
+    0
+  );
 
   return { candidaturas, bens, totalBensDeclarado };
 }

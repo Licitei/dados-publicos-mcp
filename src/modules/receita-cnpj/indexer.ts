@@ -280,8 +280,10 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
         const csv = yield* Result.await(lerCsv(dest));
         yield* Result.try({
           try: () => {
-            let estabs = parseEstabelecimentos(csv);
-            if (ufsFiltro) estabs = estabs.filter((e) => ufsFiltro.includes(e.uf));
+            const parsed = parseEstabelecimentos(csv);
+            const estabs = ufsFiltro
+              ? parsed.filter((e) => ufsFiltro.includes(e.uf))
+              : parsed;
             insertEstabelecimentos(db, estabs);
           },
           catch: (cause): EvlogError =>

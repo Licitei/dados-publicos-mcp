@@ -166,37 +166,33 @@ function defaultAnos(): number[] {
  */
 export function resolveEscopo(scope?: Record<string, unknown>): Escopo {
   const anosRaw = scope?.anos;
-  let anos: number[];
 
-  if (Array.isArray(anosRaw)) {
-    anos = anosRaw.map(Number).filter((n) => Number.isFinite(n));
-  } else if (typeof anosRaw === "number") {
-    anos = [anosRaw];
-  } else if (typeof anosRaw === "string" && anosRaw.trim()) {
-    anos = anosRaw
-      .split(/[,\s]+/)
-      .map(Number)
-      .filter((n) => Number.isFinite(n));
-  } else {
-    // DEFAULT-2026: sem scope.anos -> apenas o ano corrente.
-    anos = defaultAnos();
-  }
+  const anosResolvidos = Array.isArray(anosRaw)
+    ? anosRaw.map(Number).filter((n) => Number.isFinite(n))
+    : typeof anosRaw === "number"
+      ? [anosRaw]
+      : typeof anosRaw === "string" && anosRaw.trim()
+        ? anosRaw
+            .split(/[,\s]+/)
+            .map(Number)
+            .filter((n) => Number.isFinite(n))
+        : // DEFAULT-2026: sem scope.anos -> apenas o ano corrente.
+          defaultAnos();
 
   // DEFAULT-2026: se sobrou vazio apos o filtro, cai no ano corrente.
-  if (anos.length === 0) anos = defaultAnos();
+  const anos = anosResolvidos.length === 0 ? defaultAnos() : anosResolvidos;
 
   const tiposRaw = scope?.tipos;
-  let tipos: DatasetTipo[];
 
-  if (Array.isArray(tiposRaw) && tiposRaw.length > 0) {
-    tipos = tiposRaw.filter((t): t is DatasetTipo =>
-      (TODOS_TIPOS as string[]).includes(String(t))
-    );
-  } else {
-    tipos = [...TODOS_TIPOS];
-  }
+  const tiposResolvidos =
+    Array.isArray(tiposRaw) && tiposRaw.length > 0
+      ? tiposRaw.filter((t): t is DatasetTipo =>
+          (TODOS_TIPOS as string[]).includes(String(t))
+        )
+      : [...TODOS_TIPOS];
 
-  if (tipos.length === 0) tipos = [...TODOS_TIPOS];
+  const tipos =
+    tiposResolvidos.length === 0 ? [...TODOS_TIPOS] : tiposResolvidos;
 
   return { anos, tipos };
 }

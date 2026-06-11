@@ -414,16 +414,9 @@ export function capagSerieHistorica(
 
     return consultar(() => {
       if (input.codIbge || input.nome) {
-        let cod = input.codIbge ? onlyDigits(input.codIbge).padStart(7, "0") : null;
-        let identity: MunRowDb | null = null;
-
-        if (!cod && input.nome) {
-          const resolved = queryMunicipioByNome(db, input.nome, input.uf);
-
-          if (!resolved) return null;
-
-          cod = resolved.cod_ibge;
-        }
+        const cod = input.codIbge
+          ? onlyDigits(input.codIbge).padStart(7, "0")
+          : queryMunicipioByNome(db, input.nome!, input.uf)?.cod_ibge ?? null;
 
         if (!cod) return null;
 
@@ -435,7 +428,7 @@ export function capagSerieHistorica(
 
         if (rows.length === 0) return null;
 
-        identity = rows[rows.length - 1];
+        const identity = rows[rows.length - 1];
 
         return {
           tipo: "municipio" as const,
@@ -525,13 +518,12 @@ export function resolverEntePorCnpj(
         };
       }
 
-      let capag: EnteCapag | null = null;
-
-      if (ente.esfera === "M") {
-        capag = queryMunicipioByCod(db, ente.cod_ibge);
-      } else if (ente.esfera === "E") {
-        capag = queryEstado(db, ente.uf);
-      }
+      const capag: EnteCapag | null =
+        ente.esfera === "M"
+          ? queryMunicipioByCod(db, ente.cod_ibge)
+          : ente.esfera === "E"
+            ? queryEstado(db, ente.uf)
+            : null;
 
       return {
         cnpj,

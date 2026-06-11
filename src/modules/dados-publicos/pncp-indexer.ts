@@ -132,7 +132,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
               totalContratacoes += mapped.length;
             }
           );
-          if (Result.isError(harvested)) return Result.err(harvested.error);
+          if (Result.isError(harvested)) return harvested;
         }
       }
     }
@@ -153,7 +153,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
           totalContratos += mapped.length;
         }
       );
-      if (Result.isError(harvested)) return Result.err(harvested.error);
+      if (Result.isError(harvested)) return harvested;
     }
 
     if (entidades.includes("atas")) {
@@ -172,7 +172,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
           totalAtas += mapped.length;
         }
       );
-      if (Result.isError(harvested)) return Result.err(harvested.error);
+      if (Result.isError(harvested)) return harvested;
     }
 
     const atualizadoEm = dayjs().toISOString();

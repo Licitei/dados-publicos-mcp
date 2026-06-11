@@ -288,11 +288,7 @@ function requireDb(): ResultType<Database, EvlogError> {
 }
 
 function comDb<T>(fn: (db: Database) => T): ResultType<T, EvlogError> {
-  const db = requireDb();
-
-  if (Result.isError(db)) return db;
-
-  return Result.ok(fn(db.value));
+  return requireDb().map(fn);
 }
 
 export function fornecedorCotaParlamentar(input: FornecedorCotaInput) {

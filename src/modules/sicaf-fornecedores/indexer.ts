@@ -47,11 +47,7 @@ export const sicafFornecedoresIndexAdapter: IndexAdapter = {
   storage: "sqlite",
   requiresHeavyDownload: false,
   async build(opts?: BuildOptions): Promise<ResultType<BuildSummary, AdapterError>> {
-    const built = await indexarSicaf(opts);
-
-    if (Result.isError(built)) return Result.err(built.error);
-
-    return Result.ok(built.value);
+    return indexarSicaf(opts);
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const status = await statusSicaf();
