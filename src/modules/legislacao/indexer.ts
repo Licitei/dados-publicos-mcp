@@ -1,31 +1,67 @@
 import * as cheerio from "cheerio";
-import { Result, TaggedError, type Result as ResultType } from "better-result";
+import { Result, type Result as ResultType } from "better-result";
+import type { EvlogError } from "evlog";
+import type {
+  AdapterError,
+  BuildSummary,
+  IndexAdapter,
+  StatusInfo,
+} from "../../core/adapter";
+import { fetchWithRetry as coreFetchWithRetry } from "../../core/http/download";
 import { normas } from "./catalog";
+import { legislacaoErrors } from "./errors";
 import type { DocumentoIndexado } from "./store";
 
-export class PlanaltoFetchError extends TaggedError("PlanaltoFetchError")<{
-  message: string;
-  url: string;
-}>() {}
-
-export class PlanaltoParseError extends TaggedError("PlanaltoParseError")<{
-  message: string;
-  url: string;
-}>() {}
-
-export type PlanaltoIndexError = PlanaltoFetchError | PlanaltoParseError;
-
-const retryableStatusCodes = new Set([408, 413, 429, 500, 502, 503, 504]);
 const planaltoUserAgent =
   "Mozilla/5.0 (compatible; dados-publicos-mcp/0.1.0; +https://github.com/Licitei/dados-publicos-mcp)";
 
-export const legislacaoIndexAdapter = {
-  name: "legislacao",
-  build: buildLegislacaoIndex,
+const titulo = "Legislacao brasileira (Planalto)";
+const storage = "sqlite" as const;
+
+export const legislacaoIndexAdapter: IndexAdapter & {
+  buildDocumentos: typeof buildLegislacaoIndex;
+} = {
+  key: "legislacao",
+  titulo,
+  storage,
+  requiresHeavyDownload: false,
+  buildDocumentos: buildLegislacaoIndex,
+  async build(): Promise<ResultType<BuildSummary, AdapterError>> {
+    // Import dinamico para evitar ciclo de inicializacao com store.ts.
+    const { recriarIndiceLocal } = await import("./store");
+    const built = await recriarIndiceLocal();
+
+    if (Result.isError(built)) return Result.err(built.error);
+
+    return Result.ok({
+      dominio: "legislacao",
+      registros: built.value.normasIndexadas.length,
+      atualizadoEm: built.value.atualizadoEm,
+      caminho: built.value.caminho,
+      detalhes: { normasIndexadas: built.value.normasIndexadas },
+    });
+  },
+  async status(): Promise<ResultType<StatusInfo, AdapterError>> {
+    const { statusIndiceLocal } = await import("./store");
+    const status = await statusIndiceLocal();
+
+    if (Result.isError(status)) return Result.err(status.error);
+
+    return Result.ok({
+      key: "legislacao",
+      titulo,
+      storage,
+      requiresHeavyDownload: false,
+      existe: status.value.existe,
+      atualizadoEm: status.value.atualizadoEm,
+      registros: status.value.normasIndexadas.length || null,
+      caminho: status.value.caminho,
+    });
+  },
 };
 
 async function buildLegislacaoIndex(): Promise<
-  ResultType<DocumentoIndexado[], PlanaltoIndexError>
+  ResultType<DocumentoIndexado[], EvlogError>
 > {
   const documentos: DocumentoIndexado[] = [];
 
@@ -47,58 +83,25 @@ async function buildLegislacaoIndex(): Promise<
   return Result.ok(documentos);
 }
 
-async function fetchNorma(
-  url: string
-): Promise<ResultType<string, PlanaltoFetchError>> {
+async function fetchNorma(url: string): Promise<ResultType<string, EvlogError>> {
   return Result.tryPromise({
     try: async () => {
-      const buffer = await fetchWithRetry(url);
-
-      return decodePlanaltalto(buffer);
-    },
-    catch: (cause) =>
-      new PlanaltoFetchError({
-        message: `Falha ao baixar fonte oficial do Planalto em ${url}: ${causeMessage(cause)}`,
-        url,
-      }),
-  });
-}
-
-async function fetchWithRetry(url: string) {
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= 3; attempt++) {
-    try {
-      const response = await fetch(url, {
+      const response = await coreFetchWithRetry(url, {
         headers: {
           "user-agent": planaltoUserAgent,
           accept: "text/html,application/xhtml+xml",
         },
-        signal: AbortSignal.timeout(30_000),
       });
+      const buffer = await response.arrayBuffer();
 
-      if (response.ok) return response.arrayBuffer();
-
-      const message = `HTTP ${response.status} ${response.statusText}`.trim();
-
-      if (!retryableStatusCodes.has(response.status) || attempt === 3) {
-        throw new Error(message);
-      }
-
-      lastError = new Error(message);
-    } catch (error) {
-      if (attempt === 3) throw error;
-
-      lastError = error;
-    }
-
-    await sleep(Math.min(250 * 2 ** attempt, 3_000));
-  }
-
-  throw lastError;
+      return decodePlanaltalto(buffer);
+    },
+    catch: (cause): EvlogError =>
+      legislacaoErrors.FONTE_DOWNLOAD({ url, internal: { cause: String(cause) } }),
+  });
 }
 
-function decodePlanaltalto(buffer: ArrayBuffer) {
+function decodePlanaltalto(buffer: ArrayBuffer): string {
   const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
 
   if (!utf8.includes("�")) return utf8;
@@ -109,18 +112,15 @@ function decodePlanaltalto(buffer: ArrayBuffer) {
 function parsePlanaltoHtml(
   html: string,
   url: string
-): ResultType<string[], PlanaltoParseError> {
+): ResultType<string[], EvlogError> {
   return Result.try({
     try: () => htmlToParagraphs(html),
-    catch: (cause) =>
-      new PlanaltoParseError({
-        message: `Falha ao parsear HTML do Planalto em ${url}: ${causeMessage(cause)}`,
-        url,
-      }),
+    catch: (cause): EvlogError =>
+      legislacaoErrors.FONTE_PARSE({ url, internal: { cause: String(cause) } }),
   });
 }
 
-export function htmlToParagraphs(html: string) {
+export function htmlToParagraphs(html: string): string[] {
   const $ = cheerio.load(html);
 
   $("script, style").remove();
@@ -135,14 +135,4 @@ export function htmlToParagraphs(html: string) {
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
-}
-
-function causeMessage(cause: unknown) {
-  if (typeof cause === "string") return cause;
-
-  return String(cause);
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

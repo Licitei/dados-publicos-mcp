@@ -3,3 +3,9 @@ node_modules
 *.log
 dist
 coverage
+
+# Indices locais gerados na maquina do usuario (nunca versionados)
+*.db
+*.db-shm
+*.db-wal
+.cache/

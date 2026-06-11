@@ -1,256 +1,239 @@
-import { mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { Result, TaggedError, type Result as ResultType } from "better-result";
+import type { Database } from "bun:sqlite";
+import { Result, type Result as ResultType } from "better-result";
 import dayjs from "dayjs";
+import type { EvlogError } from "evlog";
 import { z } from "zod";
+import { dominioPath } from "../../core/dataDir";
+import { normalize } from "../../core/normalize";
+import { batchInsert, dbExists, openDb } from "../../core/store/sqlite-store";
 import type { Norma } from "./catalog";
-import { legislacaoIndexAdapter, type PlanaltoIndexError } from "./indexer";
+import { legislacaoErrors as erros } from "./errors";
+import { legislacaoIndexAdapter } from "./indexer";
 
+const DOMINIO = "legislacao";
+const DB_FILE = "legislacao.db";
+
+export type StoreError = EvlogError;
+
+/** Documento bruto produzido pelo indexer (uma norma + seus paragrafos). */
 export type DocumentoIndexado = {
   norma: Norma;
   paragrafos: string[];
 };
 
-export type IndiceLegislacao = {
-  versao: 1;
-  criadoEm: string;
-  fonte: "planalto";
-  documentos: DocumentoIndexado[];
-};
+// ---- Schemas validados (as saidas do store passam por .parse) ----
 
-export class IndexReadError extends TaggedError("IndexReadError")<{
-  message: string;
-  path: string;
-}>() {}
-
-export class IndexWriteError extends TaggedError("IndexWriteError")<{
-  message: string;
-  path: string;
-}>() {}
-
-export type StoreError = IndexReadError | IndexWriteError | PlanaltoIndexError;
-
-type RuntimeState = {
-  indice: IndiceLegislacao | null;
-  indiceCarregado: boolean;
-  indexando: boolean;
-  erro: string | null;
-};
-
-const runtimeState: RuntimeState = {
-  indice: null,
-  indiceCarregado: false,
-  indexando: false,
-  erro: null,
-};
-
-const normaSchema: z.ZodType<Norma> = z
+export const statusLegislacaoSchema = z
   .object({
-    id: z.union([
-      z.literal("lei-14133-2021"),
-      z.literal("lei-8666-1993"),
-      z.literal("lei-13303-2016"),
-      z.literal("lc-123-2006"),
-      z.literal("decreto-11462-2023"),
-    ]),
-    titulo: z.string(),
-    apelidos: z.array(z.string()),
-    url: z.string(),
-    temas: z.array(z.string()),
+    caminho: z.string(),
+    existe: z.boolean(),
+    indexando: z.boolean(),
+    erro: z.string().nullable(),
+    atualizadoEm: z.string().nullable(),
+    normasIndexadas: z.array(z.string()),
   })
   .strict();
+export type StatusLegislacao = z.infer<typeof statusLegislacaoSchema>;
 
-const documentoIndexadoSchema: z.ZodType<DocumentoIndexado> = z
+export const recriarResultadoSchema = z
   .object({
-    norma: normaSchema,
-    paragrafos: z.array(z.string()),
+    caminho: z.string(),
+    atualizadoEm: z.string(),
+    normasIndexadas: z.array(z.string()),
   })
   .strict();
+export type RecriarResultado = z.infer<typeof recriarResultadoSchema>;
 
-const indiceLegislacaoSchema: z.ZodType<IndiceLegislacao> = z
-  .object({
-    versao: z.literal(1),
-    criadoEm: z.string(),
-    fonte: z.literal("planalto"),
-    documentos: z.array(documentoIndexadoSchema),
-  })
-  .strict();
+type RuntimeState = { indexando: boolean; erro: string | null };
+const runtimeState: RuntimeState = { indexando: false, erro: null };
 
-export function getIndexPath() {
-  return join(getDataDir(), "legislacao", "index.json");
+export function getIndexPath(): string {
+  return dominioPath(DOMINIO, DB_FILE);
 }
 
-function getDataDir() {
-  const configured = process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
-
-  if (configured) return configured;
-
-  const home = process.env.HOME;
-
-  if (!home) throw new Error("HOME nao definido; configure DADOS_PUBLICOS_MCP_DATA_DIR");
-
-  return join(home, ".local", "share", "dados-publicos-mcp");
+export function indiceExiste(): boolean {
+  return dbExists(DOMINIO, DB_FILE);
 }
 
-export async function loadIndex(): Promise<
-  ResultType<IndiceLegislacao | null, IndexReadError>
-> {
-  const path = getIndexPath();
+/** Abre o banco do dominio (cria o arquivo/diretorio se necessario). */
+export function abrirLeitura(): Database {
+  return openDb(DOMINIO, DB_FILE);
+}
 
-  const loaded = await Result.tryPromise({
-    try: async () => {
-      const file = Bun.file(path);
+const INSERT_NORMA =
+  "INSERT OR REPLACE INTO norma (id, titulo, url, apelidos, temas, total_paragrafos) VALUES (?, ?, ?, ?, ?, ?)";
+const INSERT_PARAGRAFO =
+  "INSERT INTO paragrafo (norma_id, idx, texto, texto_norm) VALUES (?, ?, ?, ?)";
 
-      if (!(await file.exists())) return null;
+/** Cria (idempotente) tabelas, indice secundario, FTS5 e meta. */
+export function createSchema(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS norma (
+      id TEXT PRIMARY KEY,
+      titulo TEXT NOT NULL,
+      url TEXT NOT NULL,
+      apelidos TEXT NOT NULL DEFAULT '[]',
+      temas TEXT NOT NULL DEFAULT '[]',
+      total_paragrafos INTEGER NOT NULL DEFAULT 0
+    );
 
-      return (await file.json()) as unknown;
-    },
-    catch: (cause) =>
-      new IndexReadError({
-        message: `Falha ao ler indice local em ${path}: ${causeMessage(cause)}`,
-        path,
-      }),
+    CREATE TABLE IF NOT EXISTS paragrafo (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      norma_id TEXT NOT NULL,
+      idx INTEGER NOT NULL,
+      texto TEXT NOT NULL,
+      texto_norm TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_paragrafo_norma ON paragrafo (norma_id, idx);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS paragrafo_fts USING fts5(
+      texto_norm,
+      content='paragrafo',
+      content_rowid='id',
+      tokenize='unicode61'
+    );
+
+    CREATE TABLE IF NOT EXISTS meta (chave TEXT PRIMARY KEY, valor TEXT);
+  `);
+}
+
+/** Substitui todo o conteudo do indice numa unica passada (snapshot completo). */
+export function gravarIndice(
+  db: Database,
+  documentos: DocumentoIndexado[],
+  criadoEm: string
+): void {
+  const limpar = db.transaction(() => {
+    db.exec("DELETE FROM paragrafo;");
+    db.exec("DELETE FROM norma;");
+    db.exec("INSERT INTO paragrafo_fts(paragrafo_fts) VALUES('delete-all');");
   });
+  limpar();
 
-  if (Result.isError(loaded)) return loaded;
-  if (!loaded.value) return Result.ok(null);
+  batchInsert(db, INSERT_NORMA, documentos, (doc) => [
+    doc.norma.id,
+    doc.norma.titulo,
+    doc.norma.url,
+    JSON.stringify(doc.norma.apelidos),
+    JSON.stringify(doc.norma.temas),
+    doc.paragrafos.length,
+  ]);
 
-  const parsed = indiceLegislacaoSchema.safeParse(loaded.value);
+  const paragrafos = documentos.flatMap((doc) =>
+    doc.paragrafos.map((texto, idx) => ({ norma_id: doc.norma.id, idx, texto }))
+  );
 
-  if (!parsed.success) {
-    return Result.err(
-      new IndexReadError({
-        message: `Indice local invalido em ${path}: ${parsed.error.issues
-          .map((issue) => issue.message)
-          .join("; ")}`,
-        path,
+  batchInsert(db, INSERT_PARAGRAFO, paragrafos, (row) => [
+    row.norma_id,
+    row.idx,
+    row.texto,
+    normalize(row.texto),
+  ]);
+
+  db.exec("INSERT INTO paragrafo_fts(paragrafo_fts) VALUES('rebuild');");
+  db.query("INSERT OR REPLACE INTO meta (chave, valor) VALUES ('criadoEm', ?)").run(
+    criadoEm
+  );
+}
+
+function lerMeta(db: Database, chave: string): string | null {
+  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as
+    | { valor: string }
+    | null;
+
+  return row?.valor ?? null;
+}
+
+function lerNormasIndexadas(db: Database): string[] {
+  const rows = db.query("SELECT id FROM norma ORDER BY id").all() as { id: string }[];
+
+  return rows.map((row) => row.id);
+}
+
+export async function statusIndiceLocal(): Promise<
+  ResultType<StatusLegislacao, StoreError>
+> {
+  if (!indiceExiste()) {
+    return Result.ok(
+      statusLegislacaoSchema.parse({
+        caminho: getIndexPath(),
+        existe: false,
+        indexando: runtimeState.indexando,
+        erro: runtimeState.erro,
+        atualizadoEm: null,
+        normasIndexadas: [],
       })
     );
   }
 
-  return Result.ok(parsed.data);
-}
+  return Result.try({
+    try: () => {
+      const db = abrirLeitura();
 
-export async function saveIndex(
-  indice: IndiceLegislacao
-): Promise<ResultType<string, IndexWriteError>> {
-  const path = getIndexPath();
-
-  return Result.tryPromise({
-    try: async () => {
-      await mkdir(dirname(path), { recursive: true });
-      await Bun.write(path, `${JSON.stringify(indice, null, 2)}\n`);
-
-      return path;
+      try {
+        return statusLegislacaoSchema.parse({
+          caminho: getIndexPath(),
+          existe: true,
+          indexando: runtimeState.indexando,
+          erro: runtimeState.erro,
+          atualizadoEm: lerMeta(db, "criadoEm"),
+          normasIndexadas: lerNormasIndexadas(db),
+        });
+      } finally {
+        db.close();
+      }
     },
-    catch: (cause) =>
-      new IndexWriteError({
-        message: `Falha ao salvar indice local em ${path}: ${causeMessage(cause)}`,
-        path,
-      }),
-  });
-}
-
-export async function getIndiceLocal() {
-  if (runtimeState.indiceCarregado) return Result.ok(runtimeState.indice);
-
-  const loaded = await loadIndex();
-
-  if (Result.isOk(loaded)) {
-    runtimeState.indice = loaded.value;
-    runtimeState.indiceCarregado = true;
-    runtimeState.erro = null;
-
-    return loaded;
-  }
-
-  runtimeState.indice = null;
-  runtimeState.indiceCarregado = false;
-  runtimeState.erro = loaded.error.message;
-
-  return loaded;
-}
-
-export async function statusIndiceLocal(): Promise<
-  ResultType<
-    {
-      caminho: string;
-      existe: boolean;
-      indexando: boolean;
-      erro: string | null;
-      atualizadoEm: string | null;
-      normasIndexadas: string[];
-    },
-    StoreError
-  >
-> {
-  const loaded = await getIndiceLocal();
-
-  if (Result.isError(loaded)) return loaded;
-
-  const indice = loaded.value;
-
-  return Result.ok({
-    caminho: getIndexPath(),
-    existe: Boolean(indice),
-    indexando: runtimeState.indexando,
-    erro: runtimeState.erro,
-    atualizadoEm: indice?.criadoEm ?? null,
-    normasIndexadas: indice?.documentos.map((documento) => documento.norma.id) ?? [],
+    catch: (cause): EvlogError =>
+      erros.LEITURA({ internal: { path: getIndexPath(), cause: String(cause) } }),
   });
 }
 
 export async function recriarIndiceLocal(): Promise<
-  ResultType<
-    {
-      caminho: string;
-      atualizadoEm: string;
-      normasIndexadas: string[];
-    },
-    StoreError
-  >
+  ResultType<RecriarResultado, StoreError>
 > {
   runtimeState.indexando = true;
   runtimeState.erro = null;
 
-  const built = await legislacaoIndexAdapter.build();
+  const resultado = await Result.gen(async function* () {
+    const documentos = yield* Result.await(legislacaoIndexAdapter.buildDocumentos());
+    const criadoEm = dayjs().toISOString();
 
-  if (Result.isError(built)) {
-    runtimeState.indexando = false;
-    runtimeState.erro = built.error.message;
+    yield* gravar(documentos, criadoEm);
 
-    return Result.err(built.error);
-  }
-
-  const indice: IndiceLegislacao = {
-    versao: 1,
-    criadoEm: dayjs().toISOString(),
-    fonte: "planalto",
-    documentos: built.value,
-  };
-  const saved = await saveIndex(indice);
-
-  if (Result.isOk(saved)) {
-    runtimeState.indice = indice;
-    runtimeState.indiceCarregado = true;
-    runtimeState.indexando = false;
-    runtimeState.erro = null;
-
-    return Result.ok({
-      caminho: saved.value,
-      atualizadoEm: indice.criadoEm,
-      normasIndexadas: indice.documentos.map((documento) => documento.norma.id),
-    });
-  }
+    return Result.ok(
+      recriarResultadoSchema.parse({
+        caminho: getIndexPath(),
+        atualizadoEm: criadoEm,
+        normasIndexadas: documentos.map((doc) => doc.norma.id),
+      })
+    );
+  });
 
   runtimeState.indexando = false;
-  runtimeState.erro = saved.error.message;
+  runtimeState.erro = Result.isError(resultado) ? resultado.error.message : null;
 
-  return saved;
+  return resultado;
 }
 
-function causeMessage(cause: unknown) {
-  if (typeof cause === "string") return cause;
+function gravar(
+  documentos: DocumentoIndexado[],
+  criadoEm: string
+): ResultType<true, EvlogError> {
+  return Result.try({
+    try: () => {
+      const db = abrirLeitura();
 
-  return String(cause);
+      try {
+        createSchema(db);
+        gravarIndice(db, documentos, criadoEm);
+
+        return true as const;
+      } finally {
+        db.close();
+      }
+    },
+    catch: (cause): EvlogError =>
+      erros.ESCRITA({ internal: { path: getIndexPath(), cause: String(cause) } }),
+  });
 }

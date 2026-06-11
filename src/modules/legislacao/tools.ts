@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Result, TaggedError } from "better-result";
+import { Result, panic, type Result as ResultType } from "better-result";
+import type { EvlogError } from "evlog";
 import { z } from "zod";
+import { legislacaoErrors } from "./errors";
 import {
   buscarLegislacao,
   listarNormas,
@@ -25,11 +27,6 @@ const obterArtigoInputSchema = z
     artigo: z.union([z.string().trim().min(1), z.number()]),
   })
   .strict();
-
-class ToolInputError extends TaggedError("ToolInputError")<{
-  message: string;
-  issues: string[];
-}>() {}
 
 export function registerLegislacaoTools(server: McpServer) {
   server.registerTool(
@@ -110,21 +107,22 @@ export async function callLegislacaoTool(name: string, args: unknown) {
     return Result.serialize(await recriarIndice());
   }
 
-  throw new Error(`Ferramenta de legislacao nao encontrada: ${name}`);
+  return panic(`Ferramenta de legislacao nao encontrada: ${name}`);
 }
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
   args: unknown
-): Result<z.infer<TSchema>, ToolInputError> {
+): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
   if (parsed.success) return Result.ok(parsed.data);
 
   return Result.err(
-    new ToolInputError({
-      message: "Entrada invalida para ferramenta de legislacao.",
-      issues: parsed.error.issues.map((issue) => issue.message),
+    legislacaoErrors.ENTRADA_INVALIDA({
+      internal: {
+        issues: parsed.error.issues.map((issue) => issue.message),
+      },
     })
   );
 }

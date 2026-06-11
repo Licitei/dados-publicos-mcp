@@ -1,44 +1,46 @@
-import { Result, TaggedError, type Result as ResultType } from "better-result";
-import { findNorma, normas, normalize } from "./catalog";
+import type { Database, SQLQueryBindings } from "bun:sqlite";
+import { Result, type Result as ResultType } from "better-result";
+import type { EvlogError } from "evlog";
+import { z } from "zod";
+import { findNorma, normalize, normas } from "./catalog";
+import { legislacaoErrors } from "./errors";
 import {
-  getIndiceLocal,
+  abrirLeitura,
+  indiceExiste,
   recriarIndiceLocal,
   statusIndiceLocal,
-  type StoreError,
 } from "./store";
-import { getIndexPath, type IndiceLegislacao } from "./store";
 
-class IndexNotFoundError extends TaggedError("IndexNotFoundError")<{
-  message: string;
-  path: string;
-}>() {}
+const metaPorId = new Map(normas.map((norma) => [norma.id, norma]));
 
-class NormaNotFoundError extends TaggedError("NormaNotFoundError")<{
-  message: string;
-  norma: string;
-}>() {}
+// ---- Schemas validados das saidas ----
 
-class NormaNotIndexedError extends TaggedError("NormaNotIndexedError")<{
-  message: string;
-  norma: string;
-}>() {}
+export const trechoSchema = z
+  .object({
+    norma: z.string(),
+    titulo: z.string(),
+    trecho: z.string(),
+    indice: z.number().int().nonnegative(),
+    url: z.string(),
+  })
+  .strict();
+export type Trecho = z.infer<typeof trechoSchema>;
+const buscaResultadoSchema = z.array(trechoSchema);
 
-type LegislacaoError =
-  | StoreError
-  | IndexNotFoundError
-  | NormaNotFoundError
-  | NormaNotIndexedError;
+export const artigoSchema = z
+  .object({
+    norma: z.string(),
+    titulo: z.string(),
+    artigo: z.string(),
+    encontrado: z.boolean(),
+    texto: z.string().nullable(),
+    url: z.string(),
+  })
+  .strict();
+export type Artigo = z.infer<typeof artigoSchema>;
 
-type SearchInput = {
-  termo: string;
-  norma?: string;
-  limite?: number;
-};
-
-type ArtigoInput = {
-  norma: string;
-  artigo: string | number;
-};
+type SearchInput = { termo: string; norma?: string; limite?: number };
+type ArtigoInput = { norma: string; artigo: string | number };
 
 export function listarNormas() {
   return normas.map((norma) => ({
@@ -60,153 +62,203 @@ export async function recriarIndice() {
 
 export async function buscarLegislacao(
   input: SearchInput
-): Promise<
-  ResultType<
-    {
-      norma: string;
-      titulo: string;
-      trecho: string;
-      indice: number;
-      url: string;
-    }[],
-    LegislacaoError
-  >
-> {
-  const indice = await requireIndex();
-
-  if (Result.isError(indice)) return indice;
-
-  const termo = normalize(input.termo);
-  const limite = Math.min(input.limite ?? 8, 25);
-  const norma = input.norma ? resolveNorma(input.norma) : null;
-
-  if (norma && Result.isError(norma)) return norma;
-
-  const normaFiltro = norma?.value.id ?? null;
-  const resultados = [];
-
-  for (const documento of indice.value.documentos) {
-    if (normaFiltro && documento.norma.id !== normaFiltro) continue;
-
-    for (const [index, paragrafo] of documento.paragrafos.entries()) {
-      if (!normalize(paragrafo).includes(termo)) continue;
-
-      resultados.push({
-        norma: documento.norma.id,
-        titulo: documento.norma.titulo,
-        trecho: paragrafo,
-        indice: index,
-        url: documento.norma.url,
-      });
-
-      if (resultados.length >= limite) return Result.ok(resultados);
+): Promise<ResultType<Trecho[], EvlogError>> {
+  return Result.gen(function* () {
+    if (!indiceExiste()) {
+      return yield* Result.err(legislacaoErrors.INDICE_AUSENTE());
     }
-  }
 
-  return Result.ok(resultados);
-}
+    let normaId: string | null = null;
 
-export async function obterArtigo(input: ArtigoInput) {
-  const indice = await requireIndex();
+    if (input.norma) {
+      const norma = findNorma(input.norma);
 
-  if (Result.isError(indice)) return indice;
+      if (!norma) {
+        return yield* Result.err(
+          legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma: input.norma })
+        );
+      }
 
-  const norma = resolveNorma(input.norma);
+      normaId = norma.id;
+    }
 
-  if (Result.isError(norma)) return norma;
-
-  const documento = indice.value.documentos.find(
-    (item) => item.norma.id === norma.value.id
-  );
-
-  if (!documento) {
-    return Result.err(
-      new NormaNotIndexedError({
-        message: `Norma nao indexada: ${norma.value.id}`,
-        norma: norma.value.id,
-      })
+    const trechos = yield* consultarFts(
+      normalize(input.termo),
+      normaId,
+      clampLimite(input.limite)
     );
-  }
 
-  const artigo = String(input.artigo).replace(/^art\.?\s*/i, "");
-  const start = findArticleStart(documento.paragrafos, artigo);
-
-  if (start === -1) {
-    return Result.ok({
-      norma: norma.value.id,
-      titulo: norma.value.titulo,
-      artigo,
-      encontrado: false,
-      url: norma.value.url,
-    });
-  }
-
-  const trechos = [];
-
-  for (let index = start; index < documento.paragrafos.length; index++) {
-    if (index > start && isArticleStart(documento.paragrafos, index)) {
-      break;
-    }
-
-    trechos.push(documento.paragrafos[index]);
-  }
-
-  return Result.ok({
-    norma: norma.value.id,
-    titulo: norma.value.titulo,
-    artigo,
-    encontrado: true,
-    texto: trechos.join("\n"),
-    url: norma.value.url,
+    return Result.ok(trechos);
   });
 }
 
-function resolveNorma(id: string): ResultType<
-  (typeof normas)[number],
-  NormaNotFoundError
-> {
-  const norma = findNorma(id);
+export async function obterArtigo(
+  input: ArtigoInput
+): Promise<ResultType<Artigo, EvlogError>> {
+  return Result.gen(function* () {
+    const norma = findNorma(input.norma);
 
-  if (!norma) {
-    return Result.err(
-      new NormaNotFoundError({
-        message: `Norma nao encontrada: ${id}`,
-        norma: id,
+    if (!norma) {
+      return yield* Result.err(
+        legislacaoErrors.NORMA_NAO_ENCONTRADA({ norma: input.norma })
+      );
+    }
+
+    if (!indiceExiste()) {
+      return yield* Result.err(legislacaoErrors.INDICE_AUSENTE());
+    }
+
+    const paragrafos = yield* lerParagrafos(norma.id);
+
+    if (paragrafos.length === 0) {
+      return yield* Result.err(
+        legislacaoErrors.NORMA_NAO_INDEXADA({ norma: norma.id })
+      );
+    }
+
+    const artigo = String(input.artigo).replace(/^art\.?\s*/i, "");
+    const start = findArticleStart(paragrafos, artigo);
+
+    if (start === -1) {
+      return Result.ok(
+        artigoSchema.parse({
+          norma: norma.id,
+          titulo: norma.titulo,
+          artigo,
+          encontrado: false,
+          texto: null,
+          url: norma.url,
+        })
+      );
+    }
+
+    const trechos: string[] = [];
+
+    for (let index = start; index < paragrafos.length; index++) {
+      if (index > start && isArticleStart(paragrafos, index)) break;
+
+      trechos.push(paragrafos[index] ?? "");
+    }
+
+    return Result.ok(
+      artigoSchema.parse({
+        norma: norma.id,
+        titulo: norma.titulo,
+        artigo,
+        encontrado: true,
+        texto: trechos.join("\n"),
+        url: norma.url,
       })
     );
-  }
-
-  return Result.ok(norma);
+  });
 }
 
-async function requireIndex(): Promise<ResultType<IndiceLegislacao, LegislacaoError>> {
-  const indice = await getIndiceLocal();
+type RowBusca = { norma: string; indice: number; trecho: string };
 
-  if (Result.isError(indice)) return indice;
+function consultarFts(
+  termoNorm: string,
+  normaId: string | null,
+  limite: number
+): ResultType<Trecho[], EvlogError> {
+  const fts = toFtsQuery(termoNorm);
 
-  if (!indice.value) {
-    return Result.err(
-      new IndexNotFoundError({
-        message: `Indice local nao encontrado. Rode "bun run index" ou chame a ferramenta indexar_legislacao. Caminho esperado: ${getIndexPath()}`,
-        path: getIndexPath(),
-      })
-    );
-  }
+  if (!fts) return Result.ok([]);
 
-  return Result.ok(indice.value);
+  return Result.try({
+    try: () => {
+      const db = abrirLeitura();
+
+      try {
+        const params: SQLQueryBindings[] = [fts];
+        let sql =
+          "SELECT p.norma_id AS norma, p.idx AS indice, p.texto AS trecho " +
+          "FROM paragrafo_fts JOIN paragrafo p ON p.id = paragrafo_fts.rowid " +
+          "WHERE paragrafo_fts MATCH ?";
+
+        if (normaId) {
+          sql += " AND p.norma_id = ?";
+          params.push(normaId);
+        }
+
+        sql += " ORDER BY bm25(paragrafo_fts) LIMIT ?";
+        params.push(limite);
+
+        const rows = db.query(sql).all(...params) as RowBusca[];
+
+        return buscaResultadoSchema.parse(rows.map(toTrecho));
+      } finally {
+        db.close();
+      }
+    },
+    catch: (cause): EvlogError =>
+      legislacaoErrors.BUSCA({ internal: { cause: String(cause) } }),
+  });
 }
 
-function escapeRegExp(value: string) {
+function lerParagrafos(normaId: string): ResultType<string[], EvlogError> {
+  return Result.try({
+    try: () => {
+      const db = abrirLeitura();
+
+      try {
+        const rows = db
+          .query("SELECT texto FROM paragrafo WHERE norma_id = ? ORDER BY idx")
+          .all(normaId) as { texto: string }[];
+
+        return rows.map((row) => row.texto);
+      } finally {
+        db.close();
+      }
+    },
+    catch: (cause): EvlogError =>
+      legislacaoErrors.BUSCA({ internal: { cause: String(cause) } }),
+  });
+}
+
+function toTrecho(row: RowBusca): Trecho {
+  const norma = metaPorId.get(row.norma);
+
+  return {
+    norma: row.norma,
+    titulo: norma?.titulo ?? row.norma,
+    trecho: row.trecho,
+    indice: row.indice,
+    url: norma?.url ?? "",
+  };
+}
+
+/** Converte um termo normalizado em query FTS5 segura (cada palavra como prefixo). */
+function toFtsQuery(termoNorm: string): string {
+  const tokens = termoNorm
+    .split(/[^\p{Letter}\p{Number}]+/u)
+    .filter((token) => token.length >= 2);
+
+  if (tokens.length === 0) return "";
+
+  return tokens.map((token) => `"${token}"*`).join(" ");
+}
+
+function clampLimite(limite?: number): number {
+  if (limite === undefined || !Number.isFinite(limite) || limite <= 0) return 8;
+
+  return Math.min(Math.floor(limite), 25);
+}
+
+function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function findArticleStart(paragrafos: string[], artigo: string) {
+function findArticleStart(paragrafos: string[], artigo: string): number {
   return paragrafos.findIndex((_, index) =>
     isArticleStart(paragrafos, index, artigo)
   );
 }
 
-function isArticleStart(paragrafos: string[], index: number, artigo?: string) {
+function isArticleStart(
+  paragrafos: string[],
+  index: number,
+  artigo?: string
+): boolean {
   const current = paragrafos[index]?.trim() ?? "";
   const next = paragrafos[index + 1]?.trim() ?? "";
 
@@ -221,7 +273,7 @@ function isArticleStart(paragrafos: string[], index: number, artigo?: string) {
   return startsWithArticleNumber(next, artigo);
 }
 
-function startsWithArticleNumber(value: string, artigo?: string) {
+function startsWithArticleNumber(value: string, artigo?: string): boolean {
   if (!value) return false;
 
   const number = artigo ? escapeRegExp(artigo) : "\\d+";
