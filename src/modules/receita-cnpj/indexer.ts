@@ -10,8 +10,6 @@
  * este arquivo cuida de I/O (rede + disco) e orquestracao.
  */
 
-import { existsSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import type {
@@ -24,7 +22,7 @@ import type {
 import { fetchWithRetry } from "../../core/http/download";
 import { dominioDir, dominioPath } from "../../core/dataDir";
 import { unzipFirst } from "../../core/parse/zip";
-import { openDb, countRows } from "../../core/store/sqlite-store";
+import { openDb, openReadonly, countRows } from "../../core/store/sqlite-store";
 import {
   DOMINIO_FILES,
   RECEITA_CNPJ_KEY,
@@ -54,9 +52,6 @@ import {
 } from "./mappers";
 import { DB_FILE, dbPath } from "./service";
 
-/** Canal de erro recuperavel do indexer (catalogo evlog). */
-export type ReceitaCnpjIndexError = EvlogError;
-
 type Scope = {
   /** Pasta mensal YYYY-MM. Default: a mais recente descoberta via PROPFIND. */
   mes?: string;
@@ -77,19 +72,28 @@ type Scope = {
 export async function listarPastasMensais(): Promise<
   ResultType<string[], EvlogError>
 > {
-  return Result.tryPromise({
-    try: async () => {
-      const response = await fetchWithRetry(RFB_WEBDAV, {
-        method: "PROPFIND",
-        headers: {
-          authorization: rfbAuthHeader(),
-          depth: "1",
-          "content-type": "application/xml",
-        },
-      });
-      const xml = await response.text();
-      return extrairPastasMensais(xml);
+  const fetched = await fetchWithRetry(RFB_WEBDAV, {
+    method: "PROPFIND",
+    headers: {
+      authorization: rfbAuthHeader(),
+      depth: "1",
+      "content-type": "application/xml",
     },
+  });
+
+  if (Result.isError(fetched)) {
+    return Result.err(
+      receitaCnpjErrors.FETCH({
+        url: RFB_WEBDAV,
+        internal: { cause: fetched.error.message },
+      })
+    );
+  }
+
+  const response = fetched.value;
+
+  return Result.tryPromise({
+    try: async () => extrairPastasMensais(await response.text()),
     catch: (cause): EvlogError =>
       receitaCnpjErrors.FETCH({
         url: RFB_WEBDAV,
@@ -132,52 +136,35 @@ async function baixarArquivo(
   return downloadToFileAuth(url, dest);
 }
 
-/** Tamanho atual de um arquivo (0 se ainda nao existir) — sem lancar. */
-function tamanhoAtual(dest: string): number {
-  return existsSync(dest) ? statSync(dest).size : 0;
-}
-
 /**
  * downloadToFile do core nao expoe headers; o share exige Basic auth.
- * Implementamos download por streaming com o Authorization header e suporte
- * a Range/206 (resumivel): se ja existe um arquivo parcial, pede o restante.
+ * Implementamos download por streaming com o Authorization header.
  */
 async function downloadToFileAuth(
   url: string,
   dest: string
 ): Promise<ResultType<string, EvlogError>> {
+  const headers: Record<string, string> = {
+    authorization: rfbAuthHeader(),
+    "user-agent": userAgent,
+  };
+
+  const fetched = await fetchWithRetry(url, { headers });
+
+  if (Result.isError(fetched)) {
+    return Result.err(
+      receitaCnpjErrors.FETCH({ url, internal: { cause: fetched.error.message } })
+    );
+  }
+
+  const response = fetched.value;
+
   return Result.tryPromise({
     try: async () => {
-      const { mkdir, open } = await import("node:fs/promises");
+      const { mkdir } = await import("node:fs/promises");
       const { dirname } = await import("node:path");
       await mkdir(dirname(dest), { recursive: true });
-
-      const existing = tamanhoAtual(dest);
-
-      const headers: Record<string, string> = {
-        authorization: rfbAuthHeader(),
-        "user-agent": userAgent,
-      };
-      if (existing > 0) headers.range = `bytes=${existing}-`;
-
-      const response = await fetchWithRetry(url, { headers });
-      const append = response.status === 206 && existing > 0;
-      const handle = await open(dest, append ? "a" : "w");
-      try {
-        const body = response.body;
-        if (!body) {
-          await handle.write(new Uint8Array(await response.arrayBuffer()));
-        } else {
-          const reader = body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) await handle.write(value);
-          }
-        }
-      } finally {
-        await handle.close();
-      }
+      await Bun.write(dest, response);
       return dest;
     },
     catch: (cause): EvlogError =>
@@ -192,7 +179,7 @@ async function downloadToFileAuth(
 function lerCsv(zipPath: string): Promise<ResultType<Uint8Array, EvlogError>> {
   return Result.tryPromise({
     try: async () => {
-      const zipBytes = await readFile(zipPath);
+      const zipBytes = await Bun.file(zipPath).arrayBuffer();
       return unzipFirst(zipBytes);
     },
     catch: (cause): EvlogError =>
@@ -350,29 +337,26 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
       return Result.ok(summary);
     });
 
-    db.close();
-
     return indexado;
   },
 
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const caminho = dbPath();
-    const existe = existsSync(caminho);
+    const existe = Bun.file(caminho).size > 0;
     let registros: number | null = null;
     let atualizadoEm: string | null = null;
 
     if (existe) {
-      const db = openDb(RECEITA_CNPJ_KEY, DB_FILE);
+      const db = openReadonly(RECEITA_CNPJ_KEY, DB_FILE);
       const contados = Result.try({
         try: () => countRows(db, "estabelecimentos"),
         catch: (cause): EvlogError =>
           receitaCnpjErrors.PARSE({ file: DB_FILE, internal: { cause: String(cause) } }),
       });
-      db.close();
       registros = Result.isOk(contados) ? contados.value : null;
 
-      const mtime = Result.try({
-        try: () => statSync(caminho).mtime.toISOString(),
+      const mtime = await Result.tryPromise({
+        try: async () => (await Bun.file(caminho).stat()).mtime.toISOString(),
         catch: (cause): EvlogError =>
           receitaCnpjErrors.PARSE({ file: caminho, internal: { cause: String(cause) } }),
       });

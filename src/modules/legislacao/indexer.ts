@@ -84,18 +84,26 @@ async function buildLegislacaoIndex(): Promise<
 }
 
 async function fetchNorma(url: string): Promise<ResultType<string, EvlogError>> {
-  return Result.tryPromise({
-    try: async () => {
-      const response = await coreFetchWithRetry(url, {
-        headers: {
-          "user-agent": planaltoUserAgent,
-          accept: "text/html,application/xhtml+xml",
-        },
-      });
-      const buffer = await response.arrayBuffer();
-
-      return decodePlanaltalto(buffer);
+  const fetched = await coreFetchWithRetry(url, {
+    headers: {
+      "user-agent": planaltoUserAgent,
+      accept: "text/html,application/xhtml+xml",
     },
+  });
+
+  if (Result.isError(fetched)) {
+    return Result.err(
+      legislacaoErrors.FONTE_DOWNLOAD({
+        url,
+        internal: { cause: fetched.error.message },
+      })
+    );
+  }
+
+  const response = fetched.value;
+
+  return Result.tryPromise({
+    try: async () => decodePlanaltalto(await response.arrayBuffer()),
     catch: (cause): EvlogError =>
       legislacaoErrors.FONTE_DOWNLOAD({ url, internal: { cause: String(cause) } }),
   });

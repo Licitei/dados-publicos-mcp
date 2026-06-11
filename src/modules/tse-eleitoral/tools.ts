@@ -136,11 +136,7 @@ function runQuery<T>(fn: (db: import("bun:sqlite").Database) => T) {
 
   const db = opened.value;
 
-  try {
-    return Result.serialize(Result.ok(fn(db)));
-  } finally {
-    db.close();
-  }
+  return Result.serialize(Result.ok(fn(db)));
 }
 
 function parseToolInput<TSchema extends z.ZodType>(

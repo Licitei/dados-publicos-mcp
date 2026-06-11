@@ -2,14 +2,17 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import { z } from "zod";
+import { openReadonly } from "../../core/store/sqlite-store";
 import { findNorma, normalize, normas } from "./catalog";
 import { legislacaoErrors } from "./errors";
 import {
-  abrirLeitura,
   indiceExiste,
   recriarIndiceLocal,
   statusIndiceLocal,
 } from "./store";
+
+const DOMINIO = "legislacao";
+const DB_FILE = "legislacao.db";
 
 const metaPorId = new Map(normas.map((norma) => [norma.id, norma]));
 
@@ -166,29 +169,25 @@ function consultarFts(
 
   return Result.try({
     try: () => {
-      const db = abrirLeitura();
+      const db = openReadonly(DOMINIO, DB_FILE);
 
-      try {
-        const params: SQLQueryBindings[] = [fts];
-        let sql =
-          "SELECT p.norma_id AS norma, p.idx AS indice, p.texto AS trecho " +
-          "FROM paragrafo_fts JOIN paragrafo p ON p.id = paragrafo_fts.rowid " +
-          "WHERE paragrafo_fts MATCH ?";
+      const params: SQLQueryBindings[] = [fts];
+      let sql =
+        "SELECT p.norma_id AS norma, p.idx AS indice, p.texto AS trecho " +
+        "FROM paragrafo_fts JOIN paragrafo p ON p.id = paragrafo_fts.rowid " +
+        "WHERE paragrafo_fts MATCH ?";
 
-        if (normaId) {
-          sql += " AND p.norma_id = ?";
-          params.push(normaId);
-        }
-
-        sql += " ORDER BY bm25(paragrafo_fts) LIMIT ?";
-        params.push(limite);
-
-        const rows = db.query(sql).all(...params) as RowBusca[];
-
-        return buscaResultadoSchema.parse(rows.map(toTrecho));
-      } finally {
-        db.close();
+      if (normaId) {
+        sql += " AND p.norma_id = ?";
+        params.push(normaId);
       }
+
+      sql += " ORDER BY bm25(paragrafo_fts) LIMIT ?";
+      params.push(limite);
+
+      const rows = db.query(sql).all(...params) as RowBusca[];
+
+      return buscaResultadoSchema.parse(rows.map(toTrecho));
     },
     catch: (cause): EvlogError =>
       legislacaoErrors.BUSCA({ internal: { cause: String(cause) } }),
@@ -198,17 +197,13 @@ function consultarFts(
 function lerParagrafos(normaId: string): ResultType<string[], EvlogError> {
   return Result.try({
     try: () => {
-      const db = abrirLeitura();
+      const db = openReadonly(DOMINIO, DB_FILE);
 
-      try {
-        const rows = db
-          .query("SELECT texto FROM paragrafo WHERE norma_id = ? ORDER BY idx")
-          .all(normaId) as { texto: string }[];
+      const rows = db
+        .query("SELECT texto FROM paragrafo WHERE norma_id = ? ORDER BY idx")
+        .all(normaId) as { texto: string }[];
 
-        return rows.map((row) => row.texto);
-      } finally {
-        db.close();
-      }
+      return rows.map((row) => row.texto);
     },
     catch: (cause): EvlogError =>
       legislacaoErrors.BUSCA({ internal: { cause: String(cause) } }),

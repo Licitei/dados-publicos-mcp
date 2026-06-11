@@ -7,6 +7,7 @@ import { cac } from "cac";
 import type { BuildOptions } from "./core/adapter";
 import { getAdapter, listAdapters } from "./core/registry";
 import { registerStatusTool } from "./core/status";
+import { closeAllDbs } from "./core/store/sqlite-store";
 import { registerCamaraDeputadosTools } from "./modules/camara-deputados/tools";
 import { registerCapagTools } from "./modules/capag/tools";
 import { registerCatmatCatserTools } from "./modules/catmat-catser/tools";
@@ -22,6 +23,9 @@ import { registerReceitaCnpjTools } from "./modules/receita-cnpj/tools";
 import { registerSancoesCguTools } from "./modules/sancoes-cgu/tools";
 import { registerSicafFornecedoresTools } from "./modules/sicaf-fornecedores/tools";
 import { registerTseEleitoralTools } from "./modules/tse-eleitoral/tools";
+
+// Singleton de DBs: fecha tudo no fim do processo (unico ponto de close).
+process.on("exit", () => closeAllDbs());
 
 const cli = cac("dados-publicos-mcp");
 

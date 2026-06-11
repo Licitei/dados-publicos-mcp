@@ -54,7 +54,7 @@ export const sicafFornecedoresIndexAdapter: IndexAdapter = {
     return Result.ok(built.value);
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
-    const status = statusSicaf();
+    const status = await statusSicaf();
 
     return Result.ok({
       key: KEY,
@@ -121,57 +121,51 @@ export async function indexarSicaf(
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    createSchema(db);
-    resetTable(db);
+  createSchema(db);
+  resetTable(db);
 
-    for (const ativo of ATIVO_VALUES) {
-      let pagina = 1;
-      let totalPaginas = Infinity;
+  for (const ativo of ATIVO_VALUES) {
+    let pagina = 1;
+    let totalPaginas = Infinity;
 
-      while (pagina <= totalPaginas && pagina <= maxPaginas) {
-        const page = await fetchPage({ pagina, ativo, tamanhoPagina });
+    while (pagina <= totalPaginas && pagina <= maxPaginas) {
+      const page = await fetchPage({ pagina, ativo, tamanhoPagina });
 
-        if (Result.isError(page)) {
-          db.close();
-
-          return Result.err(page.error);
-        }
-
-        if (Number.isFinite(page.value.totalPaginas)) {
-          totalPaginas = page.value.totalPaginas;
-        }
-
-        const records = page.value.resultado.map(mapFornecedor);
-
-        insertFornecedores(db, records);
-
-        onProgress?.(
-          `SICAF ativo=${ativo} pagina ${pagina}/${
-            Number.isFinite(totalPaginas) ? totalPaginas : "?"
-          } (+${records.length})`
-        );
-
-        if (records.length === 0) break;
-
-        pagina += 1;
+      if (Result.isError(page)) {
+        return Result.err(page.error);
       }
+
+      if (Number.isFinite(page.value.totalPaginas)) {
+        totalPaginas = page.value.totalPaginas;
+      }
+
+      const records = page.value.resultado.map(mapFornecedor);
+
+      insertFornecedores(db, records);
+
+      onProgress?.(
+        `SICAF ativo=${ativo} pagina ${pagina}/${
+          Number.isFinite(totalPaginas) ? totalPaginas : "?"
+        } (+${records.length})`
+      );
+
+      if (records.length === 0) break;
+
+      pagina += 1;
     }
-
-    const registros = totalFornecedores(db);
-    const atualizadoEm = dayjs().toISOString();
-    const caminho = db.filename;
-
-    return Result.ok({
-      dominio: DOMINIO,
-      registros,
-      atualizadoEm,
-      caminho,
-      detalhes: { tamanhoPagina },
-    });
-  } finally {
-    db.close();
   }
+
+  const registros = totalFornecedores(db);
+  const atualizadoEm = dayjs().toISOString();
+  const caminho = db.filename;
+
+  return Result.ok({
+    dominio: DOMINIO,
+    registros,
+    atualizadoEm,
+    caminho,
+    detalhes: { tamanhoPagina },
+  });
 }
 
 function clampScopeNumber(value: unknown, fallback: number): number {

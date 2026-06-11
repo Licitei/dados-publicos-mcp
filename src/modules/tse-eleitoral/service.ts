@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import { dominioPath } from "../../core/dataDir";
@@ -8,9 +7,6 @@ import { openDb } from "../../core/store/sqlite-store";
 import { KEY } from "./catalog";
 import { tseEleitoralErrors } from "./errors";
 import { DB_FILE } from "./store";
-
-/** Canal de erro do service: EvlogError do catalogo tse-eleitoral. */
-export type ServiceError = EvlogError;
 
 function dbPath(): string {
   return dominioPath(KEY, DB_FILE);
@@ -23,7 +19,7 @@ function dbPath(): string {
 export function abrirBanco(): ResultType<Database, EvlogError> {
   const caminho = dbPath();
 
-  if (!existsSync(caminho)) {
+  if (!(Bun.file(caminho).size > 0)) {
     return Result.err(tseEleitoralErrors.INDICE_AUSENTE({ caminho }));
   }
 

@@ -23,8 +23,7 @@ import type {
 import { dominioPath } from "../../core/dataDir";
 import { fetchJson, fetchWithRetry } from "../../core/http/download";
 import { parseCsv } from "../../core/parse/csv";
-import { batchInsert } from "../../core/store/sqlite-store";
-import { existsSync } from "node:fs";
+import { batchInsert, dbExists } from "../../core/store/sqlite-store";
 import {
   DB_FILE,
   DOMINIO,
@@ -89,66 +88,62 @@ async function build(
   const progress = (msg: string) => opts?.onProgress?.(msg);
   const db = openCapagDb();
 
-  try {
-    progress("Descobrindo resources do CKAN (estados e municipios)...");
+  progress("Descobrindo resources do CKAN (estados e municipios)...");
 
-    const estadosResources = await discoverResources(PACKAGE_SHOW.estados, "CSV");
+  const estadosResources = await discoverResources(PACKAGE_SHOW.estados, "CSV");
 
-    if (Result.isError(estadosResources)) return estadosResources;
+  if (Result.isError(estadosResources)) return estadosResources;
 
-    const municipiosResources = await discoverResources(
-      PACKAGE_SHOW.municipios,
-      "XLSX"
-    );
+  const municipiosResources = await discoverResources(
+    PACKAGE_SHOW.municipios,
+    "XLSX"
+  );
 
-    if (Result.isError(municipiosResources)) return municipiosResources;
+  if (Result.isError(municipiosResources)) return municipiosResources;
 
-    // 1) Estados: baixa todos os anos para a serie historica (arquivos ~1KB).
-    progress("Baixando CAPAG Estados (historico)...");
-    const estadosResult = await indexEstados(db, estadosResources.value, progress);
+  // 1) Estados: baixa todos os anos para a serie historica (arquivos ~1KB).
+  progress("Baixando CAPAG Estados (historico)...");
+  const estadosResult = await indexEstados(db, estadosResources.value, progress);
 
-    if (Result.isError(estadosResult)) return estadosResult;
+  if (Result.isError(estadosResult)) return estadosResult;
 
-    // 2) Municipios: baixa apenas a posicao mais recente (XLSX ~22 MB).
-    progress("Baixando CAPAG Municipios (posicao mais recente)...");
-    const municipiosResult = await indexMunicipios(
-      db,
-      municipiosResources.value,
-      progress
-    );
+  // 2) Municipios: baixa apenas a posicao mais recente (XLSX ~22 MB).
+  progress("Baixando CAPAG Municipios (posicao mais recente)...");
+  const municipiosResult = await indexMunicipios(
+    db,
+    municipiosResources.value,
+    progress
+  );
 
-    if (Result.isError(municipiosResult)) return municipiosResult;
+  if (Result.isError(municipiosResult)) return municipiosResult;
 
-    // 3) SICONFI /entes: ponte cnpj<->cod_ibge.
-    progress("Baixando SICONFI /entes (ponte cnpj<->cod_ibge)...");
-    const entesResult = await indexEntes(db, progress);
+  // 3) SICONFI /entes: ponte cnpj<->cod_ibge.
+  progress("Baixando SICONFI /entes (ponte cnpj<->cod_ibge)...");
+  const entesResult = await indexEntes(db, progress);
 
-    if (Result.isError(entesResult)) return entesResult;
+  if (Result.isError(entesResult)) return entesResult;
 
-    const counts = countCapag(db);
-    const total = counts.estados + counts.municipios + counts.entes;
+  const counts = countCapag(db);
+  const total = counts.estados + counts.municipios + counts.entes;
 
-    return Result.ok({
-      dominio: DOMINIO,
-      registros: total,
-      atualizadoEm: new Date().toISOString(),
-      caminho: dominioPath(DOMINIO, DB_FILE),
-      detalhes: {
-        estados: counts.estados,
-        municipios: counts.municipios,
-        entes: counts.entes,
-        anosEstados: counts.anosEstados,
-        anosMunicipios: counts.anosMunicipios,
-      },
-    });
-  } finally {
-    db.close();
-  }
+  return Result.ok({
+    dominio: DOMINIO,
+    registros: total,
+    atualizadoEm: new Date().toISOString(),
+    caminho: dominioPath(DOMINIO, DB_FILE),
+    detalhes: {
+      estados: counts.estados,
+      municipios: counts.municipios,
+      entes: counts.entes,
+      anosEstados: counts.anosEstados,
+      anosMunicipios: counts.anosMunicipios,
+    },
+  });
 }
 
 async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
   const caminho = dominioPath(DOMINIO, DB_FILE);
-  const existe = existsSync(caminho);
+  const existe = dbExists(DOMINIO, DB_FILE);
 
   if (!existe) {
     return Result.ok({
@@ -164,23 +159,18 @@ async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
   }
 
   const db = openCapagDb();
+  const counts = countCapag(db);
 
-  try {
-    const counts = countCapag(db);
-
-    return Result.ok({
-      key: "capag",
-      titulo: TITULO,
-      storage: "sqlite",
-      requiresHeavyDownload: false,
-      existe: true,
-      atualizadoEm: null,
-      registros: counts.estados + counts.municipios + counts.entes,
-      caminho,
-    });
-  } finally {
-    db.close();
-  }
+  return Result.ok({
+    key: "capag",
+    titulo: TITULO,
+    storage: "sqlite",
+    requiresHeavyDownload: false,
+    existe: true,
+    atualizadoEm: null,
+    registros: counts.estados + counts.municipios + counts.entes,
+    caminho,
+  });
 }
 
 // ----------------------- descoberta CKAN -----------------------
@@ -440,16 +430,21 @@ function dedupAndInsertEntes(db: Database, all: SiconfiEnte[]): number {
 
 // ----------------------- helpers -----------------------
 
-function download(
+async function download(
   url: string
 ): Promise<ResultType<Uint8Array, EvlogError>> {
-  return Result.tryPromise({
-    try: async () => {
-      const response = await fetchWithRetry(url);
-      const buffer = await response.arrayBuffer();
+  const fetched = await fetchWithRetry(url);
 
-      return new Uint8Array(buffer);
-    },
+  if (Result.isError(fetched)) {
+    return Result.err(
+      capagErrors.FONTE_DOWNLOAD({ url, internal: { cause: fetched.error.message } })
+    );
+  }
+
+  const response = fetched.value;
+
+  return Result.tryPromise({
+    try: async () => new Uint8Array(await response.arrayBuffer()),
     catch: (cause): EvlogError =>
       capagErrors.FONTE_DOWNLOAD({ url, internal: { cause: String(cause) } }),
   });

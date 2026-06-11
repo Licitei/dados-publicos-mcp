@@ -9,8 +9,11 @@
 import { Database } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
-import { existsSync } from "node:fs";
 import { dominioPath } from "../../core/dataDir";
+import {
+  dbExists,
+  openReadonly as openReadonlyDb,
+} from "../../core/store/sqlite-store";
 import { dadosPublicosErrors } from "./errors";
 import { FTS_TABELAS, PNCP_DB_FILE, PNCP_DOMINIO, TABELAS } from "./pncp-catalog";
 
@@ -24,7 +27,7 @@ export function pncpDbPath(): string {
 
 /** Indica se o indice offline ja existe em disco. */
 export function pncpDbExists(): boolean {
-  return existsSync(pncpDbPath());
+  return dbExists(PNCP_DOMINIO, PNCP_DB_FILE);
 }
 
 function openReadonly(): ResultType<Database, EvlogError> {
@@ -32,7 +35,7 @@ function openReadonly(): ResultType<Database, EvlogError> {
     return Result.err(dadosPublicosErrors.INDICE_AUSENTE({ path: pncpDbPath() }));
   }
   return Result.try({
-    try: () => new Database(pncpDbPath(), { readonly: true }),
+    try: () => openReadonlyDb(PNCP_DOMINIO, PNCP_DB_FILE),
     catch: (cause): EvlogError =>
       dadosPublicosErrors.INDICE_LEITURA({
         path: pncpDbPath(),
@@ -141,11 +144,7 @@ export async function buscarPncpLocal(
 ): Promise<ResultType<ReturnType<typeof buscarPncpLocalDb>, PncpServiceError>> {
   const db = openReadonly();
   if (Result.isError(db)) return db;
-  try {
-    return Result.ok(buscarPncpLocalDb(db.value, input));
-  } finally {
-    db.value.close();
-  }
+  return Result.ok(buscarPncpLocalDb(db.value, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -192,11 +191,7 @@ export async function fornecedorPncpPorNome(
 > {
   const db = openReadonly();
   if (Result.isError(db)) return db;
-  try {
-    return Result.ok(fornecedorPncpPorNomeDb(db.value, input));
-  } finally {
-    db.value.close();
-  }
+  return Result.ok(fornecedorPncpPorNomeDb(db.value, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -299,11 +294,7 @@ export async function contratosDoFornecedor(
 > {
   const db = openReadonly();
   if (Result.isError(db)) return db;
-  try {
-    return Result.ok(contratosDoFornecedorDb(db.value, input));
-  } finally {
-    db.value.close();
-  }
+  return Result.ok(contratosDoFornecedorDb(db.value, input));
 }
 
 // ---------------------------------------------------------------------------
@@ -352,9 +343,5 @@ export async function alertasPncp(
 ): Promise<ResultType<ReturnType<typeof alertasPncpDb>, PncpServiceError>> {
   const db = openReadonly();
   if (Result.isError(db)) return db;
-  try {
-    return Result.ok(alertasPncpDb(db.value, input));
-  } finally {
-    db.value.close();
-  }
+  return Result.ok(alertasPncpDb(db.value, input));
 }

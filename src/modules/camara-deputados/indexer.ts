@@ -23,7 +23,6 @@ import type {
 import { fetchWithRetry } from "../../core/http/download";
 import { unzipFirst } from "../../core/parse/zip";
 import { openDb } from "../../core/store/sqlite-store";
-import { existsSync } from "node:fs";
 import {
   anosNoIntervalo,
   ceapUrl,
@@ -92,15 +91,18 @@ export function resolverEscopo(scope?: Record<string, unknown>): Escopo {
 async function baixarBytes(
   url: string
 ): Promise<ResultType<Uint8Array, EvlogError>> {
-  return Result.tryPromise({
-    try: async () => {
-      const response = await fetchWithRetry(url, undefined, {
-        timeoutMs: 600_000,
-      });
-      const buffer = await response.arrayBuffer();
+  const fetched = await fetchWithRetry(url, undefined, { timeoutMs: 600_000 });
 
-      return new Uint8Array(buffer);
-    },
+  if (Result.isError(fetched)) {
+    return Result.err(
+      camaraErrors.DOWNLOAD({ url, internal: { cause: fetched.error.message } })
+    );
+  }
+
+  const response = fetched.value;
+
+  return Result.tryPromise({
+    try: async () => new Uint8Array(await response.arrayBuffer()),
     catch: (cause): EvlogError =>
       camaraErrors.DOWNLOAD({ url, internal: { cause: String(cause) } }),
   });
@@ -120,82 +122,78 @@ async function buildCamaraIndex(
   let totalProposicoes = 0;
   let totalAutores = 0;
 
-  try {
-    if (!escopo.pularDeputados) {
-      log("Baixando deputados.csv...");
-      const bytes = await baixarBytes(DEPUTADOS_URL);
+  if (!escopo.pularDeputados) {
+    log("Baixando deputados.csv...");
+    const bytes = await baixarBytes(DEPUTADOS_URL);
 
-      if (Result.isError(bytes)) return bytes;
+    if (Result.isError(bytes)) return bytes;
 
-      const rows = parseDeputados(bytes.value);
+    const rows = parseDeputados(bytes.value);
 
-      inserirDeputados(db, rows);
-      totalDeputados = rows.length;
-      log(`Deputados indexados: ${totalDeputados}`);
-    }
-
-    for (const ano of escopo.anos) {
-      log(`Baixando CEAP ${ano}...`);
-      const zipBytes = await baixarBytes(ceapUrl(ano));
-
-      if (Result.isError(zipBytes)) return zipBytes;
-
-      const csvBytes = unzipFirst(zipBytes.value);
-      const rows = parseDespesas(csvBytes);
-
-      inserirDespesas(db, rows);
-      totalDespesas += rows.length;
-      log(`CEAP ${ano} indexado: ${rows.length} despesas`);
-
-      if (escopo.incluirProposicoes) {
-        log(`Baixando proposicoes ${ano}...`);
-        const propBytes = await baixarBytes(proposicoesUrl(ano));
-
-        if (Result.isError(propBytes)) return propBytes;
-
-        const props = parseProposicoes(propBytes.value);
-
-        inserirProposicoes(db, props);
-        totalProposicoes += props.length;
-
-        log(`Baixando autores de proposicoes ${ano}...`);
-        const autBytes = await baixarBytes(proposicoesAutoresUrl(ano));
-
-        if (Result.isError(autBytes)) return autBytes;
-
-        const autores = parseProposicoesAutores(autBytes.value);
-
-        inserirProposicoesAutores(db, autores);
-        totalAutores += autores.length;
-        log(`Proposicoes ${ano} indexadas: ${props.length} (autores: ${autores.length})`);
-      }
-    }
-
-    const atualizadoEm = new Date().toISOString();
-
-    setMeta(db, "atualizadoEm", atualizadoEm);
-    setMeta(db, "anos", escopo.anos.join(","));
-
-    const registros =
-      totalDeputados + totalDespesas + totalProposicoes + totalAutores;
-
-    return Result.ok({
-      dominio: DOMINIO,
-      registros,
-      atualizadoEm,
-      caminho: dbPath(),
-      detalhes: {
-        anos: escopo.anos,
-        deputados: totalDeputados,
-        despesas: totalDespesas,
-        proposicoes: totalProposicoes,
-        proposicoesAutores: totalAutores,
-        incluiuProposicoes: escopo.incluirProposicoes,
-      },
-    });
-  } finally {
-    db.close();
+    inserirDeputados(db, rows);
+    totalDeputados = rows.length;
+    log(`Deputados indexados: ${totalDeputados}`);
   }
+
+  for (const ano of escopo.anos) {
+    log(`Baixando CEAP ${ano}...`);
+    const zipBytes = await baixarBytes(ceapUrl(ano));
+
+    if (Result.isError(zipBytes)) return zipBytes;
+
+    const csvBytes = unzipFirst(zipBytes.value);
+    const rows = parseDespesas(csvBytes);
+
+    inserirDespesas(db, rows);
+    totalDespesas += rows.length;
+    log(`CEAP ${ano} indexado: ${rows.length} despesas`);
+
+    if (escopo.incluirProposicoes) {
+      log(`Baixando proposicoes ${ano}...`);
+      const propBytes = await baixarBytes(proposicoesUrl(ano));
+
+      if (Result.isError(propBytes)) return propBytes;
+
+      const props = parseProposicoes(propBytes.value);
+
+      inserirProposicoes(db, props);
+      totalProposicoes += props.length;
+
+      log(`Baixando autores de proposicoes ${ano}...`);
+      const autBytes = await baixarBytes(proposicoesAutoresUrl(ano));
+
+      if (Result.isError(autBytes)) return autBytes;
+
+      const autores = parseProposicoesAutores(autBytes.value);
+
+      inserirProposicoesAutores(db, autores);
+      totalAutores += autores.length;
+      log(`Proposicoes ${ano} indexadas: ${props.length} (autores: ${autores.length})`);
+    }
+  }
+
+  const atualizadoEm = new Date().toISOString();
+
+  setMeta(db, "atualizadoEm", atualizadoEm);
+  setMeta(db, "anos", escopo.anos.join(","));
+
+  const registros =
+    totalDeputados + totalDespesas + totalProposicoes + totalAutores;
+
+  return Result.ok({
+    dominio: DOMINIO,
+    registros,
+    atualizadoEm,
+    caminho: dbPath(),
+    detalhes: {
+      anos: escopo.anos,
+      deputados: totalDeputados,
+      despesas: totalDespesas,
+      proposicoes: totalProposicoes,
+      proposicoesAutores: totalAutores,
+      incluiuProposicoes: escopo.incluirProposicoes,
+    },
+  });
 }
 
 export const camaraDeputadosIndexAdapter: IndexAdapter = {
@@ -210,7 +208,7 @@ export const camaraDeputadosIndexAdapter: IndexAdapter = {
   },
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const caminho = dbPath();
-    const existe = existsSync(caminho);
+    const existe = Bun.file(caminho).size > 0;
 
     let atualizadoEm: string | null = null;
     let registros: number | null = null;
@@ -220,24 +218,20 @@ export const camaraDeputadosIndexAdapter: IndexAdapter = {
 
       initDb(db);
 
-      try {
-        const meta = db
-          .query("SELECT valor FROM meta WHERE chave = 'atualizadoEm'")
-          .get() as { valor: string } | null;
+      const meta = db
+        .query("SELECT valor FROM meta WHERE chave = 'atualizadoEm'")
+        .get() as { valor: string } | null;
 
-        atualizadoEm = meta?.valor ?? null;
+      atualizadoEm = meta?.valor ?? null;
 
-        const conta = (t: string) =>
-          (db.query(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+      const conta = (t: string) =>
+        (db.query(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
 
-        registros =
-          conta("deputados") +
-          conta("despesas") +
-          conta("proposicoes") +
-          conta("proposicoes_autores");
-      } finally {
-        db.close();
-      }
+      registros =
+        conta("deputados") +
+        conta("despesas") +
+        conta("proposicoes") +
+        conta("proposicoes_autores");
     }
 
     return Result.ok({

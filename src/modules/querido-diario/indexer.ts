@@ -10,8 +10,7 @@ import type {
 import { fetchJson } from "../../core/http/download";
 import { fetchWithRetry } from "../../core/http/download";
 import { unzipEntries } from "../../core/parse/zip";
-import { openDb, countRows } from "../../core/store/sqlite-store";
-import { statSync } from "node:fs";
+import { openDb, openReadonly, countRows } from "../../core/store/sqlite-store";
 import {
   buildAggregateZipUrl,
   buildAggregatesApiUrl,
@@ -119,15 +118,24 @@ async function indexarAlvo(
 
   onProgress?.(`Baixando ${uf}_${ano}.zip...`);
 
-  const fetched = await Result.tryPromise({
-    try: async () => {
-      const response = await fetchWithRetry(url, undefined, {
-        timeoutMs: 600_000,
-        retries: 2,
-      });
+  const got = await fetchWithRetry(url, undefined, {
+    timeoutMs: 600_000,
+    retries: 2,
+  });
 
-      return new Uint8Array(await response.arrayBuffer());
-    },
+  if (Result.isError(got)) {
+    return Result.err(
+      queridoDiarioErrors.FONTE_DOWNLOAD({
+        url,
+        internal: { cause: got.error.message },
+      })
+    );
+  }
+
+  const response = got.value;
+
+  const fetched = await Result.tryPromise({
+    try: async () => new Uint8Array(await response.arrayBuffer()),
     catch: (cause): EvlogError =>
       queridoDiarioErrors.FONTE_DOWNLOAD({
         url,
@@ -185,16 +193,12 @@ export async function buildQueridoDiario(
 
   let total = 0;
 
-  try {
-    for (const { uf, ano } of alvos.value) {
-      const indexed = await indexarAlvo(db, uf, ano, onProgress);
+  for (const { uf, ano } of alvos.value) {
+    const indexed = await indexarAlvo(db, uf, ano, onProgress);
 
-      if (Result.isError(indexed)) return indexed;
+    if (Result.isError(indexed)) return indexed;
 
-      total += indexed.value;
-    }
-  } finally {
-    db.close();
+    total += indexed.value;
   }
 
   return Result.ok({
@@ -229,19 +233,17 @@ export const queridoDiarioIndexAdapter: IndexAdapter & {
     let atualizadoEm: string | null = null;
 
     if (existe) {
-      try {
-        const db = openDb(DOMINIO, DB_FILE);
+      const contagem = Result.try({
+        try: () => countRows(openReadonly(DOMINIO, DB_FILE), "diarios"),
+        catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
+      });
+      registros = contagem.unwrapOr(null);
 
-        try {
-          registros = countRows(db, "diarios");
-        } finally {
-          db.close();
-        }
-
-        atualizadoEm = statSync(caminho).mtime.toISOString();
-      } catch {
-        registros = null;
-      }
+      const mtime = await Result.tryPromise({
+        try: async () => (await Bun.file(caminho).stat()).mtime.toISOString(),
+        catch: (): EvlogError => queridoDiarioErrors.BUSCA(),
+      });
+      atualizadoEm = mtime.unwrapOr(null);
     }
 
     return Result.ok({

@@ -6,15 +6,11 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
-import { existsSync } from "node:fs";
-import { openDb } from "../../core/store/sqlite-store";
+import { openReadonly } from "../../core/store/sqlite-store";
 import { onlyDigits, normalize } from "../../core/normalize";
 import { dominioPath } from "../../core/dataDir";
 import { DB_FILE, DOMINIO } from "./catalog";
 import { camaraErrors } from "./errors";
-import { initDb } from "./store";
-
-export type CamaraServiceError = EvlogError;
 
 export function dbPath(): string {
   return dominioPath(DOMINIO, DB_FILE);
@@ -282,15 +278,13 @@ export function statusDb(db: Database) {
 function requireDb(): ResultType<Database, EvlogError> {
   const caminho = dbPath();
 
-  if (!existsSync(caminho)) {
+  if (!(Bun.file(caminho).size > 0)) {
     return Result.err(camaraErrors.INDICE_AUSENTE({ caminho }));
   }
 
-  const db = openDb(DOMINIO, DB_FILE);
-
-  initDb(db);
-
-  return Result.ok(db);
+  // Handle readonly: o schema ja foi criado no build (guard acima garante o
+  // arquivo). Nao roda DDL aqui (initDb escreveria num handle readonly).
+  return Result.ok(openReadonly(DOMINIO, DB_FILE));
 }
 
 function comDb<T>(fn: (db: Database) => T): ResultType<T, EvlogError> {
@@ -298,11 +292,7 @@ function comDb<T>(fn: (db: Database) => T): ResultType<T, EvlogError> {
 
   if (Result.isError(db)) return db;
 
-  try {
-    return Result.ok(fn(db.value));
-  } finally {
-    db.value.close();
-  }
+  return Result.ok(fn(db.value));
 }
 
 export function fornecedorCotaParlamentar(input: FornecedorCotaInput) {
@@ -324,7 +314,7 @@ export function buscarProposicao(input: BuscarProposicaoInput) {
 export function statusCamara() {
   const caminho = dbPath();
 
-  if (!existsSync(caminho)) {
+  if (!(Bun.file(caminho).size > 0)) {
     return Result.ok({
       existe: false,
       caminho,

@@ -1,4 +1,3 @@
-import { inflateRawSync } from "node:zlib";
 import { panic } from "better-result";
 
 export type ZipEntry = {
@@ -13,7 +12,7 @@ const LFH_SIGNATURE = 0x04034b50;
 /**
  * Le um arquivo ZIP sem dependencia externa: localiza o End Of Central
  * Directory, percorre o Central Directory e descompacta cada entrada com
- * node:zlib (inflateRawSync). Suporta store (0) e deflate (8).
+ * Bun.inflateSync (raw deflate). Suporta store (0) e deflate (8).
  */
 export function unzipEntries(zip: Uint8Array | ArrayBuffer): ZipEntry[] {
   // ArrayBuffer.isView e true para TypedArray (Uint8Array) e false para
@@ -99,13 +98,7 @@ function readLocalEntry(
   }
 
   if (compressionMethod === 8) {
-    const inflated = inflateRawSync(data);
-
-    return new Uint8Array(
-      inflated.buffer,
-      inflated.byteOffset,
-      inflated.byteLength
-    );
+    return Bun.inflateSync(new Uint8Array(data));
   }
 
   return panic(

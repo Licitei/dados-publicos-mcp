@@ -55,7 +55,11 @@ export function indiceExiste(): boolean {
   return dbExists(DOMINIO, DB_FILE);
 }
 
-/** Abre o banco do dominio (cria o arquivo/diretorio se necessario). */
+/**
+ * Abre o banco do dominio (handle rw reusavel do singleton). Cria o arquivo se
+ * necessario — usado tanto pela escrita (gravar/seed de testes) quanto pelas
+ * leituras de status, que rodam apos o guard indiceExiste().
+ */
 export function abrirLeitura(): Database {
   return openDb(DOMINIO, DB_FILE);
 }
@@ -171,18 +175,14 @@ export async function statusIndiceLocal(): Promise<
     try: () => {
       const db = abrirLeitura();
 
-      try {
-        return statusLegislacaoSchema.parse({
-          caminho: getIndexPath(),
-          existe: true,
-          indexando: runtimeState.indexando,
-          erro: runtimeState.erro,
-          atualizadoEm: lerMeta(db, "criadoEm"),
-          normasIndexadas: lerNormasIndexadas(db),
-        });
-      } finally {
-        db.close();
-      }
+      return statusLegislacaoSchema.parse({
+        caminho: getIndexPath(),
+        existe: true,
+        indexando: runtimeState.indexando,
+        erro: runtimeState.erro,
+        atualizadoEm: lerMeta(db, "criadoEm"),
+        normasIndexadas: lerNormasIndexadas(db),
+      });
     },
     catch: (cause): EvlogError =>
       erros.LEITURA({ internal: { path: getIndexPath(), cause: String(cause) } }),
@@ -222,16 +222,12 @@ function gravar(
 ): ResultType<true, EvlogError> {
   return Result.try({
     try: () => {
-      const db = abrirLeitura();
+      const db = openDb(DOMINIO, DB_FILE);
 
-      try {
-        createSchema(db);
-        gravarIndice(db, documentos, criadoEm);
+      createSchema(db);
+      gravarIndice(db, documentos, criadoEm);
 
-        return true as const;
-      } finally {
-        db.close();
-      }
+      return true as const;
     },
     catch: (cause): EvlogError =>
       erros.ESCRITA({ internal: { path: getIndexPath(), cause: String(cause) } }),

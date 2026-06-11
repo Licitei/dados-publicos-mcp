@@ -11,13 +11,14 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Result, panic } from "better-result";
 import type { EvlogError } from "evlog";
 import { z } from "zod";
+import { dbExists, openReadonly } from "../../core/store/sqlite-store";
+import { DB_FILE, DOMINIO } from "./catalog";
 import { catmatCatserErrors } from "./errors";
-import { catmatCatserIndexAdapter, dbPath, openCatmatCatserDb } from "./indexer";
+import { catmatCatserIndexAdapter, dbPath } from "./indexer";
 import {
   buscarMaterial,
   buscarServico,
@@ -157,23 +158,17 @@ function callTool(name: string, args: unknown) {
   return panic(`Ferramenta CATMAT/CATSER nao encontrada: ${name}`);
 }
 
-/** Abre o banco, executa a consulta e fecha; erro claro se nao indexado. */
+/** Abre o banco (singleton) e executa a consulta; erro claro se nao indexado. */
 function withDb<T>(fn: (db: Database) => T) {
-  if (!existsSync(dbPath())) {
+  if (!dbExists(DOMINIO, DB_FILE)) {
     return Result.serialize(
       Result.err(catmatCatserErrors.INDICE_AUSENTE({ path: dbPath() }))
     );
   }
 
-  let db: Database | null = null;
+  const db = openReadonly(DOMINIO, DB_FILE);
 
-  try {
-    db = openCatmatCatserDb();
-
-    return Result.serialize(Result.ok(fn(db)));
-  } finally {
-    db?.close();
-  }
+  return Result.serialize(Result.ok(fn(db)));
 }
 
 function parseInput<TSchema extends z.ZodType>(

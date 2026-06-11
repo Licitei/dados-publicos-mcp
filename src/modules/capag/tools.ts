@@ -14,7 +14,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { panic, Result } from "better-result";
 import type { EvlogError } from "evlog";
 import { z } from "zod";
-import { existsSync } from "node:fs";
 import { dominioPath } from "../../core/dataDir";
 import { DB_FILE, DOMINIO } from "./catalog";
 import { capagErrors } from "./errors";
@@ -216,19 +215,13 @@ export async function callCapagTool(name: string, args: unknown) {
 function withDb<T>(fn: (db: import("bun:sqlite").Database) => T): T {
   const caminho = dominioPath(DOMINIO, DB_FILE);
 
-  if (!existsSync(caminho)) {
+  if (Bun.file(caminho).size <= 0) {
     return Result.serialize(
       Result.err(capagErrors.INDICE_AUSENTE({ path: caminho }))
     ) as T;
   }
 
-  const db = openCapagDb();
-
-  try {
-    return fn(db);
-  } finally {
-    db.close();
-  }
+  return fn(openCapagDb());
 }
 
 function parseToolInput<TSchema extends z.ZodType>(

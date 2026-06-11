@@ -1,10 +1,9 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
-import { existsSync, statSync } from "node:fs";
 import { dominioPath } from "../../core/dataDir";
 import { normalize, onlyDigits } from "../../core/normalize";
-import { openDb } from "../../core/store/sqlite-store";
+import { openDb, openReadonly } from "../../core/store/sqlite-store";
 import { DB_FILE, DOMINIO } from "./catalog";
 import { sicafErrors } from "./errors";
 import { createSchema, totalFornecedores } from "./store";
@@ -81,11 +80,11 @@ export function dbPath(): string {
 function requireDb(): ResultType<Database, SicafServiceError> {
   const path = dbPath();
 
-  if (!existsSync(path)) {
+  if (!(Bun.file(path).size > 0)) {
     return Result.err(sicafErrors.INDICE_AUSENTE({ path }));
   }
 
-  return Result.ok(openDb(DOMINIO, DB_FILE));
+  return Result.ok(openReadonly(DOMINIO, DB_FILE));
 }
 
 function clampLimite(limite: number | undefined, fallback: number, max: number) {
@@ -128,11 +127,7 @@ export function buscarFornecedor(
 
     if (Result.isError(opened)) return opened;
 
-    try {
-      return Result.ok(runBuscarFornecedor(opened.value, input));
-    } finally {
-      opened.value.close();
-    }
+    return Result.ok(runBuscarFornecedor(opened.value, input));
   }
 
   return Result.ok(runBuscarFornecedor(db, input));
@@ -187,11 +182,7 @@ export function fornecedorHabilitado(
 
     if (Result.isError(opened)) return opened;
 
-    try {
-      return Result.ok(runFornecedorHabilitado(opened.value, cnpjInput));
-    } finally {
-      opened.value.close();
-    }
+    return Result.ok(runFornecedorHabilitado(opened.value, cnpjInput));
   }
 
   return Result.ok(runFornecedorHabilitado(db, cnpjInput));
@@ -256,11 +247,7 @@ export function listarFornecedoresUfCnae(
 
     if (Result.isError(opened)) return opened;
 
-    try {
-      return Result.ok(runListarUfCnae(opened.value, input));
-    } finally {
-      opened.value.close();
-    }
+    return Result.ok(runListarUfCnae(opened.value, input));
   }
 
   return Result.ok(runListarUfCnae(db, input));
@@ -318,9 +305,9 @@ export type SicafStatus = {
 };
 
 /** Status do indice local (existencia, mtime do arquivo, contagem). */
-export function statusSicaf(): SicafStatus {
+export async function statusSicaf(): Promise<SicafStatus> {
   const path = dbPath();
-  const existe = existsSync(path);
+  const existe = Bun.file(path).size > 0;
 
   if (!existe) {
     return { caminho: path, existe: false, atualizadoEm: null, registros: null };
@@ -328,13 +315,9 @@ export function statusSicaf(): SicafStatus {
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    createSchema(db);
-    const registros = totalFornecedores(db);
-    const atualizadoEm = statSync(path).mtime.toISOString();
+  createSchema(db);
+  const registros = totalFornecedores(db);
+  const atualizadoEm = (await Bun.file(path).stat()).mtime.toISOString();
 
-    return { caminho: path, existe: true, atualizadoEm, registros };
-  } finally {
-    db.close();
-  }
+  return { caminho: path, existe: true, atualizadoEm, registros };
 }

@@ -130,7 +130,7 @@ export async function callSicafFornecedoresTool(name: string, args: unknown) {
   }
 
   if (name === "status_sicaf_fornecedores") {
-    return Result.serialize(Result.ok(statusSicaf()));
+    return Result.serialize(Result.ok(await statusSicaf()));
   }
 
   if (name === "indexar_sicaf_fornecedores") {

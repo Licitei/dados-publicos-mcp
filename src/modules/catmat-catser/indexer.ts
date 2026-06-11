@@ -10,7 +10,6 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
 import { Result, type Result as ResultType } from "better-result";
 import dayjs from "dayjs";
 import type { EvlogError } from "evlog";
@@ -93,12 +92,18 @@ async function paginate<T>(
   for (;;) {
     const url = pageUrl(endpoint, pagina, PAGE_SIZE);
 
-    const fetched = await Result.tryPromise({
-      try: async () => {
-        const response = await fetchWithRetry(url, { headers: httpHeaders });
+    const got = await fetchWithRetry(url, { headers: httpHeaders });
 
-        return (await response.json()) as PaginatedResponse<T>;
-      },
+    if (Result.isError(got)) {
+      return Result.err(
+        catmatCatserErrors.FETCH({ url, internal: { cause: got.error.message } })
+      );
+    }
+
+    const response = got.value;
+
+    const fetched = await Result.tryPromise({
+      try: async () => (await response.json()) as PaginatedResponse<T>,
       catch: (cause): EvlogError =>
         catmatCatserErrors.FETCH({ url, internal: { cause: String(cause) } }),
     });
@@ -138,83 +143,79 @@ async function build(
 ): Promise<ResultType<BuildSummary, AdapterError>> {
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    createSchema(db);
-    resetTables(db);
+  createSchema(db);
+  resetTables(db);
 
-    // 1. Hierarquia de material (leve).
-    const grupos = await paginate<RawCatmatGrupo>(
-      ENDPOINTS.catmatGrupo,
-      (rows) => insertCatmatGrupos(db, rows),
-      opts
-    );
+  // 1. Hierarquia de material (leve).
+  const grupos = await paginate<RawCatmatGrupo>(
+    ENDPOINTS.catmatGrupo,
+    (rows) => insertCatmatGrupos(db, rows),
+    opts
+  );
 
-    if (Result.isError(grupos)) return Result.err(grupos.error);
+  if (Result.isError(grupos)) return Result.err(grupos.error);
 
-    const classes = await paginate<RawCatmatClasse>(
-      ENDPOINTS.catmatClasse,
-      (rows) => insertCatmatClasses(db, rows),
-      opts
-    );
+  const classes = await paginate<RawCatmatClasse>(
+    ENDPOINTS.catmatClasse,
+    (rows) => insertCatmatClasses(db, rows),
+    opts
+  );
 
-    if (Result.isError(classes)) return Result.err(classes.error);
+  if (Result.isError(classes)) return Result.err(classes.error);
 
-    const pdms = await paginate<RawCatmatPdm>(
-      ENDPOINTS.catmatPdm,
-      (rows) => insertCatmatPdms(db, rows),
-      opts
-    );
+  const pdms = await paginate<RawCatmatPdm>(
+    ENDPOINTS.catmatPdm,
+    (rows) => insertCatmatPdms(db, rows),
+    opts
+  );
 
-    if (Result.isError(pdms)) return Result.err(pdms.error);
+  if (Result.isError(pdms)) return Result.err(pdms.error);
 
-    // 2. Itens de servico (CATSER, ~3 mil).
-    const servicos = await paginate<RawCatserItem>(
-      ENDPOINTS.catserItem,
-      (rows) => insertCatserItens(db, rows.map(mapCatserItem)),
-      opts
-    );
+  // 2. Itens de servico (CATSER, ~3 mil).
+  const servicos = await paginate<RawCatserItem>(
+    ENDPOINTS.catserItem,
+    (rows) => insertCatserItens(db, rows.map(mapCatserItem)),
+    opts
+  );
 
-    if (Result.isError(servicos)) return Result.err(servicos.error);
+  if (Result.isError(servicos)) return Result.err(servicos.error);
 
-    // 3. Itens de material (CATMAT, ~342 mil; pesado mas a fonte e pequena).
-    const materiais = await paginate<RawCatmatItem>(
-      ENDPOINTS.catmatItem,
-      (rows) => insertCatmatItens(db, rows.map(mapCatmatItem)),
-      opts
-    );
+  // 3. Itens de material (CATMAT, ~342 mil; pesado mas a fonte e pequena).
+  const materiais = await paginate<RawCatmatItem>(
+    ENDPOINTS.catmatItem,
+    (rows) => insertCatmatItens(db, rows.map(mapCatmatItem)),
+    opts
+  );
 
-    if (Result.isError(materiais)) return Result.err(materiais.error);
+  if (Result.isError(materiais)) return Result.err(materiais.error);
 
-    rebuildFts(db);
+  rebuildFts(db);
 
-    const atualizadoEm = dayjs().toISOString();
-    const totalItens = materiais.value + servicos.value;
+  const atualizadoEm = dayjs().toISOString();
+  const totalItens = materiais.value + servicos.value;
 
-    setMetadata(db, "atualizadoEm", atualizadoEm);
-    setMetadata(db, "catmatItens", String(materiais.value));
-    setMetadata(db, "catserItens", String(servicos.value));
+  setMetadata(db, "atualizadoEm", atualizadoEm);
+  setMetadata(db, "catmatItens", String(materiais.value));
+  setMetadata(db, "catserItens", String(servicos.value));
 
-    return Result.ok({
-      dominio: DOMINIO,
-      registros: totalItens,
-      atualizadoEm,
-      caminho: dbPath(),
-      detalhes: {
-        catmatItens: materiais.value,
-        catserItens: servicos.value,
-        catmatGrupos: grupos.value,
-        catmatClasses: classes.value,
-        catmatPdms: pdms.value,
-      },
-    });
-  } finally {
-    db.close();
-  }
+  return Result.ok({
+    dominio: DOMINIO,
+    registros: totalItens,
+    atualizadoEm,
+    caminho: dbPath(),
+    detalhes: {
+      catmatItens: materiais.value,
+      catserItens: servicos.value,
+      catmatGrupos: grupos.value,
+      catmatClasses: classes.value,
+      catmatPdms: pdms.value,
+    },
+  });
 }
 
 async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
   const caminho = dbPath();
-  const existe = dbExists(DOMINIO, DB_FILE) || existsSync(caminho);
+  const existe = dbExists(DOMINIO, DB_FILE) || Bun.file(caminho).size > 0;
 
   if (!existe) {
     return Result.ok({
@@ -231,24 +232,20 @@ async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    const registros =
-      countRows(db, "catmat_item") + countRows(db, "catser_item");
-    const atualizadoEm = getMetadata(db, "atualizadoEm");
+  const registros =
+    countRows(db, "catmat_item") + countRows(db, "catser_item");
+  const atualizadoEm = getMetadata(db, "atualizadoEm");
 
-    return Result.ok({
-      key: KEY,
-      titulo: TITULO,
-      storage: "sqlite",
-      requiresHeavyDownload: false,
-      existe: true,
-      atualizadoEm,
-      registros,
-      caminho,
-    });
-  } finally {
-    db.close();
-  }
+  return Result.ok({
+    key: KEY,
+    titulo: TITULO,
+    storage: "sqlite",
+    requiresHeavyDownload: false,
+    existe: true,
+    atualizadoEm,
+    registros,
+    caminho,
+  });
 }
 
 export const catmatCatserIndexAdapter: IndexAdapter = {

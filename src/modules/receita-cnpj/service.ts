@@ -10,7 +10,7 @@ import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import { normalize, onlyDigits } from "../../core/normalize";
-import { dbExists, openDb } from "../../core/store/sqlite-store";
+import { dbExists, openReadonly } from "../../core/store/sqlite-store";
 import { dominioPath } from "../../core/dataDir";
 import {
   IDENTIFICADOR_SOCIO,
@@ -22,9 +22,6 @@ import {
 import { receitaCnpjErrors } from "./errors";
 
 export const DB_FILE = "receita-cnpj.db";
-
-/** Canal de erro recuperavel do dominio (catalogo evlog). */
-export type ServiceError = EvlogError;
 
 /** Caminho do banco em disco. */
 export function dbPath(): string {
@@ -45,13 +42,9 @@ export async function withDb<T>(
       );
     }
 
-    const db = openDb(RECEITA_CNPJ_KEY, DB_FILE);
+    const db = openReadonly(RECEITA_CNPJ_KEY, DB_FILE);
 
-    try {
-      return Result.ok(fn(db));
-    } finally {
-      db.close();
-    }
+    return Result.ok(fn(db));
   });
 }
 

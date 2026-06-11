@@ -12,7 +12,6 @@
  * NENHUM dado real e baixado em teste.
  */
 
-import { Database } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import dayjs from "dayjs";
 import type { EvlogError } from "evlog";
@@ -24,7 +23,7 @@ import type {
   StatusInfo,
 } from "../../core/adapter";
 import { fetchJson } from "../../core/http/download";
-import { countRows, openDb } from "../../core/store/sqlite-store";
+import { countRows, openDb, openReadonly } from "../../core/store/sqlite-store";
 import { dadosPublicosErrors } from "./errors";
 import {
   MODALIDADES_CONTRATACAO,
@@ -105,108 +104,104 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
     const progress = opts?.onProgress ?? (() => {});
 
     const db = openDb(PNCP_DOMINIO, PNCP_DB_FILE);
-    try {
-      createSchema(db);
+    createSchema(db);
 
-      let totalContratacoes = 0;
-      let totalContratos = 0;
-      let totalAtas = 0;
+    let totalContratacoes = 0;
+    let totalContratos = 0;
+    let totalAtas = 0;
 
-      if (entidades.includes("contratacoes")) {
-        for (const modalidade of modalidades) {
-          for (const uf of ufLoop) {
-            progress(
-              `contratacoes modalidade=${modalidade}${uf ? ` uf=${uf}` : ""} ${range.dataInicial}-${range.dataFinal}`
-            );
-            const harvested = await harvestEntidade(
-              PNCP_ENDPOINTS.contratacoes,
-              {
-                dataInicial: range.dataInicial,
-                dataFinal: range.dataFinal,
-                codigoModalidadeContratacao: modalidade,
-                uf,
-                tamanhoPagina,
-              },
-              maxPaginas,
-              (rows) => {
-                const mapped = mapRows(rows, mapContratacao) as ContratacaoRow[];
-                insertContratacoes(db, mapped);
-                totalContratacoes += mapped.length;
-              }
-            );
-            if (Result.isError(harvested)) return Result.err(harvested.error);
-          }
+    if (entidades.includes("contratacoes")) {
+      for (const modalidade of modalidades) {
+        for (const uf of ufLoop) {
+          progress(
+            `contratacoes modalidade=${modalidade}${uf ? ` uf=${uf}` : ""} ${range.dataInicial}-${range.dataFinal}`
+          );
+          const harvested = await harvestEntidade(
+            PNCP_ENDPOINTS.contratacoes,
+            {
+              dataInicial: range.dataInicial,
+              dataFinal: range.dataFinal,
+              codigoModalidadeContratacao: modalidade,
+              uf,
+              tamanhoPagina,
+            },
+            maxPaginas,
+            (rows) => {
+              const mapped = mapRows(rows, mapContratacao) as ContratacaoRow[];
+              insertContratacoes(db, mapped);
+              totalContratacoes += mapped.length;
+            }
+          );
+          if (Result.isError(harvested)) return Result.err(harvested.error);
         }
       }
-
-      if (entidades.includes("contratos")) {
-        progress(`contratos ${range.dataInicial}-${range.dataFinal}`);
-        const harvested = await harvestEntidade(
-          PNCP_ENDPOINTS.contratos,
-          {
-            dataInicial: range.dataInicial,
-            dataFinal: range.dataFinal,
-            tamanhoPagina,
-          },
-          maxPaginas,
-          (rows) => {
-            const mapped = mapRows(rows, mapContrato) as ContratoRow[];
-            insertContratos(db, mapped);
-            totalContratos += mapped.length;
-          }
-        );
-        if (Result.isError(harvested)) return Result.err(harvested.error);
-      }
-
-      if (entidades.includes("atas")) {
-        progress(`atas ${range.dataInicial}-${range.dataFinal}`);
-        const harvested = await harvestEntidade(
-          PNCP_ENDPOINTS.atas,
-          {
-            dataInicial: range.dataInicial,
-            dataFinal: range.dataFinal,
-            tamanhoPagina,
-          },
-          maxPaginas,
-          (rows) => {
-            const mapped = mapRows(rows, mapAta) as AtaRow[];
-            insertAtas(db, mapped);
-            totalAtas += mapped.length;
-          }
-        );
-        if (Result.isError(harvested)) return Result.err(harvested.error);
-      }
-
-      const atualizadoEm = dayjs().toISOString();
-      setMeta(db, "atualizadoEm", atualizadoEm);
-      setMeta(db, "dataInicial", range.dataInicial);
-      setMeta(db, "dataFinal", range.dataFinal);
-
-      const registros =
-        countRows(db, TABELAS.contratacao) +
-        countRows(db, TABELAS.contrato) +
-        countRows(db, TABELAS.ata);
-
-      return Result.ok({
-        dominio: PNCP_DOMINIO,
-        registros,
-        atualizadoEm,
-        caminho: pncpDbPath(),
-        detalhes: {
-          janela: range,
-          modalidades,
-          entidades,
-          ufs: ufs.length > 0 ? ufs : null,
-          inseridos: {
-            contratacoes: totalContratacoes,
-            contratos: totalContratos,
-            atas: totalAtas,
-          },
-        },
-      });
-    } finally {
-      db.close();
     }
+
+    if (entidades.includes("contratos")) {
+      progress(`contratos ${range.dataInicial}-${range.dataFinal}`);
+      const harvested = await harvestEntidade(
+        PNCP_ENDPOINTS.contratos,
+        {
+          dataInicial: range.dataInicial,
+          dataFinal: range.dataFinal,
+          tamanhoPagina,
+        },
+        maxPaginas,
+        (rows) => {
+          const mapped = mapRows(rows, mapContrato) as ContratoRow[];
+          insertContratos(db, mapped);
+          totalContratos += mapped.length;
+        }
+      );
+      if (Result.isError(harvested)) return Result.err(harvested.error);
+    }
+
+    if (entidades.includes("atas")) {
+      progress(`atas ${range.dataInicial}-${range.dataFinal}`);
+      const harvested = await harvestEntidade(
+        PNCP_ENDPOINTS.atas,
+        {
+          dataInicial: range.dataInicial,
+          dataFinal: range.dataFinal,
+          tamanhoPagina,
+        },
+        maxPaginas,
+        (rows) => {
+          const mapped = mapRows(rows, mapAta) as AtaRow[];
+          insertAtas(db, mapped);
+          totalAtas += mapped.length;
+        }
+      );
+      if (Result.isError(harvested)) return Result.err(harvested.error);
+    }
+
+    const atualizadoEm = dayjs().toISOString();
+    setMeta(db, "atualizadoEm", atualizadoEm);
+    setMeta(db, "dataInicial", range.dataInicial);
+    setMeta(db, "dataFinal", range.dataFinal);
+
+    const registros =
+      countRows(db, TABELAS.contratacao) +
+      countRows(db, TABELAS.contrato) +
+      countRows(db, TABELAS.ata);
+
+    return Result.ok({
+      dominio: PNCP_DOMINIO,
+      registros,
+      atualizadoEm,
+      caminho: pncpDbPath(),
+      detalhes: {
+        janela: range,
+        modalidades,
+        entidades,
+        ufs: ufs.length > 0 ? ufs : null,
+        inseridos: {
+          contratacoes: totalContratacoes,
+          contratos: totalContratos,
+          atas: totalAtas,
+        },
+      },
+    });
   },
 
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
@@ -227,29 +222,25 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
 
     return Result.try({
       try: () => {
-        const db = new Database(pncpDbPath(), { readonly: true });
-        try {
-          const meta = db
-            .query(`SELECT valor FROM pncp_meta WHERE chave = 'atualizadoEm'`)
-            .get() as { valor: string } | null;
-          const registros =
-            countRows(db, TABELAS.contratacao) +
-            countRows(db, TABELAS.contrato) +
-            countRows(db, TABELAS.ata);
+        const db = openReadonly(PNCP_DOMINIO, PNCP_DB_FILE);
+        const meta = db
+          .query(`SELECT valor FROM pncp_meta WHERE chave = 'atualizadoEm'`)
+          .get() as { valor: string } | null;
+        const registros =
+          countRows(db, TABELAS.contratacao) +
+          countRows(db, TABELAS.contrato) +
+          countRows(db, TABELAS.ata);
 
-          return {
-            key: PNCP_BULK_KEY,
-            titulo: PNCP_BULK_TITULO,
-            storage: "sqlite" as const,
-            requiresHeavyDownload: true,
-            existe: true,
-            atualizadoEm: meta?.valor ?? null,
-            registros,
-            caminho: pncpDbPath(),
-          };
-        } finally {
-          db.close();
-        }
+        return {
+          key: PNCP_BULK_KEY,
+          titulo: PNCP_BULK_TITULO,
+          storage: "sqlite" as const,
+          requiresHeavyDownload: true,
+          existe: true,
+          atualizadoEm: meta?.valor ?? null,
+          registros,
+          caminho: pncpDbPath(),
+        };
       },
       catch: (cause): EvlogError =>
         dadosPublicosErrors.STATUS_LEITURA({ internal: { cause: String(cause) } }),

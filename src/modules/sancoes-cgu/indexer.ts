@@ -113,31 +113,27 @@ function gravar(
     try: () => {
       const db = openDb(DOMINIO, DB_FILE);
 
-      try {
-        createSchema(db);
+      createSchema(db);
 
-        db.transaction(() => {
-          truncateAll(db);
-          insertSancoes(db, todasSancoes);
-          insertEfeitos(db, efeitos);
-          rebuildFts(db);
-        })();
+      db.transaction(() => {
+        truncateAll(db);
+        insertSancoes(db, todasSancoes);
+        insertEfeitos(db, efeitos);
+        rebuildFts(db);
+      })();
 
-        const atualizadoEm = new Date().toISOString();
+      const atualizadoEm = new Date().toISOString();
 
-        setMeta(db, "atualizadoEm", atualizadoEm);
-        setMeta(db, "registros", String(todasSancoes.length));
+      setMeta(db, "atualizadoEm", atualizadoEm);
+      setMeta(db, "registros", String(todasSancoes.length));
 
-        return {
-          dominio: DOMINIO,
-          registros: totalSancoes(db),
-          atualizadoEm,
-          caminho: dominioPath(DOMINIO, DB_FILE),
-          detalhes,
-        } satisfies BuildSummary;
-      } finally {
-        db.close();
-      }
+      return {
+        dominio: DOMINIO,
+        registros: totalSancoes(db),
+        atualizadoEm,
+        caminho: dominioPath(DOMINIO, DB_FILE),
+        detalhes,
+      } satisfies BuildSummary;
     },
     catch: (cause): EvlogError =>
       sancoesCguErrors.PARSE({
@@ -166,22 +162,18 @@ async function status(): Promise<ResultType<StatusInfo, EvlogError>> {
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    createSchema(db);
+  createSchema(db);
 
-    return Result.ok({
-      key: DOMINIO,
-      titulo: TITULO,
-      storage: "sqlite",
-      requiresHeavyDownload: false,
-      existe: true,
-      atualizadoEm: getMeta(db, "atualizadoEm"),
-      registros: totalSancoes(db) || null,
-      caminho,
-    });
-  } finally {
-    db.close();
-  }
+  return Result.ok({
+    key: DOMINIO,
+    titulo: TITULO,
+    storage: "sqlite",
+    requiresHeavyDownload: false,
+    existe: true,
+    atualizadoEm: getMeta(db, "atualizadoEm"),
+    registros: totalSancoes(db) || null,
+    caminho,
+  });
 }
 
 /**

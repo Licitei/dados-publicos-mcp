@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
-import { existsSync } from "node:fs";
 import { dominioPath } from "../../core/dataDir";
 import { onlyDigits } from "../../core/normalize";
 import { conteudoParaFts } from "./parse";
@@ -17,7 +16,7 @@ export function dbPath(): string {
 }
 
 export function dbExistsOnDisk(): boolean {
-  return existsSync(dbPath());
+  return Bun.file(dbPath()).size > 0;
 }
 
 export type DiarioHit = {

@@ -1,6 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, statSync } from "node:fs";
-import { unlink } from "node:fs/promises";
 import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import type {
@@ -46,9 +44,6 @@ import {
   mapReceitaOriginario,
   rebuildFts,
 } from "./store";
-
-/** Canal de erro de indexacao do TSE: EvlogError do catalogo tse-eleitoral. */
-export type TseIndexError = EvlogError;
 
 const CSV_OPTS = { delimiter: CSV_DELIMITER, encoding: CSV_ENCODING };
 
@@ -239,11 +234,9 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
 
         onProgress(`Baixando ${tipo} ${ano}...`);
 
-        const downloaded = await downloadToFile(url, tmp, { resume: true });
+        const downloaded = await downloadToFile(url, tmp);
 
         if (Result.isError(downloaded)) {
-          db.close();
-
           return Result.err(
             tseEleitoralErrors.DOWNLOAD({
               url,
@@ -254,9 +247,9 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
 
         onProgress(`Descompactando e indexando ${tipo} ${ano}...`);
 
-        const loaded = Result.try({
-          try: () => {
-            const bytes = new Uint8Array(readFileSyncBytes(tmp));
+        const loaded = await Result.tryPromise({
+          try: async () => {
+            const bytes = await Bun.file(tmp).bytes();
             const zip: ZipBytes = { entries: unzipEntries(bytes) };
 
             if (tipo === "consulta_cand") return loadCandidatos(db, zip);
@@ -273,8 +266,6 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
         });
 
         if (Result.isError(loaded)) {
-          db.close();
-
           return Result.err(loaded.error);
         }
 
@@ -285,7 +276,7 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
 
         // Limpeza best-effort do zip temporario (ignora falha de remocao).
         await Result.tryPromise({
-          try: () => unlink(tmp),
+          try: () => Bun.file(tmp).delete(),
           catch: (cause): EvlogError =>
             tseEleitoralErrors.PROCESSAMENTO({
               tipo,
@@ -308,7 +299,6 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
       `INSERT INTO meta(chave,valor) VALUES('atualizadoEm',?)
        ON CONFLICT(chave) DO UPDATE SET valor=excluded.valor`
     ).run(atualizadoEm);
-    db.close();
 
     return Result.ok({
       dominio: KEY,
@@ -321,7 +311,7 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
 
   async status(): Promise<ResultType<StatusInfo, AdapterError>> {
     const caminho = dbPath();
-    const existe = existsSync(caminho);
+    const existe = Bun.file(caminho).size > 0;
 
     if (!existe) {
       return Result.ok({
@@ -362,8 +352,6 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
         }),
     });
 
-    db.close();
-
     const dados = Result.isOk(lido)
       ? lido.value
       : { registros: null as number | null, atualizadoEm: null as string | null };
@@ -380,16 +368,3 @@ export const tseEleitoralIndexAdapter: IndexAdapter = {
     });
   },
 };
-
-function readFileSyncBytes(path: string): ArrayBufferLike {
-  // Bun.file().arrayBuffer() e async; usamos node:fs sync via require dinamico
-  // para manter loadX puro/sync no caminho de indexacao.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { readFileSync } = require("node:fs") as typeof import("node:fs");
-  const buf = readFileSync(path);
-
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-}
-
-// Reexport para uso em status/tests sem reabrir imports.
-export { statSync };

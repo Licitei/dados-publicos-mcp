@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { panic, Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import { z } from "zod";
-import { openDb } from "../../core/store/sqlite-store";
+import { openReadonly } from "../../core/store/sqlite-store";
 import { key as DOMINIO } from "./catalog";
 import { queridoDiarioErrors } from "./errors";
 import { DB_FILE } from "./store";
@@ -115,11 +115,11 @@ export async function callQueridoDiarioTool(name: string, args: unknown) {
 }
 
 /**
- * Abre o banco (somente leitura logica), executa a query e fecha. Se o indice
- * ainda nao existe em disco, retorna um erro orientando a rodar o build pesado.
+ * Abre o banco (somente leitura) e executa a query. Se o indice ainda nao
+ * existe em disco, retorna um erro orientando a rodar o build pesado.
  */
 function withDb<T extends ResultType<unknown, unknown>>(
-  run: (db: ReturnType<typeof openDb>) => T
+  run: (db: ReturnType<typeof openReadonly>) => T
 ): ReturnType<typeof Result.serialize> {
   if (!dbExistsOnDisk()) {
     return Result.serialize(
@@ -127,13 +127,9 @@ function withDb<T extends ResultType<unknown, unknown>>(
     );
   }
 
-  const db = openDb(DOMINIO, DB_FILE);
+  const db = openReadonly(DOMINIO, DB_FILE);
 
-  try {
-    return Result.serialize(run(db));
-  } finally {
-    db.close();
-  }
+  return Result.serialize(run(db));
 }
 
 function parseToolInput<TSchema extends z.ZodType>(

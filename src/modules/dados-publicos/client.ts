@@ -2,13 +2,6 @@ import { Result, type Result as ResultType } from "better-result";
 import type { EvlogError } from "evlog";
 import { dadosPublicosErrors } from "./errors";
 
-/**
- * Tipo de erro do canal de Result do cliente online de dados publicos.
- * Mantido como alias de EvlogError para os modulos que ainda referenciam o
- * antigo nome importarem so o tipo durante a migracao.
- */
-export type DadosPublicosFetchError = EvlogError;
-
 type FetchJsonInput = {
   baseUrl: string;
   path: string;

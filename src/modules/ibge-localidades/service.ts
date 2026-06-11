@@ -4,8 +4,6 @@ import { normalize, onlyDigits } from "../../core/normalize";
 import { ibgeLocalidadesErrors } from "./errors";
 import { getIndex, getIndexPath, type MunicipioIndexado } from "./store";
 
-export type IbgeLocalidadesError = EvlogError;
-
 /**
  * Tabela estatica das 27 UFs (sigla -> codigo numerico IBGE + nome).
  * Estavel e independente do download; usada por validar_uf e para validar

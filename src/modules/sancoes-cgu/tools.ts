@@ -169,7 +169,7 @@ export async function callSancoesCguTool(name: string, args: unknown) {
   return panic(`Ferramenta de sancoes-cgu nao encontrada: ${name}`);
 }
 
-/** Abre o banco em disco, exige que o indice exista, roda fn e fecha. */
+/** Abre o banco em disco, exige que o indice exista e roda fn. */
 function withDb<T>(fn: (db: import("bun:sqlite").Database) => T) {
   if (!dbExists(DOMINIO, DB_FILE)) {
     return Result.err(
@@ -179,13 +179,9 @@ function withDb<T>(fn: (db: import("bun:sqlite").Database) => T) {
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  try {
-    createSchema(db);
+  createSchema(db);
 
-    return Result.ok(fn(db));
-  } finally {
-    db.close();
-  }
+  return Result.ok(fn(db));
 }
 
 function parseToolInput<TSchema extends z.ZodType>(

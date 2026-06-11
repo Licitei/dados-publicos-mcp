@@ -37,16 +37,33 @@ const checkedExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 
 const checks = [
   {
+    // Proibe branching em CLASSES de erro (instanceof, new HTTPError/TimeoutError)
+    // e guard-functions legadas. Comparar o `.name` de uma DOMException
+    // (ex.: name === "TimeoutError" do AbortSignal.timeout) e permitido — e a
+    // unica forma bun-native de detectar abort/timeout.
     pattern:
-      /instanceof|throw new Error|catch\s*\(|isHTTPError|isTimeoutError|HTTPError|TimeoutError/,
+      /instanceof|throw new Error|isHTTPError|isTimeoutError|new\s+(?:HTTPError|TimeoutError)\b/,
     message:
-      "Use better-result panic for mandatory invariants and typed Result data for recoverable faults. Do not branch on runtime Error wrappers/classes.",
+      "Use better-result panic for mandatory invariants and typed Result data for recoverable faults. Do not branch on runtime Error wrapper classes (instanceof / new HTTPError / new TimeoutError).",
   },
   {
-    pattern:
-      /(const|function)\s+[A-Za-z0-9_]*(Failure|Fault)[A-Za-z0-9_]*|const\s+[A-Za-z0-9_]*Error[A-Za-z0-9_]*\s*=\s*\([^)]*\)\s*[:=]|:\s*FiscalProviderError\s*=>|\)\s*:\s*FiscalProviderError\s*=>/,
+    // try/catch/finally como STATEMENT sao proibidos. Use Result.try /
+    // Result.tryPromise (handler `catch:`) e o singleton de DB para recursos.
+    // Nao casa `.try(`, `try:`, nem o handler `catch:` (chave de objeto) — so
+    // as formas de statement: `try {`, `catch (`, `catch {`, `finally`.
+    pattern: /(^|[^.\w])try\s*\{|catch\s*[({]|(^|[^.\w])finally\b/,
     message:
-      "Do not create error/failure helper functions. Build Result.err objects inline at the decision point, from the declarative evlog catalog.",
+      "No statement-level try/catch/finally. Capture faults with Result.try / Result.tryPromise (inline `catch:` handler); for db/file resources use the singleton (no per-call close).",
+  },
+  {
+    // Fabricas/helpers de erro: nomes toXError/isXError/mapError/wrapError/
+    // fromError, *Failure/*Fault, const arrow ...Error = (...) e funcoes que
+    // RETORNAM EvlogError. Nao casa o handler anonimo `catch: (cause): EvlogError =>`
+    // (sem palavra-chave function/const na linha).
+    pattern:
+      /(const|function)\s+[A-Za-z0-9_]*(Failure|Fault)[A-Za-z0-9_]*|(function\s+|const\s+)(to|is|map|wrap|from)[A-Za-z0-9_]*Error\b|const\s+[A-Za-z0-9_]*Error[A-Za-z0-9_]*\s*=\s*\([^)]*\)\s*[:=]|\b(function|const)\b[^=]*\)\s*:\s*EvlogError\s*(=>|\{)/,
+    message:
+      "No error wrapper/helper functions (toXError, isXError, mapError...) and no function returning EvlogError. Build the EvlogError inline in a Result.try/tryPromise `catch:` handler, from the evlog catalog.",
   },
 ] satisfies readonly { pattern: RegExp; message: string }[];
 

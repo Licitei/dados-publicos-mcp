@@ -20,9 +20,6 @@ import {
   sumValues,
 } from "./utils";
 
-/** Canal de erro de todas as funcoes deste servico online (declarativo evlog). */
-export type DadosPublicosError = EvlogError;
-
 type SearchLicitacoesInput = {
   dataInicial?: string;
   dataFinal?: string;
