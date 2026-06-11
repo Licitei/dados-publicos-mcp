@@ -86,7 +86,7 @@ export async function listarPastasMensais(): Promise<
       receitaCnpjErrors.FETCH({
         url: RFB_WEBDAV,
         internal: { cause: fetched.error.message },
-      })
+      }),
     );
   }
 
@@ -128,7 +128,7 @@ const userAgent =
 async function baixarArquivo(
   mes: string,
   file: string,
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ResultType<string, EvlogError>> {
   const url = webdavFileUrl(mes, file);
   const dest = dominioPath(RECEITA_CNPJ_KEY, `download/${mes}/${file}`);
@@ -142,7 +142,7 @@ async function baixarArquivo(
  */
 async function downloadToFileAuth(
   url: string,
-  dest: string
+  dest: string,
 ): Promise<ResultType<string, EvlogError>> {
   const headers: Record<string, string> = {
     authorization: rfbAuthHeader(),
@@ -153,7 +153,10 @@ async function downloadToFileAuth(
 
   if (Result.isError(fetched)) {
     return Result.err(
-      receitaCnpjErrors.FETCH({ url, internal: { cause: fetched.error.message } })
+      receitaCnpjErrors.FETCH({
+        url,
+        internal: { cause: fetched.error.message },
+      }),
     );
   }
 
@@ -183,7 +186,10 @@ function lerCsv(zipPath: string): Promise<ResultType<Uint8Array, EvlogError>> {
       return unzipFirst(zipBytes);
     },
     catch: (cause): EvlogError =>
-      receitaCnpjErrors.PARSE({ file: zipPath, internal: { cause: String(cause) } }),
+      receitaCnpjErrors.PARSE({
+        file: zipPath,
+        internal: { cause: String(cause) },
+      }),
   });
 }
 
@@ -198,7 +204,7 @@ function lerCsv(zipPath: string): Promise<ResultType<Uint8Array, EvlogError>> {
  *   disponivel no share (comportamento anterior preservado).
  */
 async function resolverMes(
-  mesEscopo: string | undefined
+  mesEscopo: string | undefined,
 ): Promise<ResultType<string, EvlogError>> {
   return Result.gen(async function* () {
     if (mesEscopo) return Result.ok(mesEscopo);
@@ -226,7 +232,9 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
   storage: "sqlite",
   requiresHeavyDownload: true,
 
-  async build(opts?: BuildOptions): Promise<ResultType<BuildSummary, AdapterError>> {
+  async build(
+    opts?: BuildOptions,
+  ): Promise<ResultType<BuildSummary, AdapterError>> {
     const scope = (opts?.scope ?? {}) as Scope;
     const onProgress = opts?.onProgress;
 
@@ -249,7 +257,10 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
       yield* Result.try({
         try: () => createSchema(db),
         catch: (cause): EvlogError =>
-          receitaCnpjErrors.PARSE({ file: DB_FILE, internal: { cause: String(cause) } }),
+          receitaCnpjErrors.PARSE({
+            file: DB_FILE,
+            internal: { cause: String(cause) },
+          }),
       });
 
       // 2. Tabelas de dominio (pequenas) primeiro.
@@ -257,9 +268,13 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
         const dest = yield* Result.await(baixarArquivo(mes, file, onProgress));
         const csv = yield* Result.await(lerCsv(dest));
         yield* Result.try({
-          try: () => insertDominio(db, tabela as DominioTabela, parseDominio(csv)),
+          try: () =>
+            insertDominio(db, tabela as DominioTabela, parseDominio(csv)),
           catch: (cause): EvlogError =>
-            receitaCnpjErrors.PARSE({ file, internal: { cause: String(cause) } }),
+            receitaCnpjErrors.PARSE({
+              file,
+              internal: { cause: String(cause) },
+            }),
         });
       }
 
@@ -270,12 +285,18 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
         yield* Result.try({
           try: () => insertEmpresas(db, parseEmpresas(csv)),
           catch: (cause): EvlogError =>
-            receitaCnpjErrors.PARSE({ file, internal: { cause: String(cause) } }),
+            receitaCnpjErrors.PARSE({
+              file,
+              internal: { cause: String(cause) },
+            }),
         });
       }
 
       // 4. Estabelecimentos (0..9) com filtro opcional de UF.
-      for (const file of selecionarPartes(partFiles("Estabelecimentos"), partes)) {
+      for (const file of selecionarPartes(
+        partFiles("Estabelecimentos"),
+        partes,
+      )) {
         const dest = yield* Result.await(baixarArquivo(mes, file, onProgress));
         const csv = yield* Result.await(lerCsv(dest));
         yield* Result.try({
@@ -287,31 +308,44 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
             insertEstabelecimentos(db, estabs);
           },
           catch: (cause): EvlogError =>
-            receitaCnpjErrors.PARSE({ file, internal: { cause: String(cause) } }),
+            receitaCnpjErrors.PARSE({
+              file,
+              internal: { cause: String(cause) },
+            }),
         });
       }
 
       // 5. Socios (0..9).
       if (incluirSocios) {
         for (const file of selecionarPartes(partFiles("Socios"), partes)) {
-          const dest = yield* Result.await(baixarArquivo(mes, file, onProgress));
+          const dest = yield* Result.await(
+            baixarArquivo(mes, file, onProgress),
+          );
           const csv = yield* Result.await(lerCsv(dest));
           yield* Result.try({
             try: () => insertSocios(db, parseSocios(csv)),
             catch: (cause): EvlogError =>
-              receitaCnpjErrors.PARSE({ file, internal: { cause: String(cause) } }),
+              receitaCnpjErrors.PARSE({
+                file,
+                internal: { cause: String(cause) },
+              }),
           });
         }
       }
 
       // 6. Simples Nacional / MEI (arquivo unico).
       if (incluirSimples) {
-        const dest = yield* Result.await(baixarArquivo(mes, SIMPLES_FILE, onProgress));
+        const dest = yield* Result.await(
+          baixarArquivo(mes, SIMPLES_FILE, onProgress),
+        );
         const csv = yield* Result.await(lerCsv(dest));
         yield* Result.try({
           try: () => insertSimples(db, parseSimples(csv)),
           catch: (cause): EvlogError =>
-            receitaCnpjErrors.PARSE({ file: SIMPLES_FILE, internal: { cause: String(cause) } }),
+            receitaCnpjErrors.PARSE({
+              file: SIMPLES_FILE,
+              internal: { cause: String(cause) },
+            }),
         });
       }
 
@@ -333,7 +367,10 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
           };
         },
         catch: (cause): EvlogError =>
-          receitaCnpjErrors.PARSE({ file: DB_FILE, internal: { cause: String(cause) } }),
+          receitaCnpjErrors.PARSE({
+            file: DB_FILE,
+            internal: { cause: String(cause) },
+          }),
       });
 
       return Result.ok(summary);
@@ -353,14 +390,20 @@ export const receitaCnpjIndexAdapter: IndexAdapter = {
       const contados = Result.try({
         try: () => countRows(db, "estabelecimentos"),
         catch: (cause): EvlogError =>
-          receitaCnpjErrors.PARSE({ file: DB_FILE, internal: { cause: String(cause) } }),
+          receitaCnpjErrors.PARSE({
+            file: DB_FILE,
+            internal: { cause: String(cause) },
+          }),
       });
       registros = Result.isOk(contados) ? contados.value : null;
 
       const mtime = await Result.tryPromise({
         try: async () => (await Bun.file(caminho).stat()).mtime.toISOString(),
         catch: (cause): EvlogError =>
-          receitaCnpjErrors.PARSE({ file: caminho, internal: { cause: String(cause) } }),
+          receitaCnpjErrors.PARSE({
+            file: caminho,
+            internal: { cause: String(cause) },
+          }),
       });
       atualizadoEm = Result.isOk(mtime) ? mtime.value : null;
     }

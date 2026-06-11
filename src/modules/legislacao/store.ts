@@ -106,7 +106,7 @@ export function createSchema(db: Database): void {
 export function gravarIndice(
   db: Database,
   documentos: DocumentoIndexado[],
-  criadoEm: string
+  criadoEm: string,
 ): void {
   const limpar = db.transaction(() => {
     db.exec("DELETE FROM paragrafo;");
@@ -125,7 +125,11 @@ export function gravarIndice(
   ]);
 
   const paragrafos = documentos.flatMap((doc) =>
-    doc.paragrafos.map((texto, idx) => ({ norma_id: doc.norma.id, idx, texto }))
+    doc.paragrafos.map((texto, idx) => ({
+      norma_id: doc.norma.id,
+      idx,
+      texto,
+    })),
   );
 
   batchInsert(db, INSERT_PARAGRAFO, paragrafos, (row) => [
@@ -136,21 +140,23 @@ export function gravarIndice(
   ]);
 
   db.exec("INSERT INTO paragrafo_fts(paragrafo_fts) VALUES('rebuild');");
-  db.query("INSERT OR REPLACE INTO meta (chave, valor) VALUES ('criadoEm', ?)").run(
-    criadoEm
-  );
+  db.query(
+    "INSERT OR REPLACE INTO meta (chave, valor) VALUES ('criadoEm', ?)",
+  ).run(criadoEm);
 }
 
 function lerMeta(db: Database, chave: string): string | null {
-  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as
-    | { valor: string }
-    | null;
+  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as {
+    valor: string;
+  } | null;
 
   return row?.valor ?? null;
 }
 
 function lerNormasIndexadas(db: Database): string[] {
-  const rows = db.query("SELECT id FROM norma ORDER BY id").all() as { id: string }[];
+  const rows = db.query("SELECT id FROM norma ORDER BY id").all() as {
+    id: string;
+  }[];
 
   return rows.map((row) => row.id);
 }
@@ -167,7 +173,7 @@ export async function statusIndiceLocal(): Promise<
         erro: runtimeState.erro,
         atualizadoEm: null,
         normasIndexadas: [],
-      })
+      }),
     );
   }
 
@@ -185,7 +191,9 @@ export async function statusIndiceLocal(): Promise<
       });
     },
     catch: (cause): EvlogError =>
-      erros.LEITURA({ internal: { path: getIndexPath(), cause: String(cause) } }),
+      erros.LEITURA({
+        internal: { path: getIndexPath(), cause: String(cause) },
+      }),
   });
 }
 
@@ -196,7 +204,9 @@ export async function recriarIndiceLocal(): Promise<
   runtimeState.erro = null;
 
   const resultado = await Result.gen(async function* () {
-    const documentos = yield* Result.await(legislacaoIndexAdapter.buildDocumentos());
+    const documentos = yield* Result.await(
+      legislacaoIndexAdapter.buildDocumentos(),
+    );
     const criadoEm = dayjs().toISOString();
 
     yield* gravar(documentos, criadoEm);
@@ -206,19 +216,21 @@ export async function recriarIndiceLocal(): Promise<
         caminho: getIndexPath(),
         atualizadoEm: criadoEm,
         normasIndexadas: documentos.map((doc) => doc.norma.id),
-      })
+      }),
     );
   });
 
   runtimeState.indexando = false;
-  runtimeState.erro = Result.isError(resultado) ? resultado.error.message : null;
+  runtimeState.erro = Result.isError(resultado)
+    ? resultado.error.message
+    : null;
 
   return resultado;
 }
 
 function gravar(
   documentos: DocumentoIndexado[],
-  criadoEm: string
+  criadoEm: string,
 ): ResultType<true, EvlogError> {
   return Result.try({
     try: () => {
@@ -230,6 +242,8 @@ function gravar(
       return true as const;
     },
     catch: (cause): EvlogError =>
-      erros.ESCRITA({ internal: { path: getIndexPath(), cause: String(cause) } }),
+      erros.ESCRITA({
+        internal: { path: getIndexPath(), cause: String(cause) },
+      }),
   });
 }

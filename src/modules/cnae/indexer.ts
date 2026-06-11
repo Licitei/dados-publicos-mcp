@@ -112,7 +112,7 @@ export function mapSubclasse(raw: RawSubclasse): CnaeSubclasse {
  */
 export function parseSubclasses(
   data: unknown,
-  url: string
+  url: string,
 ): ResultType<CnaeSubclasse[], EvlogError> {
   if (!Array.isArray(data)) {
     return Result.err(cnaeErrors.PARSE({ url }));
@@ -136,9 +136,7 @@ export async function buildSubclasses(): Promise<
     method: "GET",
   });
 
-  return fetched.andThen((data) =>
-    parseSubclasses(data, CNAE_SUBCLASSES_URL)
-  );
+  return fetched.andThen((data) => parseSubclasses(data, CNAE_SUBCLASSES_URL));
 }
 
 export const cnaeIndexAdapter: IndexAdapter & {
@@ -157,7 +155,9 @@ export const cnaeIndexAdapter: IndexAdapter & {
     const built = await recriarIndiceCnae();
 
     return built.map((value) => {
-      opts?.onProgress?.(`Indice CNAE recriado: ${value.registros} subclasses.`);
+      opts?.onProgress?.(
+        `Indice CNAE recriado: ${value.registros} subclasses.`,
+      );
 
       return {
         dominio: CNAE_DOMINIO,

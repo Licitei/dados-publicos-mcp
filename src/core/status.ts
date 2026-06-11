@@ -23,7 +23,7 @@ export type DominioStatus =
  * interrompem a coleta dos demais dominios.
  */
 export async function coletarStatusIndices(
-  adapters: IndexAdapter[] = listAdapters()
+  adapters: IndexAdapter[] = listAdapters(),
 ): Promise<DominioStatus[]> {
   const statuses: DominioStatus[] = [];
 
@@ -71,6 +71,6 @@ export function registerStatusTool(server: McpServer): void {
           },
         ],
       };
-    }
+    },
   );
 }

@@ -30,7 +30,8 @@ afterAll(async () => {
   // antes de remover o diretorio temporario.
   closeAllDbs();
 
-  if (savedDataDir === undefined) delete process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
+  if (savedDataDir === undefined)
+    delete process.env.DADOS_PUBLICOS_MCP_DATA_DIR;
   else process.env.DADOS_PUBLICOS_MCP_DATA_DIR = savedDataDir;
 
   await rm(dataDir, { recursive: true, force: true });
@@ -134,7 +135,7 @@ describe("batchInsert + countRows", () => {
       "INSERT INTO itens (id, nome) VALUES (?, ?)",
       rows,
       (r) => [r.id, r.nome],
-      100 // batch menor que rows.length para exercer multiplos chunks
+      100, // batch menor que rows.length para exercer multiplos chunks
     );
 
     expect(countRows(db, "itens")).toBe(250);

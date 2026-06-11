@@ -60,7 +60,7 @@ export type VerificarSancoesResultado = {
  */
 export function verificarSancoes(
   db: Database,
-  documentoInput: string
+  documentoInput: string,
 ): VerificarSancoesResultado {
   const docNormalizado = onlyDigits(documentoInput);
   const tipoDocumento =
@@ -71,7 +71,9 @@ export function verificarSancoes(
         : "desconhecido";
 
   const rows = db
-    .query(`SELECT ${SELECT_COLS} FROM sancao WHERE doc_normalizado = ? ORDER BY lista, data_inicio DESC`)
+    .query(
+      `SELECT ${SELECT_COLS} FROM sancao WHERE doc_normalizado = ? ORDER BY lista, data_inicio DESC`,
+    )
     .all(docNormalizado) as SancaoResultado[];
 
   const porLista: Record<string, number> = {};
@@ -81,7 +83,7 @@ export function verificarSancoes(
   }
 
   const inidoneoOuImpedido = rows.some((row) =>
-    LISTAS_IMPEDITIVAS.includes(row.lista)
+    LISTAS_IMPEDITIVAS.includes(row.lista),
   );
 
   return {
@@ -109,7 +111,7 @@ export type BuscarPorNomeResultado = {
 export function buscarSancionadoPorNome(
   db: Database,
   termoInput: string,
-  limite = 50
+  limite = 50,
 ): BuscarPorNomeResultado {
   const termo = normalizeTermo(termoInput);
   const limit = clampLimite(limite);
@@ -128,7 +130,7 @@ export function buscarSancionadoPorNome(
       ? ftsRows
       : (db
           .query(
-            `SELECT ${SELECT_COLS} FROM sancao WHERE busca_texto LIKE ? LIMIT ?`
+            `SELECT ${SELECT_COLS} FROM sancao WHERE busca_texto LIKE ? LIMIT ?`,
           )
           .all(`%${termo}%`, limit) as SancaoResultado[]);
 
@@ -150,7 +152,7 @@ export type VigentesNaDataResultado = {
 export function sancoesVigentesNaData(
   db: Database,
   data: string,
-  opts?: { lista?: DatasetKey; limite?: number }
+  opts?: { lista?: DatasetKey; limite?: number },
 ): VigentesNaDataResultado {
   const iso = data.trim();
   const limit = clampLimite(opts?.limite ?? 200);
@@ -186,7 +188,7 @@ function consultarFts(db: Database, ftsQuery: string, limit: number) {
            FROM sancao_fts
            JOIN sancao ON sancao.id = sancao_fts.rowid
            WHERE sancao_fts MATCH ?
-           LIMIT ?`
+           LIMIT ?`,
         )
         .all(ftsQuery, limit) as SancaoResultado[],
     catch: (cause) =>

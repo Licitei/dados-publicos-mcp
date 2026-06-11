@@ -17,7 +17,9 @@ import { MUNICIPIOS_XLSX, type NotaCapag } from "./catalog";
  * 0.8016 / '0.8016' (XLSX de municipios, ja em fracao). Retorna null se vazio
  * ou nao numerico (ex.: 'n.d.').
  */
-export function parseIndicador(raw: string | number | null | undefined): number | null {
+export function parseIndicador(
+  raw: string | number | null | undefined,
+): number | null {
   if (raw === null || raw === undefined) return null;
 
   if (typeof raw === "number") {
@@ -29,7 +31,10 @@ export function parseIndicador(raw: string | number | null | undefined): number 
   if (!trimmed || /^n\.?[de]\.?$/i.test(trimmed)) return null;
 
   const hasPercent = trimmed.includes("%");
-  const cleaned = trimmed.replace(/%/g, "").replace(/\s/g, "").replace(/,/g, ".");
+  const cleaned = trimmed
+    .replace(/%/g, "")
+    .replace(/\s/g, "")
+    .replace(/,/g, ".");
   const value = Number(cleaned);
 
   if (!Number.isFinite(value)) return null;
@@ -38,7 +43,16 @@ export function parseIndicador(raw: string | number | null | undefined): number 
   return hasPercent ? value / 100 : value;
 }
 
-const notasValidas = new Set<string>(["A+", "A", "B+", "B", "C", "D", "n.d.", "n.e."]);
+const notasValidas = new Set<string>([
+  "A+",
+  "A",
+  "B+",
+  "B",
+  "C",
+  "D",
+  "n.d.",
+  "n.e.",
+]);
 
 /** Normaliza uma nota CAPAG bruta; retorna null se vazia/desconhecida. */
 export function parseNota(raw: string | null | undefined): NotaCapag | null {
@@ -96,7 +110,9 @@ export function colLetterToIndex(letters: string): number {
 }
 
 /** Cod IBGE para texto de 7 digitos (zero-padded). Retorna null se invalido. */
-export function normalizeCodIbge(raw: string | number | null | undefined): string | null {
+export function normalizeCodIbge(
+  raw: string | number | null | undefined,
+): string | null {
   if (raw === null || raw === undefined) return null;
 
   const digits = String(raw).trim().replace(/\D/g, "");
@@ -120,7 +136,7 @@ export type SheetRow = string[];
  */
 export function readXlsxSheet(
   xlsx: Uint8Array | ArrayBuffer,
-  matchSheet: (name: string) => boolean
+  matchSheet: (name: string) => boolean,
 ): SheetRow[] {
   const entries = unzipEntries(xlsx);
   const byName = new Map<string, Uint8Array>();
@@ -139,7 +155,7 @@ export function readXlsxSheet(
 
   if (!target) {
     return panic(
-      `XLSX: aba nao encontrada. Disponiveis: ${sheets.map((s) => s.name).join(", ")}`
+      `XLSX: aba nao encontrada. Disponiveis: ${sheets.map((s) => s.name).join(", ")}`,
     );
   }
 
@@ -309,7 +325,7 @@ function parseSharedStrings(xml: string): string[] {
   while ((m = re.exec(xml))) {
     const inner = m[1];
     const parts = [...inner.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((t) =>
-      decodeXmlEntities(t[1])
+      decodeXmlEntities(t[1]),
     );
 
     result.push(parts.join(""));
@@ -333,7 +349,9 @@ function parseWorksheet(xml: string, shared: string[]): SheetRow[] {
       const body = cm[2] ?? "";
       const ref = attrAny(attrs, "r");
       const type = attrAny(attrs, "t");
-      const colIndex = ref ? colLetterToIndex(ref.replace(/\d+/g, "")) : cells.length;
+      const colIndex = ref
+        ? colLetterToIndex(ref.replace(/\d+/g, ""))
+        : cells.length;
 
       cells[colIndex] = decodeCellValue(type, body, shared);
     }
@@ -352,11 +370,11 @@ function parseWorksheet(xml: string, shared: string[]): SheetRow[] {
 function decodeCellValue(
   type: string | null,
   body: string,
-  shared: string[]
+  shared: string[],
 ): string {
   if (type === "inlineStr") {
     const parts = [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((t) =>
-      decodeXmlEntities(t[1])
+      decodeXmlEntities(t[1]),
     );
 
     return parts.join("");
@@ -368,7 +386,7 @@ function decodeCellValue(
   if (type === "s") {
     const idx = Number(raw);
 
-    return Number.isInteger(idx) ? shared[idx] ?? "" : "";
+    return Number.isInteger(idx) ? (shared[idx] ?? "") : "";
   }
 
   // 'str' (formula cacheada), 'n', 'b', boolean, ou sem tipo -> valor textual.
@@ -392,7 +410,9 @@ function decodeXmlEntities(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
+      String.fromCodePoint(parseInt(h, 16)),
+    )
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
     .replace(/&amp;/g, "&");
 }

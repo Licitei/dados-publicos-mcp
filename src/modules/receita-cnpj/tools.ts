@@ -57,7 +57,8 @@ const filtrarEmpresasInput = z
   })
   .strict()
   .refine((v) => v.cnae || v.uf || v.municipio || v.porte || v.situacao, {
-    message: "Informe ao menos um filtro (cnae, uf, municipio, porte ou situacao).",
+    message:
+      "Informe ao menos um filtro (cnae, uf, municipio, porte ou situacao).",
   });
 
 export function registerReceitaCnpjTools(server: McpServer): void {
@@ -68,7 +69,8 @@ export function registerReceitaCnpjTools(server: McpServer): void {
         "Consulta um CNPJ completo (14 digitos) no indice local da Receita Federal: razao social, nome fantasia, situacao cadastral, CNAE, endereco, capital, porte e Simples/MEI. Offline, sem rate limit.",
       inputSchema: consultarCnpjInput,
     },
-    async (args) => toolContent(await callReceitaCnpjTool("consultar_cnpj", args))
+    async (args) =>
+      toolContent(await callReceitaCnpjTool("consultar_cnpj", args)),
   );
 
   server.registerTool(
@@ -79,7 +81,7 @@ export function registerReceitaCnpjTools(server: McpServer): void {
       inputSchema: buscarEmpresaInput,
     },
     async (args) =>
-      toolContent(await callReceitaCnpjTool("buscar_empresa_por_nome", args))
+      toolContent(await callReceitaCnpjTool("buscar_empresa_por_nome", args)),
   );
 
   server.registerTool(
@@ -90,7 +92,7 @@ export function registerReceitaCnpjTools(server: McpServer): void {
       inputSchema: buscarSocioInput,
     },
     async (args) =>
-      toolContent(await callReceitaCnpjTool("buscar_socio_por_nome", args))
+      toolContent(await callReceitaCnpjTool("buscar_socio_por_nome", args)),
   );
 
   server.registerTool(
@@ -100,7 +102,8 @@ export function registerReceitaCnpjTools(server: McpServer): void {
         "Recebe dois ou mais CNPJs e retorna os socios compartilhados (deteccao de conluio/laranjas em licitacoes).",
       inputSchema: sociosEmComumInput,
     },
-    async (args) => toolContent(await callReceitaCnpjTool("socios_em_comum", args))
+    async (args) =>
+      toolContent(await callReceitaCnpjTool("socios_em_comum", args)),
   );
 
   server.registerTool(
@@ -110,7 +113,8 @@ export function registerReceitaCnpjTools(server: McpServer): void {
         "Filtra empresas por CNAE (principal/secundario), UF, municipio (codigo RFB), porte (ME/EPP) e situacao cadastral (ativa/baixada/inapta). Segmentacao de fornecedores.",
       inputSchema: filtrarEmpresasInput,
     },
-    async (args) => toolContent(await callReceitaCnpjTool("filtrar_empresas", args))
+    async (args) =>
+      toolContent(await callReceitaCnpjTool("filtrar_empresas", args)),
   );
 }
 
@@ -127,7 +131,7 @@ export async function callReceitaCnpjTool(name: string, args: unknown) {
     const input = parseToolInput(buscarEmpresaInput, args);
     if (Result.isError(input)) return Result.serialize(input);
     const out = await withDb((db) =>
-      buscarEmpresaPorNome(db, input.value.nome, input.value.limite)
+      buscarEmpresaPorNome(db, input.value.nome, input.value.limite),
     );
     return Result.serialize(out);
   }
@@ -139,7 +143,7 @@ export async function callReceitaCnpjTool(name: string, args: unknown) {
       buscarSocioPorNome(db, input.value.nome, {
         cpfVisivel: input.value.cpf_visivel,
         limite: input.value.limite,
-      })
+      }),
     );
     return Result.serialize(out);
   }
@@ -159,20 +163,20 @@ export async function callReceitaCnpjTool(name: string, args: unknown) {
   }
 
   return Result.serialize(
-    Result.err(receitaCnpjErrors.TOOL_DESCONHECIDA({ name }))
+    Result.err(receitaCnpjErrors.TOOL_DESCONHECIDA({ name })),
   );
 }
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
   if (parsed.success) return Result.ok(parsed.data);
   return Result.err(
     receitaCnpjErrors.ENTRADA_INVALIDA({
       internal: { issues: parsed.error.issues.map((issue) => issue.message) },
-    })
+    }),
   );
 }
 

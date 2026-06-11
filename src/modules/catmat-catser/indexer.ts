@@ -21,11 +21,7 @@ import type {
   StatusInfo,
 } from "../../core/adapter";
 import { fetchWithRetry } from "../../core/http/download";
-import {
-  countRows,
-  dbExists,
-  openDb,
-} from "../../core/store/sqlite-store";
+import { countRows, dbExists, openDb } from "../../core/store/sqlite-store";
 import { dominioPath } from "../../core/dataDir";
 import {
   DB_FILE,
@@ -80,7 +76,7 @@ const PAGE_DELAY_MS = 100;
 async function paginate<T>(
   endpoint: string,
   onPage: (rows: T[]) => void,
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<number, EvlogError>> {
   let pagina = 1;
   let total = 0;
@@ -92,7 +88,10 @@ async function paginate<T>(
 
     if (Result.isError(got)) {
       return Result.err(
-        catmatCatserErrors.FETCH({ url, internal: { cause: got.error.message } })
+        catmatCatserErrors.FETCH({
+          url,
+          internal: { cause: got.error.message },
+        }),
       );
     }
 
@@ -115,7 +114,7 @@ async function paginate<T>(
     opts?.onProgress?.(
       `${endpoint.split("/").pop()}: pagina ${pagina}/${
         body?.totalPaginas ?? "?"
-      } (${total} registros)`
+      } (${total} registros)`,
     );
 
     const restantes = body?.paginasRestantes ?? 0;
@@ -135,7 +134,7 @@ export function dbPath(): string {
 }
 
 async function build(
-  opts?: BuildOptions
+  opts?: BuildOptions,
 ): Promise<ResultType<BuildSummary, AdapterError>> {
   const db = openDb(DOMINIO, DB_FILE);
 
@@ -148,24 +147,24 @@ async function build(
       paginate<RawCatmatGrupo>(
         ENDPOINTS.catmatGrupo,
         (rows) => insertCatmatGrupos(db, rows),
-        opts
-      )
+        opts,
+      ),
     );
 
     const classes = yield* Result.await(
       paginate<RawCatmatClasse>(
         ENDPOINTS.catmatClasse,
         (rows) => insertCatmatClasses(db, rows),
-        opts
-      )
+        opts,
+      ),
     );
 
     const pdms = yield* Result.await(
       paginate<RawCatmatPdm>(
         ENDPOINTS.catmatPdm,
         (rows) => insertCatmatPdms(db, rows),
-        opts
-      )
+        opts,
+      ),
     );
 
     // 2. Itens de servico (CATSER, ~3 mil).
@@ -173,8 +172,8 @@ async function build(
       paginate<RawCatserItem>(
         ENDPOINTS.catserItem,
         (rows) => insertCatserItens(db, rows.map(mapCatserItem)),
-        opts
-      )
+        opts,
+      ),
     );
 
     // 3. Itens de material (CATMAT, ~342 mil; pesado mas a fonte e pequena).
@@ -182,8 +181,8 @@ async function build(
       paginate<RawCatmatItem>(
         ENDPOINTS.catmatItem,
         (rows) => insertCatmatItens(db, rows.map(mapCatmatItem)),
-        opts
-      )
+        opts,
+      ),
     );
 
     rebuildFts(db);
@@ -230,8 +229,7 @@ async function status(): Promise<ResultType<StatusInfo, AdapterError>> {
 
   const db = openDb(DOMINIO, DB_FILE);
 
-  const registros =
-    countRows(db, "catmat_item") + countRows(db, "catser_item");
+  const registros = countRows(db, "catmat_item") + countRows(db, "catser_item");
   const atualizadoEm = getMetadata(db, "atualizadoEm");
 
   return Result.ok({

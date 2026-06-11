@@ -29,24 +29,25 @@ process.on("exit", () => closeAllDbs());
 
 const cli = cac("dados-publicos-mcp");
 
-cli
-  .command("[serve]", "Inicia o servidor MCP via stdio")
-  .action(async () => {
-    await serve();
-  });
+cli.command("[serve]", "Inicia o servidor MCP via stdio").action(async () => {
+  await serve();
+});
 
 cli
   .command(
     "index [fonte]",
-    "Recria indice(s) local(is). Sem fonte: indexa todas as fontes leves."
+    "Recria indice(s) local(is). Sem fonte: indexa todas as fontes leves.",
   )
   .option("--all", "Indexa todas as fontes leves (requiresHeavyDownload=false)")
   .option(
     "--include-heavy",
-    "Indexa todas as fontes, incluindo as que exigem download pesado"
+    "Indexa todas as fontes, incluindo as que exigem download pesado",
   )
   .option("--ufs <ufs>", "Recorte de UFs (separadas por virgula). Ex: SP,RJ")
-  .option("--anos <anos>", "Recorte de anos (separados por virgula). Ex: 2024,2025")
+  .option(
+    "--anos <anos>",
+    "Recorte de anos (separados por virgula). Ex: 2024,2025",
+  )
   .option("--mes <mes>", "Recorte de mes (YYYY-MM). Ex: 2026-01")
   .action(async (fonte: string | undefined, options: CliIndexOptions) => {
     await runIndex(fonte, options);
@@ -94,7 +95,7 @@ function buildScope(options: CliIndexOptions): Record<string, unknown> {
 
 async function buildAdapterKey(
   key: string,
-  buildOptions: BuildOptions
+  buildOptions: BuildOptions,
 ): Promise<boolean> {
   const adapter = getAdapter(key);
 
@@ -112,7 +113,7 @@ async function buildAdapterKey(
 
   if (Result.isOk(result)) {
     console.info(
-      `  ok: ${result.value.registros} registros em ${result.value.caminho}`
+      `  ok: ${result.value.registros} registros em ${result.value.caminho}`,
     );
     return true;
   }
@@ -123,7 +124,7 @@ async function buildAdapterKey(
 
 async function runIndex(
   fonte: string | undefined,
-  options: CliIndexOptions
+  options: CliIndexOptions,
 ): Promise<void> {
   const scope = buildScope(options);
   const buildOptions: BuildOptions = {
@@ -143,7 +144,7 @@ async function runIndex(
   // Por padrao indexa todas as fontes leves; --include-heavy adiciona as pesadas.
   const includeHeavy = options.includeHeavy ?? false;
   const alvos = listAdapters().filter(
-    (adapter) => includeHeavy || !adapter.requiresHeavyDownload
+    (adapter) => includeHeavy || !adapter.requiresHeavyDownload,
   );
 
   if (alvos.length === 0) {
@@ -153,13 +154,13 @@ async function runIndex(
   }
 
   const pulados = listAdapters().filter(
-    (adapter) => !includeHeavy && adapter.requiresHeavyDownload
+    (adapter) => !includeHeavy && adapter.requiresHeavyDownload,
   );
   if (pulados.length > 0) {
     console.info(
       `Pulando fontes pesadas (use --include-heavy): ${pulados
         .map((a) => a.key)
-        .join(", ")}`
+        .join(", ")}`,
     );
   }
 

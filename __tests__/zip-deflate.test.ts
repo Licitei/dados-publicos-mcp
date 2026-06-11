@@ -172,8 +172,16 @@ describe("unzipEntries: ramo DEFLATE(8) via Bun.inflateSync", () => {
 
   test("le entradas deflate e stored do mesmo zip", () => {
     const zip = buildZip([
-      { name: "deflate/dados.csv", payload: deflatePayload, method: METHOD_DEFLATE },
-      { name: "stored/plano.txt", payload: storedPayload, method: METHOD_STORED },
+      {
+        name: "deflate/dados.csv",
+        payload: deflatePayload,
+        method: METHOD_DEFLATE,
+      },
+      {
+        name: "stored/plano.txt",
+        payload: storedPayload,
+        method: METHOD_STORED,
+      },
     ]);
     const entries = unzipEntries(zip);
 
@@ -201,7 +209,11 @@ describe("unzipEntries: ramo DEFLATE(8) via Bun.inflateSync", () => {
 
     // E o leitor restaura o conteudo integral apesar do tamanho reduzido.
     const zip = buildZip([
-      { name: "so-deflate.bin", payload: deflatePayload, method: METHOD_DEFLATE },
+      {
+        name: "so-deflate.bin",
+        payload: deflatePayload,
+        method: METHOD_DEFLATE,
+      },
     ]);
     expect(unzipEntries(zip)[0].bytes()).toEqual(deflatePayload);
   });

@@ -68,9 +68,7 @@ const serieInputSchema = z
     message: "Informe cod_ibge, nome ou uf.",
   });
 
-const cnpjInputSchema = z
-  .object({ cnpj: z.string().trim().min(11) })
-  .strict();
+const cnpjInputSchema = z.object({ cnpj: z.string().trim().min(11) }).strict();
 
 const emptyInputSchema = z.object({}).strict();
 
@@ -82,7 +80,7 @@ export function registerCapagTools(server: McpServer): void {
         "CAPAG de um ente: por codigo IBGE (7d) ou nome+UF (municipio) ou sigla UF (estado). Retorna nota CAPAG (A/B/C/D, com +) e os 3 indicadores (endividamento, poupanca corrente, liquidez).",
       inputSchema: capagEnteInputSchema,
     },
-    async (args) => toolContent(await callCapagTool("capag_ente", args))
+    async (args) => toolContent(await callCapagTool("capag_ente", args)),
   );
 
   server.registerTool(
@@ -92,7 +90,7 @@ export function registerCapagTools(server: McpServer): void {
         "Lista entes (estados e/ou municipios) com nota CAPAG informada (ex.: C/D = alto risco de pagamento), filtrando por UF/regiao. Mapa de risco fiscal do comprador publico.",
       inputSchema: entesPorNotaInputSchema,
     },
-    async (args) => toolContent(await callCapagTool("entes_por_nota", args))
+    async (args) => toolContent(await callCapagTool("entes_por_nota", args)),
   );
 
   server.registerTool(
@@ -103,7 +101,7 @@ export function registerCapagTools(server: McpServer): void {
       inputSchema: serieInputSchema,
     },
     async (args) =>
-      toolContent(await callCapagTool("capag_serie_historica", args))
+      toolContent(await callCapagTool("capag_serie_historica", args)),
   );
 
   server.registerTool(
@@ -114,16 +112,17 @@ export function registerCapagTools(server: McpServer): void {
       inputSchema: cnpjInputSchema,
     },
     async (args) =>
-      toolContent(await callCapagTool("resolver_ente_por_cnpj", args))
+      toolContent(await callCapagTool("resolver_ente_por_cnpj", args)),
   );
 
   server.registerTool(
     "status_capag",
     {
-      description: "Status do indice local CAPAG (contagens e caminho do SQLite).",
+      description:
+        "Status do indice local CAPAG (contagens e caminho do SQLite).",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callCapagTool("status_capag", args))
+    async (args) => toolContent(await callCapagTool("status_capag", args)),
   );
 
   server.registerTool(
@@ -133,7 +132,7 @@ export function registerCapagTools(server: McpServer): void {
         "Baixa CAPAG (estados CSV historico + municipios XLSX) e /entes do SICONFI e recria o indice SQLite local.",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callCapagTool("indexar_capag", args))
+    async (args) => toolContent(await callCapagTool("indexar_capag", args)),
   );
 }
 
@@ -158,8 +157,8 @@ export async function callCapagTool(name: string, args: unknown) {
           nome: input.value.nome,
           uf: input.value.uf,
           ano: input.value.ano,
-        })
-      )
+        }),
+      ),
     );
   }
 
@@ -178,8 +177,8 @@ export async function callCapagTool(name: string, args: unknown) {
           incluirEstados: input.value.incluir_estados,
           incluirMunicipios: input.value.incluir_municipios,
           limite: input.value.limite,
-        })
-      )
+        }),
+      ),
     );
   }
 
@@ -194,8 +193,8 @@ export async function callCapagTool(name: string, args: unknown) {
           codIbge: input.value.cod_ibge,
           nome: input.value.nome,
           uf: input.value.uf,
-        })
-      )
+        }),
+      ),
     );
   }
 
@@ -205,7 +204,7 @@ export async function callCapagTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return withDb((db) =>
-      Result.serialize(resolverEntePorCnpj(db, input.value.cnpj))
+      Result.serialize(resolverEntePorCnpj(db, input.value.cnpj)),
     );
   }
 
@@ -217,7 +216,7 @@ function withDb<T>(fn: (db: import("bun:sqlite").Database) => T): T {
 
   if (Bun.file(caminho).size <= 0) {
     return Result.serialize(
-      Result.err(capagErrors.INDICE_AUSENTE({ path: caminho }))
+      Result.err(capagErrors.INDICE_AUSENTE({ path: caminho })),
     ) as T;
   }
 
@@ -226,7 +225,7 @@ function withDb<T>(fn: (db: import("bun:sqlite").Database) => T): T {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -237,7 +236,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       detalhe: `Entrada invalida para ferramenta CAPAG: ${parsed.error.issues
         .map((issue) => issue.message)
         .join("; ")}`,
-    })
+    }),
   );
 }
 

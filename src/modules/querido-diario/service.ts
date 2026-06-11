@@ -99,7 +99,10 @@ export function snippet(conteudo: string, termo?: string, raio = 160): string {
     }
   }
 
-  return conteudo.slice(0, raio * 2).replace(/\s+/g, " ").trim();
+  return conteudo
+    .slice(0, raio * 2)
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export type BuscarDiariosInput = {
@@ -118,7 +121,7 @@ export type BuscarDiariosInput = {
  */
 export function buscarDiarios(
   db: Database,
-  input: BuscarDiariosInput
+  input: BuscarDiariosInput,
 ): ResultType<DiarioHit[], QdServiceError> {
   return Result.try({
     try: () => {
@@ -179,14 +182,14 @@ export type BuscarCnpjInput = {
  */
 export function buscarCnpjEmDiario(
   db: Database,
-  input: BuscarCnpjInput
+  input: BuscarCnpjInput,
 ): ResultType<DiarioHit[], QdServiceError> {
   return Result.gen(function* () {
     const cnpj = onlyDigits(input.cnpj);
 
     if (cnpj.length !== 14) {
       return yield* Result.err(
-        queridoDiarioErrors.CNPJ_INVALIDO({ cnpj: input.cnpj })
+        queridoDiarioErrors.CNPJ_INVALIDO({ cnpj: input.cnpj }),
       );
     }
 
@@ -249,7 +252,7 @@ export type DiariosPorMunicipioInput = {
  */
 export function diariosPorMunicipio(
   db: Database,
-  input: DiariosPorMunicipioInput
+  input: DiariosPorMunicipioInput,
 ): ResultType<DiarioHit[], QdServiceError> {
   return Result.try({
     try: () => {
@@ -257,10 +260,7 @@ export function diariosPorMunicipio(
       const limite = clampLimit(input.limite);
 
       if (input.termo && input.termo.trim()) {
-        const where: string[] = [
-          "diarios_fts MATCH ?",
-          "d.territory_id = ?",
-        ];
+        const where: string[] = ["diarios_fts MATCH ?", "d.territory_id = ?"];
         const params: unknown[] = [toFtsMatch(input.termo), territoryId];
 
         if (input.dataInicial) {

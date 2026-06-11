@@ -46,7 +46,7 @@ const ufBySigla = new Map(UFS.map((uf) => [uf.sigla, uf]));
  * numerico IBGE + nome. Pura, nao depende do indice baixado.
  */
 export function validarUf(
-  sigla: string
+  sigla: string,
 ): ResultType<{ sigla: string; id: number; nome: string }, EvlogError> {
   const candidata = sigla.trim().toUpperCase();
   const uf = ufBySigla.get(candidata);
@@ -70,7 +70,7 @@ async function requireMunicipios(): Promise<
 
     if (!loaded) {
       return yield* Result.err(
-        ibgeLocalidadesErrors.INDICE_AUSENTE({ path: getIndexPath() })
+        ibgeLocalidadesErrors.INDICE_AUSENTE({ path: getIndexPath() }),
       );
     }
 
@@ -134,7 +134,7 @@ export async function resolverMunicipio(input: {
         ibgeLocalidadesErrors.MUNICIPIO_NAO_ENCONTRADO({
           termo: input.nome,
           uf: ufFiltro ?? undefined,
-        })
+        }),
       );
     }
 
@@ -146,7 +146,7 @@ export async function resolverMunicipio(input: {
  * Resolucao reversa: codigo IBGE de 7 digitos -> municipio + UF + regiao.
  */
 export async function resolverCodigoIbge(
-  codigo: string
+  codigo: string,
 ): Promise<ResultType<MunicipioResolvido, EvlogError>> {
   return Result.gen(async function* () {
     const municipios = yield* Result.await(requireMunicipios());
@@ -159,7 +159,7 @@ export async function resolverCodigoIbge(
         ibgeLocalidadesErrors.CODIGO_NAO_ENCONTRADO({
           codigo,
           normalizado: alvo,
-        })
+        }),
       );
     }
 
@@ -172,7 +172,12 @@ export async function resolverCodigoIbge(
  */
 export async function listarMunicipiosUf(uf: string): Promise<
   ResultType<
-    { uf: string; ufId: number; total: number; municipios: MunicipioResolvido[] },
+    {
+      uf: string;
+      ufId: number;
+      total: number;
+      municipios: MunicipioResolvido[];
+    },
     EvlogError
   >
 > {

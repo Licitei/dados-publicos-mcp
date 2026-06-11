@@ -74,7 +74,10 @@ const rawContrato = {
   dataPublicacaoPncp: "2024-01-16T08:00:00",
   dataAtualizacaoGlobal: "2024-01-16T08:00:00",
   tipoContrato: "Contrato",
-  orgaoEntidade: { cnpj: "00000000000191", razaoSocial: "MINISTERIO DA FAZENDA" },
+  orgaoEntidade: {
+    cnpj: "00000000000191",
+    razaoSocial: "MINISTERIO DA FAZENDA",
+  },
   unidadeOrgao: { codigoIbge: "5300108", ufSigla: "DF" },
 };
 
@@ -170,7 +173,7 @@ test("mapPageRows mapeia pagina inteira e descarta sem PK", () => {
   ]);
   expect(rows.length).toBe(1);
   expect((rows[0] as ContratacaoRow).numeroControlePNCP).toBe(
-    "00000000000191-1-000001/2024"
+    "00000000000191-1-000001/2024",
   );
 });
 
@@ -203,7 +206,11 @@ function seed(database: Database) {
       dataPublicacaoPncp: "2024-01-04T10:00:00",
       dataAtualizacaoGlobal: "2024-06-10T12:00:00",
       orgaoEntidade: { cnpj: "00000000000272", razaoSocial: "DNIT" },
-      unidadeOrgao: { codigoIbge: "3550308", municipioNome: "Sao Paulo", ufSigla: "SP" },
+      unidadeOrgao: {
+        codigoIbge: "3550308",
+        municipioNome: "Sao Paulo",
+        ufSigla: "SP",
+      },
     }) as ContratacaoRow,
   ]);
   insertContratos(database, [
@@ -286,7 +293,7 @@ test("contratos_do_fornecedor: agrega por uf", () => {
     agruparPor: "uf",
   });
   const ufs = (res.agregacao as { chave: string; valorTotal: number }[]).map(
-    (a) => a.chave
+    (a) => a.chave,
   );
   expect(ufs).toContain("DF");
   expect(ufs).toContain("SP");

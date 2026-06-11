@@ -60,7 +60,7 @@ export function registerQueridoDiarioTools(server: McpServer) {
       inputSchema: buscarDiariosInputSchema,
     },
     async (args) =>
-      toolContent(await callQueridoDiarioTool("buscar_diarios", args))
+      toolContent(await callQueridoDiarioTool("buscar_diarios", args)),
   );
 
   server.registerTool(
@@ -71,7 +71,7 @@ export function registerQueridoDiarioTools(server: McpServer) {
       inputSchema: buscarCnpjInputSchema,
     },
     async (args) =>
-      toolContent(await callQueridoDiarioTool("buscar_cnpj_em_diario", args))
+      toolContent(await callQueridoDiarioTool("buscar_cnpj_em_diario", args)),
   );
 
   server.registerTool(
@@ -82,7 +82,7 @@ export function registerQueridoDiarioTools(server: McpServer) {
       inputSchema: diariosPorMunicipioInputSchema,
     },
     async (args) =>
-      toolContent(await callQueridoDiarioTool("diarios_por_municipio", args))
+      toolContent(await callQueridoDiarioTool("diarios_por_municipio", args)),
   );
 }
 
@@ -119,11 +119,11 @@ export async function callQueridoDiarioTool(name: string, args: unknown) {
  * existe em disco, retorna um erro orientando a rodar o build pesado.
  */
 function withDb<T extends ResultType<unknown, unknown>>(
-  run: (db: ReturnType<typeof openReadonly>) => T
+  run: (db: ReturnType<typeof openReadonly>) => T,
 ): ReturnType<typeof Result.serialize> {
   if (!dbExistsOnDisk()) {
     return Result.serialize(
-      Result.err(queridoDiarioErrors.INDICE_AUSENTE({ path: dbPath() }))
+      Result.err(queridoDiarioErrors.INDICE_AUSENTE({ path: dbPath() })),
     );
   }
 
@@ -134,7 +134,7 @@ function withDb<T extends ResultType<unknown, unknown>>(
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -145,7 +145,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

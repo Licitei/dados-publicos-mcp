@@ -37,7 +37,9 @@ const buscarPorNomeInputSchema = z
       .string()
       .trim()
       .min(2)
-      .describe("Nome ou razao social a buscar (sem acento e maiusculas tanto faz)"),
+      .describe(
+        "Nome ou razao social a buscar (sem acento e maiusculas tanto faz)",
+      ),
     limite: z.number().int().positive().max(500).optional(),
   })
   .strict();
@@ -72,7 +74,7 @@ export function registerSancoesCguTools(server: McpServer): void {
       inputSchema: verificarSancoesInputSchema,
     },
     async (args) =>
-      toolContent(await callSancoesCguTool("verificar_sancoes", args))
+      toolContent(await callSancoesCguTool("verificar_sancoes", args)),
   );
 
   server.registerTool(
@@ -83,7 +85,7 @@ export function registerSancoesCguTools(server: McpServer): void {
       inputSchema: buscarPorNomeInputSchema,
     },
     async (args) =>
-      toolContent(await callSancoesCguTool("buscar_sancionado_por_nome", args))
+      toolContent(await callSancoesCguTool("buscar_sancionado_por_nome", args)),
   );
 
   server.registerTool(
@@ -94,7 +96,7 @@ export function registerSancoesCguTools(server: McpServer): void {
       inputSchema: vigentesInputSchema,
     },
     async (args) =>
-      toolContent(await callSancoesCguTool("sancoes_vigentes_na_data", args))
+      toolContent(await callSancoesCguTool("sancoes_vigentes_na_data", args)),
   );
 
   server.registerTool(
@@ -105,7 +107,7 @@ export function registerSancoesCguTools(server: McpServer): void {
       inputSchema: emptyInputSchema,
     },
     async (args) =>
-      toolContent(await callSancoesCguTool("status_sancoes", args))
+      toolContent(await callSancoesCguTool("status_sancoes", args)),
   );
 
   server.registerTool(
@@ -116,7 +118,7 @@ export function registerSancoesCguTools(server: McpServer): void {
       inputSchema: emptyInputSchema,
     },
     async (args) =>
-      toolContent(await callSancoesCguTool("indexar_sancoes", args))
+      toolContent(await callSancoesCguTool("indexar_sancoes", args)),
   );
 }
 
@@ -127,7 +129,7 @@ export async function callSancoesCguTool(name: string, args: unknown) {
     if (Result.isError(input)) return Result.serialize(input);
 
     return Result.serialize(
-      withDb((db) => verificarSancoes(db, input.value.documento))
+      withDb((db) => verificarSancoes(db, input.value.documento)),
     );
   }
 
@@ -138,8 +140,8 @@ export async function callSancoesCguTool(name: string, args: unknown) {
 
     return Result.serialize(
       withDb((db) =>
-        buscarSancionadoPorNome(db, input.value.nome, input.value.limite)
-      )
+        buscarSancionadoPorNome(db, input.value.nome, input.value.limite),
+      ),
     );
   }
 
@@ -153,8 +155,8 @@ export async function callSancoesCguTool(name: string, args: unknown) {
         sancoesVigentesNaData(db, input.value.data, {
           lista: input.value.lista as DatasetKey | undefined,
           limite: input.value.limite,
-        })
-      )
+        }),
+      ),
     );
   }
 
@@ -173,7 +175,7 @@ export async function callSancoesCguTool(name: string, args: unknown) {
 function withDb<T>(fn: (db: import("bun:sqlite").Database) => T) {
   if (!dbExists(DOMINIO, DB_FILE)) {
     return Result.err(
-      sancoesCguErrors.INDICE_AUSENTE({ path: dominioPath(DOMINIO, DB_FILE) })
+      sancoesCguErrors.INDICE_AUSENTE({ path: dominioPath(DOMINIO, DB_FILE) }),
     );
   }
 
@@ -186,7 +188,7 @@ function withDb<T>(fn: (db: import("bun:sqlite").Database) => T) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): Result<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -197,7 +199,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

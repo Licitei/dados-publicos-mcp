@@ -1,10 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { batchInsert } from "../../core/store/sqlite-store";
-import {
-  conteudoParaFts,
-  extractCnpjs,
-  type DiarioRegistro,
-} from "./parse";
+import { conteudoParaFts, extractCnpjs, type DiarioRegistro } from "./parse";
 
 export const DB_FILE = "querido-diario.db";
 
@@ -71,15 +67,18 @@ const insertDiarioSql = `
  * Devolve a quantidade inserida. O FTS armazena o conteudo NORMALIZADO para
  * casar com a query (que tambem e normalizada) — tolerante a acentos do OCR.
  */
-export function insertDiarios(db: Database, registros: DiarioRegistro[]): number {
+export function insertDiarios(
+  db: Database,
+  registros: DiarioRegistro[],
+): number {
   if (registros.length === 0) return 0;
 
   const insertDiario = db.prepare(insertDiarioSql);
   const insertFts = db.prepare(
-    "INSERT INTO diarios_fts (rowid, conteudo, municipio) VALUES (?, ?, ?)"
+    "INSERT INTO diarios_fts (rowid, conteudo, municipio) VALUES (?, ?, ?)",
   );
   const insertCnpj = db.prepare(
-    "INSERT INTO diario_cnpjs (diario_id, cnpj) VALUES (?, ?)"
+    "INSERT INTO diario_cnpjs (diario_id, cnpj) VALUES (?, ?)",
   );
 
   const tx = db.transaction((rows: DiarioRegistro[]) => {
@@ -94,7 +93,7 @@ export function insertDiarios(db: Database, registros: DiarioRegistro[]): number
         r.edicao,
         r.edicaoExtra ? 1 : 0,
         r.urlOriginal,
-        r.conteudo
+        r.conteudo,
       );
       const id = Number(result.lastInsertRowid);
 

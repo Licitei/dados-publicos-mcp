@@ -69,7 +69,9 @@ export const DOMINIO_FILES = [
 export type DominioTabela = (typeof DOMINIO_FILES)[number]["tabela"];
 
 /** Nomes dos ZIPs particionados (0..9). */
-export function partFiles(prefix: "Empresas" | "Estabelecimentos" | "Socios"): string[] {
+export function partFiles(
+  prefix: "Empresas" | "Estabelecimentos" | "Socios",
+): string[] {
   return Array.from({ length: 10 }, (_, i) => `${prefix}${i}.zip`);
 }
 

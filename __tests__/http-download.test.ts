@@ -41,7 +41,7 @@ beforeAll(() => {
             headers: {
               "content-type": "text/plain",
               "content-length": String(
-                new TextEncoder().encode(TEXT_BODY).length
+                new TextEncoder().encode(TEXT_BODY).length,
               ),
             },
           });

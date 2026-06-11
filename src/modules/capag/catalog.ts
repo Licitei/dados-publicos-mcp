@@ -29,18 +29,11 @@ export const PACKAGE_SHOW = {
 } as const;
 
 /** SICONFI: catalogo de entes (ponte cnpj<->cod_ibge). ~866 KB, sem chave. */
-export const SICONFI_ENTES = "https://apidatalake.tesouro.gov.br/ords/siconfi/tt/entes";
+export const SICONFI_ENTES =
+  "https://apidatalake.tesouro.gov.br/ords/siconfi/tt/entes";
 
 /** Notas CAPAG possiveis (com modificadores e marcadores de indisponibilidade). */
-export type NotaCapag =
-  | "A+"
-  | "A"
-  | "B+"
-  | "B"
-  | "C"
-  | "D"
-  | "n.d."
-  | "n.e.";
+export type NotaCapag = "A+" | "A" | "B+" | "B" | "C" | "D" | "n.d." | "n.e.";
 
 /** Esfera de um ente no SICONFI: U=Uniao, E=Estado, M=Municipio. */
 export type Esfera = "U" | "E" | "M";

@@ -112,7 +112,7 @@ export function idFromUri(uri: string | undefined | null): number | null {
 
 /** Mapeia um record de deputados.csv para DeputadoRow (id vem da uri). */
 export function mapDeputado(
-  record: Record<string, string>
+  record: Record<string, string>,
 ): DeputadoRow | null {
   const uri = field(record, "uri");
   const id = idFromUri(uri) ?? toInt(field(record, "id"));
@@ -170,7 +170,7 @@ export function mapDespesa(record: Record<string, string>): DespesaRow {
 
 /** Mapeia um record de proposicoes-{ano}.csv para ProposicaoRow. */
 export function mapProposicao(
-  record: Record<string, string>
+  record: Record<string, string>,
 ): ProposicaoRow | null {
   const id = toInt(field(record, "id")) ?? idFromUri(field(record, "uri"));
 
@@ -194,7 +194,7 @@ export function mapProposicao(
 
 /** Mapeia um record de proposicoesAutores-{ano}.csv para ProposicaoAutorRow. */
 export function mapProposicaoAutor(
-  record: Record<string, string>
+  record: Record<string, string>,
 ): ProposicaoAutorRow {
   const nomeAutor = field(record, "nomeAutor");
 
@@ -212,7 +212,7 @@ export function mapProposicaoAutor(
 
 /** Faz o parse de bytes/string de deputados.csv -> DeputadoRow[]. */
 export function parseDeputados(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): DeputadoRow[] {
   return parseCsvObjects(bytes, undefined, csvOpts)
     .map(mapDeputado)
@@ -221,14 +221,14 @@ export function parseDeputados(
 
 /** Faz o parse de bytes/string de Ano-{ano}.csv (CEAP) -> DespesaRow[]. */
 export function parseDespesas(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): DespesaRow[] {
   return parseCsvObjects(bytes, undefined, csvOpts).map(mapDespesa);
 }
 
 /** Faz o parse de bytes/string de proposicoes-{ano}.csv -> ProposicaoRow[]. */
 export function parseProposicoes(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): ProposicaoRow[] {
   return parseCsvObjects(bytes, undefined, csvOpts)
     .map(mapProposicao)
@@ -237,7 +237,7 @@ export function parseProposicoes(
 
 /** Faz o parse de bytes/string de proposicoesAutores-{ano}.csv. */
 export function parseProposicoesAutores(
-  bytes: Uint8Array | ArrayBuffer | string
+  bytes: Uint8Array | ArrayBuffer | string,
 ): ProposicaoAutorRow[] {
   return parseCsvObjects(bytes, undefined, csvOpts).map(mapProposicaoAutor);
 }

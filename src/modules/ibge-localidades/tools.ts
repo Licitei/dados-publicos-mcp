@@ -47,7 +47,7 @@ export function registerIbgeLocalidadesTools(server: McpServer) {
       inputSchema: resolverMunicipioInputSchema,
     },
     async (args) =>
-      toolContent(await callIbgeLocalidadesTool("resolver_municipio", args))
+      toolContent(await callIbgeLocalidadesTool("resolver_municipio", args)),
   );
 
   server.registerTool(
@@ -58,7 +58,7 @@ export function registerIbgeLocalidadesTools(server: McpServer) {
       inputSchema: resolverCodigoInputSchema,
     },
     async (args) =>
-      toolContent(await callIbgeLocalidadesTool("resolver_codigo_ibge", args))
+      toolContent(await callIbgeLocalidadesTool("resolver_codigo_ibge", args)),
   );
 
   server.registerTool(
@@ -69,7 +69,7 @@ export function registerIbgeLocalidadesTools(server: McpServer) {
       inputSchema: listarMunicipiosUfInputSchema,
     },
     async (args) =>
-      toolContent(await callIbgeLocalidadesTool("listar_municipios_uf", args))
+      toolContent(await callIbgeLocalidadesTool("listar_municipios_uf", args)),
   );
 
   server.registerTool(
@@ -79,7 +79,8 @@ export function registerIbgeLocalidadesTools(server: McpServer) {
         "Normaliza/valida uma sigla de UF (ex SP, rj) e retorna o codigo numerico IBGE da UF.",
       inputSchema: validarUfInputSchema,
     },
-    async (args) => toolContent(await callIbgeLocalidadesTool("validar_uf", args))
+    async (args) =>
+      toolContent(await callIbgeLocalidadesTool("validar_uf", args)),
   );
 
   server.registerTool(
@@ -91,8 +92,8 @@ export function registerIbgeLocalidadesTools(server: McpServer) {
     },
     async (args) =>
       toolContent(
-        await callIbgeLocalidadesTool("indexar_ibge_localidades", args)
-      )
+        await callIbgeLocalidadesTool("indexar_ibge_localidades", args),
+      ),
   );
 }
 
@@ -138,7 +139,7 @@ export async function callIbgeLocalidadesTool(name: string, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -149,7 +150,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message).join("; "),
       },
-    })
+    }),
   );
 }
 

@@ -190,7 +190,7 @@ describe("createJsonStore", () => {
     // JSON valido, porem nao casa com IndexSchema (itens deveria ser array).
     await Bun.write(
       store.path(),
-      JSON.stringify({ versao: "nao-numero", itens: "x" })
+      JSON.stringify({ versao: "nao-numero", itens: "x" }),
     );
 
     const loaded = await store.load();

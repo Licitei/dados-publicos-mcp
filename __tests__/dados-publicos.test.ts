@@ -36,7 +36,7 @@ test("quebra janela mensal para agregacao", () => {
       dataInicial: "20260115",
       dataFinal: "20260302",
       granularidade: "mes",
-    })
+    }),
   ).toEqual([
     { chave: "2026-01", dataInicial: "20260115", dataFinal: "20260131" },
     { chave: "2026-02", dataInicial: "20260201", dataFinal: "20260228" },

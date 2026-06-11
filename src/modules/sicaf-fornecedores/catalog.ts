@@ -15,8 +15,7 @@ export const DOMINIO = "sicaf-fornecedores";
 
 export const KEY = "sicaf-fornecedores";
 
-export const TITULO =
-  "SICAF / Compras.gov.br - Cadastro de Fornecedores";
+export const TITULO = "SICAF / Compras.gov.br - Cadastro de Fornecedores";
 
 export const DB_FILE = "sicaf-fornecedores.db";
 
@@ -44,7 +43,7 @@ export function buildPageUrl(opts: {
 }): string {
   const tamanho = Math.min(
     Math.max(opts.tamanhoPagina ?? TAMANHO_PAGINA_MAX, TAMANHO_PAGINA_MIN),
-    TAMANHO_PAGINA_MAX
+    TAMANHO_PAGINA_MAX,
   );
   const params = new URLSearchParams({
     pagina: String(opts.pagina),

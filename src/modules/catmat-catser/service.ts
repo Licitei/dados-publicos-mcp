@@ -65,7 +65,7 @@ export function ftsTokens(termo: string): string[] {
  */
 export function buildFtsQuery(
   termo: string,
-  combine: "and" | "or" = "and"
+  combine: "and" | "or" = "and",
 ): string {
   const tokens = ftsTokens(termo);
 
@@ -91,7 +91,7 @@ export function buscarMaterial(
   db: Database,
   termo: string,
   limite?: number,
-  combine: "and" | "or" = "and"
+  combine: "and" | "or" = "and",
 ): CatmatMatch[] {
   const query = buildFtsQuery(termo, combine);
 
@@ -108,7 +108,7 @@ export function buscarMaterial(
       WHERE catmat_item_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-      `
+      `,
     )
     .all(query, clampLimit(limite)) as Array<Record<string, unknown>>;
 
@@ -132,7 +132,7 @@ export function buscarServico(
   db: Database,
   termo: string,
   limite?: number,
-  combine: "and" | "or" = "and"
+  combine: "and" | "or" = "and",
 ): CatserMatch[] {
   const query = buildFtsQuery(termo, combine);
 
@@ -151,7 +151,7 @@ export function buscarServico(
       WHERE catser_item_fts MATCH ?
       ORDER BY rank
       LIMIT ?
-      `
+      `,
     )
     .all(query, clampLimit(limite)) as Array<Record<string, unknown>>;
 
@@ -185,7 +185,7 @@ function mapCatserRow(r: Record<string, unknown>): CatserMatch {
  */
 export function resolverMaterial(
   db: Database,
-  codigoItem: number
+  codigoItem: number,
 ): CatmatMatch | null {
   const r = db
     .query(
@@ -193,7 +193,7 @@ export function resolverMaterial(
       SELECT codigoItem, descricaoItem, codigoGrupo, nomeGrupo, codigoClasse,
              nomeClasse, codigoPdm, nomePdm, statusItem
       FROM catmat_item WHERE codigoItem = ?
-      `
+      `,
     )
     .get(codigoItem) as Record<string, unknown> | null;
 
@@ -220,7 +220,7 @@ export function resolverMaterial(
  */
 export function resolverServico(
   db: Database,
-  codigoServico: number
+  codigoServico: number,
 ): CatserMatch | null {
   const r = db
     .query(
@@ -229,7 +229,7 @@ export function resolverServico(
              nomeDivisao, codigoGrupo, nomeGrupo, codigoClasse, nomeClasse,
              codigoSubclasse, nomeSubclasse, codigoCpc, statusServico
       FROM catser_item WHERE codigoServico = ?
-      `
+      `,
     )
     .get(codigoServico) as Record<string, unknown> | null;
 
@@ -245,13 +245,11 @@ export function resolverServico(
 export function resolverCatmatCatser(
   db: Database,
   codigo: number,
-  tipo?: "material" | "servico"
+  tipo?: "material" | "servico",
 ): { material: CatmatMatch | null; servico: CatserMatch | null } {
   return {
-    material:
-      tipo === "servico" ? null : resolverMaterial(db, codigo),
-    servico:
-      tipo === "material" ? null : resolverServico(db, codigo),
+    material: tipo === "servico" ? null : resolverMaterial(db, codigo),
+    servico: tipo === "material" ? null : resolverServico(db, codigo),
   };
 }
 
@@ -263,7 +261,7 @@ export function resolverCatmatCatser(
 export function normalizarItemEdital(
   db: Database,
   descricao: string,
-  limite?: number
+  limite?: number,
 ): {
   termo: string;
   materiais: CatmatMatch[];

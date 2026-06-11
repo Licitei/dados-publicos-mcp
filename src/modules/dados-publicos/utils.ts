@@ -20,13 +20,13 @@ const pncpIdPattern = /^(\d{14})-\d+-(\d+)\/(\d{4})$/;
  * canal de erro do Result em vez de lancar.
  */
 export function parseNumeroControlePncp(
-  input: string
+  input: string,
 ): ResultType<PncpId, EvlogError> {
   const match = input.match(pncpIdPattern);
 
   if (!match) {
     return Result.err(
-      dadosPublicosErrors.NUMERO_CONTROLE_INVALIDO({ valor: input })
+      dadosPublicosErrors.NUMERO_CONTROLE_INVALIDO({ valor: input }),
     );
   }
 
@@ -71,14 +71,14 @@ export function defaultDateRange(days: number) {
  */
 export function assertPncpDate(
   value: string,
-  field: string
+  field: string,
 ): ResultType<true, EvlogError> {
   if (!/^\d{8}$/.test(value)) {
     return Result.err(dadosPublicosErrors.DATA_INVALIDA({ campo: field }));
   }
 
   const parsed = dayjs(
-    `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+    `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`,
   );
 
   if (!parsed.isValid() || parsed.format("YYYYMMDD") !== value) {
@@ -106,7 +106,9 @@ export function splitDateBuckets(input: {
 
   while (cursor.isBefore(end) || cursor.isSame(end, "day")) {
     const bucketStart = cursor;
-    const bucketEnd = cursor.endOf(unit).isAfter(end) ? end : cursor.endOf(unit);
+    const bucketEnd = cursor.endOf(unit).isAfter(end)
+      ? end
+      : cursor.endOf(unit);
 
     buckets.push({
       chave: bucketStart.format(
@@ -114,7 +116,7 @@ export function splitDateBuckets(input: {
           ? "YYYY"
           : input.granularidade === "mes"
             ? "YYYY-MM"
-            : "YYYY-MM-DD"
+            : "YYYY-MM-DD",
       ),
       dataInicial: bucketStart.format("YYYYMMDD"),
       dataFinal: bucketEnd.format("YYYYMMDD"),
@@ -139,14 +141,17 @@ export function asArray(data: unknown): unknown[] {
 }
 
 export function pageData(data: unknown) {
-  const object = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+  const object =
+    data && typeof data === "object" ? (data as Record<string, unknown>) : {};
 
   return {
     data: asArray(data),
     totalRegistros:
       typeof object.totalRegistros === "number" ? object.totalRegistros : null,
-    totalPaginas: typeof object.totalPaginas === "number" ? object.totalPaginas : null,
-    numeroPagina: typeof object.numeroPagina === "number" ? object.numeroPagina : null,
+    totalPaginas:
+      typeof object.totalPaginas === "number" ? object.totalPaginas : null,
+    numeroPagina:
+      typeof object.numeroPagina === "number" ? object.numeroPagina : null,
   };
 }
 
@@ -156,7 +161,7 @@ export function filterByKeyword(data: unknown[], keyword?: string) {
   const normalized = keyword.toLowerCase();
 
   return data.filter((item) =>
-    JSON.stringify(item).toLowerCase().includes(normalized)
+    JSON.stringify(item).toLowerCase().includes(normalized),
   );
 }
 

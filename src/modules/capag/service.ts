@@ -185,7 +185,7 @@ export type CapagEnteInput = {
  */
 export function capagEnte(
   db: Database,
-  input: CapagEnteInput
+  input: CapagEnteInput,
 ): ResultType<EnteCapag | null, EvlogError> {
   return Result.gen(function* () {
     if (input.codIbge) {
@@ -196,7 +196,7 @@ export function capagEnte(
 
     if (input.nome) {
       return consultar(() =>
-        queryMunicipioByNome(db, input.nome!, input.uf, input.ano)
+        queryMunicipioByNome(db, input.nome!, input.uf, input.ano),
       );
     }
 
@@ -207,7 +207,7 @@ export function capagEnte(
     return Result.err(
       capagErrors.ENTRADA_INVALIDA({
         detalhe: "Informe cod_ibge, nome (com uf) ou uf.",
-      })
+      }),
     );
   });
 }
@@ -224,14 +224,14 @@ function consultar<T>(fn: () => T): ResultType<T, EvlogError> {
 function queryMunicipioByCod(
   db: Database,
   cod: string,
-  ano?: number
+  ano?: number,
 ): EnteCapag | null {
   const sql = ano
     ? `SELECT * FROM capag_municipios WHERE cod_ibge = ? AND ano_base = ?`
     : `SELECT * FROM capag_municipios WHERE cod_ibge = ? ORDER BY ano_base DESC LIMIT 1`;
-  const row = (ano
-    ? db.query(sql).get(cod, ano)
-    : db.query(sql).get(cod)) as MunRowDb | null;
+  const row = (
+    ano ? db.query(sql).get(cod, ano) : db.query(sql).get(cod)
+  ) as MunRowDb | null;
 
   return row ? munToEnte(row) : null;
 }
@@ -240,7 +240,7 @@ function queryMunicipioByNome(
   db: Database,
   nome: string,
   uf?: string,
-  ano?: number
+  ano?: number,
 ): EnteCapag | null {
   const alvo = normalize(nome);
   const params: SQLQueryBindings[] = [];
@@ -272,9 +272,9 @@ function queryEstado(db: Database, uf: string, ano?: number): EnteCapag | null {
   const sql = ano
     ? `SELECT * FROM capag_estados WHERE uf = ? AND ano = ?`
     : `SELECT * FROM capag_estados WHERE uf = ? ORDER BY ano DESC LIMIT 1`;
-  const row = (ano
-    ? db.query(sql).get(sigla, ano)
-    : db.query(sql).get(sigla)) as EstadoRowDb | null;
+  const row = (
+    ano ? db.query(sql).get(sigla, ano) : db.query(sql).get(sigla)
+  ) as EstadoRowDb | null;
 
   return row ? estadoToEnte(row) : null;
 }
@@ -298,14 +298,14 @@ export type EntesPorNotaInput = {
 /** Lista entes (estados e/ou municipios) com nota CAPAG em `notas`. */
 export function entesPorNota(
   db: Database,
-  input: EntesPorNotaInput
+  input: EntesPorNotaInput,
 ): ResultType<EnteCapag[], EvlogError> {
   return Result.gen(function* () {
     const notas = input.notas.map((n) => n.trim()).filter(Boolean);
 
     if (notas.length === 0) {
       return Result.err(
-        capagErrors.ENTRADA_INVALIDA({ detalhe: "Informe ao menos uma nota." })
+        capagErrors.ENTRADA_INVALIDA({ detalhe: "Informe ao menos uma nota." }),
       );
     }
 
@@ -403,12 +403,14 @@ export type SerieHistorica = {
 /** Serie historica da nota CAPAG de um ente (todos os anos disponiveis). */
 export function capagSerieHistorica(
   db: Database,
-  input: SerieInput
+  input: SerieInput,
 ): ResultType<SerieHistorica | null, EvlogError> {
   return Result.gen(function* () {
     if (!input.codIbge && !input.nome && !input.uf) {
       return Result.err(
-        capagErrors.ENTRADA_INVALIDA({ detalhe: "Informe cod_ibge, nome ou uf." })
+        capagErrors.ENTRADA_INVALIDA({
+          detalhe: "Informe cod_ibge, nome ou uf.",
+        }),
       );
     }
 
@@ -416,13 +418,13 @@ export function capagSerieHistorica(
       if (input.codIbge || input.nome) {
         const cod = input.codIbge
           ? onlyDigits(input.codIbge).padStart(7, "0")
-          : queryMunicipioByNome(db, input.nome!, input.uf)?.cod_ibge ?? null;
+          : (queryMunicipioByNome(db, input.nome!, input.uf)?.cod_ibge ?? null);
 
         if (!cod) return null;
 
         const rows = db
           .query(
-            `SELECT * FROM capag_municipios WHERE cod_ibge = ? ORDER BY ano_base ASC, posicao ASC`
+            `SELECT * FROM capag_municipios WHERE cod_ibge = ? ORDER BY ano_base ASC, posicao ASC`,
           )
           .all(cod) as MunRowDb[];
 
@@ -486,7 +488,7 @@ export type ResolverCnpjResult = {
  */
 export function resolverEntePorCnpj(
   db: Database,
-  cnpjRaw: string
+  cnpjRaw: string,
 ): ResultType<ResolverCnpjResult, EvlogError> {
   return Result.gen(function* () {
     const cnpj = onlyDigits(cnpjRaw);
@@ -498,11 +500,14 @@ export function resolverEntePorCnpj(
     return consultar(() => {
       const ente = db
         .query(
-          `SELECT cod_ibge, ente, uf, esfera FROM siconfi_entes WHERE cnpj = ? LIMIT 1`
+          `SELECT cod_ibge, ente, uf, esfera FROM siconfi_entes WHERE cnpj = ? LIMIT 1`,
         )
-        .get(cnpj) as
-        | { cod_ibge: string; ente: string; uf: string; esfera: string }
-        | null;
+        .get(cnpj) as {
+        cod_ibge: string;
+        ente: string;
+        uf: string;
+        esfera: string;
+      } | null;
 
       if (!ente) {
         return {
@@ -551,21 +556,33 @@ export type CapagCounts = {
 };
 
 export function countCapag(db: Database): CapagCounts {
-  const estados = (db.query(`SELECT COUNT(*) AS n FROM capag_estados`).get() as {
-    n: number;
-  }).n;
-  const municipios = (db
-    .query(`SELECT COUNT(*) AS n FROM capag_municipios`)
-    .get() as { n: number }).n;
-  const entes = (db.query(`SELECT COUNT(*) AS n FROM siconfi_entes`).get() as {
-    n: number;
-  }).n;
-  const anosEstados = (db
-    .query(`SELECT DISTINCT ano FROM capag_estados ORDER BY ano`)
-    .all() as { ano: number }[]).map((r) => r.ano);
-  const anosMunicipios = (db
-    .query(`SELECT DISTINCT ano_base AS ano FROM capag_municipios ORDER BY ano_base`)
-    .all() as { ano: number }[]).map((r) => r.ano);
+  const estados = (
+    db.query(`SELECT COUNT(*) AS n FROM capag_estados`).get() as {
+      n: number;
+    }
+  ).n;
+  const municipios = (
+    db.query(`SELECT COUNT(*) AS n FROM capag_municipios`).get() as {
+      n: number;
+    }
+  ).n;
+  const entes = (
+    db.query(`SELECT COUNT(*) AS n FROM siconfi_entes`).get() as {
+      n: number;
+    }
+  ).n;
+  const anosEstados = (
+    db.query(`SELECT DISTINCT ano FROM capag_estados ORDER BY ano`).all() as {
+      ano: number;
+    }[]
+  ).map((r) => r.ano);
+  const anosMunicipios = (
+    db
+      .query(
+        `SELECT DISTINCT ano_base AS ano FROM capag_municipios ORDER BY ano_base`,
+      )
+      .all() as { ano: number }[]
+  ).map((r) => r.ano);
 
   return { estados, municipios, entes, anosEstados, anosMunicipios };
 }

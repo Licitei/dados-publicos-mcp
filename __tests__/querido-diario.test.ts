@@ -14,7 +14,10 @@ import {
   parseMunicipioXml,
   parseSimNao,
 } from "../src/modules/querido-diario/parse";
-import { createSchema, insertDiarios } from "../src/modules/querido-diario/store";
+import {
+  createSchema,
+  insertDiarios,
+} from "../src/modules/querido-diario/store";
 import {
   buscarCnpjEmDiario,
   buscarDiarios,
@@ -277,9 +280,9 @@ test("diariosPorMunicipio nao vaza outros municipios", () => {
 
 test("buildAggregateZipUrl reconstroi a URL (caveat do file_path com bug)", () => {
   expect(buildAggregateZipUrl("SP", 2025)).toBe(
-    "https://data.queridodiario.ok.org.br/aggregates/SP/SP_2025.zip"
+    "https://data.queridodiario.ok.org.br/aggregates/SP/SP_2025.zip",
   );
   expect(buildAggregatesApiUrl("sp")).toBe(
-    "https://api.queridodiario.ok.org.br/aggregates/SP"
+    "https://api.queridodiario.ok.org.br/aggregates/SP",
   );
 });

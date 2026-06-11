@@ -148,15 +148,15 @@ export function rebuildFts(db: Database): void {
 /** Grava um valor em meta. */
 export function setMeta(db: Database, chave: string, valor: string): void {
   db.query(
-    "INSERT INTO meta (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor"
+    "INSERT INTO meta (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor",
   ).run(chave, valor);
 }
 
 /** Le um valor de meta (ou null). */
 export function getMeta(db: Database, chave: string): string | null {
-  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as
-    | { valor: string }
-    | null;
+  const row = db.query("SELECT valor FROM meta WHERE chave = ?").get(chave) as {
+    valor: string;
+  } | null;
 
   return row?.valor ?? null;
 }

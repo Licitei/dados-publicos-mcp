@@ -87,7 +87,11 @@ function requireDb(): ResultType<Database, SicafServiceError> {
   return Result.ok(openReadonly(DOMINIO, DB_FILE));
 }
 
-function clampLimite(limite: number | undefined, fallback: number, max: number) {
+function clampLimite(
+  limite: number | undefined,
+  fallback: number,
+  max: number,
+) {
   if (!limite || limite < 1) return fallback;
 
   return Math.min(Math.trunc(limite), max);
@@ -118,7 +122,7 @@ export type BuscarFornecedorInput = {
  */
 export function buscarFornecedor(
   input: BuscarFornecedorInput,
-  database?: Database
+  database?: Database,
 ): ResultType<FornecedorView[], SicafServiceError> {
   const db = database ?? null;
 
@@ -135,7 +139,7 @@ export function buscarFornecedor(
 
 function runBuscarFornecedor(
   db: Database,
-  input: BuscarFornecedorInput
+  input: BuscarFornecedorInput,
 ): FornecedorView[] {
   const ftsQuery = buildFtsQuery(input.nome);
 
@@ -152,7 +156,7 @@ function runBuscarFornecedor(
        WHERE fornecedor_fts MATCH ?
        ${ativoFiltro}
        ORDER BY rank
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(ftsQuery, limite) as FornecedorRow[];
 
@@ -173,7 +177,7 @@ export type FornecedorHabilitadoResult = {
  */
 export function fornecedorHabilitado(
   cnpjInput: string,
-  database?: Database
+  database?: Database,
 ): ResultType<FornecedorHabilitadoResult, SicafServiceError> {
   const db = database ?? null;
 
@@ -190,7 +194,7 @@ export function fornecedorHabilitado(
 
 function runFornecedorHabilitado(
   db: Database,
-  cnpjInput: string
+  cnpjInput: string,
 ): FornecedorHabilitadoResult {
   const cnpj = onlyDigits(cnpjInput);
 
@@ -199,7 +203,7 @@ function runFornecedorHabilitado(
       `SELECT ${SELECT_COLUMNS}
        FROM fornecedor
        WHERE cnpj = ?
-       LIMIT 1`
+       LIMIT 1`,
     )
     .get(cnpj) as FornecedorRow | null;
 
@@ -238,7 +242,7 @@ export type ListarPorUfCnaeInput = {
  */
 export function listarFornecedoresUfCnae(
   input: ListarPorUfCnaeInput,
-  database?: Database
+  database?: Database,
 ): ResultType<FornecedorView[], SicafServiceError> {
   const db = database ?? null;
 
@@ -255,7 +259,7 @@ export function listarFornecedoresUfCnae(
 
 function runListarUfCnae(
   db: Database,
-  input: ListarPorUfCnaeInput
+  input: ListarPorUfCnaeInput,
 ): FornecedorView[] {
   const where: string[] = [];
   const params: SQLQueryBindings[] = [];
@@ -290,7 +294,7 @@ function runListarUfCnae(
        FROM fornecedor
        ${whereSql}
        ORDER BY nome_razao_social
-       LIMIT ?`
+       LIMIT ?`,
     )
     .all(...params, limite) as FornecedorRow[];
 
@@ -310,7 +314,12 @@ export async function statusSicaf(): Promise<SicafStatus> {
   const existe = Bun.file(path).size > 0;
 
   if (!existe) {
-    return { caminho: path, existe: false, atualizadoEm: null, registros: null };
+    return {
+      caminho: path,
+      existe: false,
+      atualizadoEm: null,
+      registros: null,
+    };
   }
 
   const db = openDb(DOMINIO, DB_FILE);

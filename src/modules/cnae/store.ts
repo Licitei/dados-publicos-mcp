@@ -86,7 +86,7 @@ export function getIndexPath(): string {
  */
 export function buildMemoryIndex(
   subclasses: CnaeSubclasse[],
-  criadoEm = dayjs().toISOString()
+  criadoEm = dayjs().toISOString(),
 ): CnaeMemoryIndex {
   const porId = new Map<string, CnaeSubclasse>();
   const invertido = new Map<string, Set<string>>();
@@ -159,7 +159,7 @@ export async function getIndiceCnae(): Promise<
 
   const index = buildMemoryIndex(
     loaded.value.subclasses,
-    loaded.value.criadoEm
+    loaded.value.criadoEm,
   );
 
   setIndex(index, null);

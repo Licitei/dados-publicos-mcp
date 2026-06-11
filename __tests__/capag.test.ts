@@ -70,7 +70,9 @@ describe("extractYear / extractPosicao", () => {
   });
 
   test("extrai data de posicao BR e ISO", () => {
-    expect(extractPosicao("Capag Municipios 2025 - 09/11/2025")).toBe("2025-11-09");
+    expect(extractPosicao("Capag Municipios 2025 - 09/11/2025")).toBe(
+      "2025-11-09",
+    );
     expect(extractPosicao("posicao 2025-02-19")).toBe("2025-02-19");
     expect(extractPosicao("sem data")).toBeNull();
   });
@@ -188,7 +190,7 @@ ${shared.map((s) => `<si><t>${s}</t></si>`).join("")}
     nota2: string,
     ind3: number,
     nota3: string,
-    capag: string
+    capag: string,
   ): string {
     const cells = [
       numCell(0, row, cod),
@@ -234,7 +236,12 @@ function zipStore(files: { name: string; content: string }[]): Uint8Array {
   const centralParts: Uint8Array[] = [];
   let offset = 0;
 
-  type Meta = { nameBytes: Uint8Array; crc: number; size: number; offset: number };
+  type Meta = {
+    nameBytes: Uint8Array;
+    crc: number;
+    size: number;
+    offset: number;
+  };
   const metas: Meta[] = [];
 
   for (const f of files) {
@@ -320,7 +327,7 @@ describe("readXlsxSheet + mapMunicipiosRows", () => {
   test("le aba CAPAG Ano Base e mapeia colunas/indicadores", () => {
     const xlsx = buildXlsxFixture();
     const rows = readXlsxSheet(xlsx, (name) =>
-      name.trim().startsWith("CAPAG Ano Base")
+      name.trim().startsWith("CAPAG Ano Base"),
     );
     const mapped = mapMunicipiosRows(rows);
 

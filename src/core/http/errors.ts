@@ -18,7 +18,8 @@ export const httpErrors = defineErrorCatalog("http", {
   },
   REDE: {
     status: 502,
-    message: ({ url }: { url: string }) => `Falha ao baixar ${url}: erro de rede`,
+    message: ({ url }: { url: string }) =>
+      `Falha ao baixar ${url}: erro de rede`,
     why: "A requisicao nao chegou a obter uma resposta valida do servidor remoto.",
     tags: ["http", "transport", "retryable"],
   },

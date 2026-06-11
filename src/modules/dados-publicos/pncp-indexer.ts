@@ -85,7 +85,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
   requiresHeavyDownload: true,
 
   async build(
-    opts?: BuildOptions
+    opts?: BuildOptions,
   ): Promise<ResultType<BuildSummary, AdapterError>> {
     const scope = (opts?.scope ?? {}) as PncpBuildScope;
     const range = resolveRange(scope);
@@ -114,7 +114,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
       for (const modalidade of modalidades) {
         for (const uf of ufLoop) {
           progress(
-            `contratacoes modalidade=${modalidade}${uf ? ` uf=${uf}` : ""} ${range.dataInicial}-${range.dataFinal}`
+            `contratacoes modalidade=${modalidade}${uf ? ` uf=${uf}` : ""} ${range.dataInicial}-${range.dataFinal}`,
           );
           const harvested = await harvestEntidade(
             PNCP_ENDPOINTS.contratacoes,
@@ -130,7 +130,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
               const mapped = mapRows(rows, mapContratacao) as ContratacaoRow[];
               insertContratacoes(db, mapped);
               totalContratacoes += mapped.length;
-            }
+            },
           );
           if (Result.isError(harvested)) return harvested;
         }
@@ -151,7 +151,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
           const mapped = mapRows(rows, mapContrato) as ContratoRow[];
           insertContratos(db, mapped);
           totalContratos += mapped.length;
-        }
+        },
       );
       if (Result.isError(harvested)) return harvested;
     }
@@ -170,7 +170,7 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
           const mapped = mapRows(rows, mapAta) as AtaRow[];
           insertAtas(db, mapped);
           totalAtas += mapped.length;
-        }
+        },
       );
       if (Result.isError(harvested)) return harvested;
     }
@@ -243,7 +243,9 @@ export const pncpBulkIndexAdapter: IndexAdapter = {
         };
       },
       catch: (cause): EvlogError =>
-        dadosPublicosErrors.STATUS_LEITURA({ internal: { cause: String(cause) } }),
+        dadosPublicosErrors.STATUS_LEITURA({
+          internal: { cause: String(cause) },
+        }),
     });
   },
 };
@@ -267,7 +269,7 @@ async function harvestEntidade(
   path: string,
   baseParams: Record<string, unknown>,
   maxPaginas: number,
-  onPage: (rows: Record<string, unknown>[]) => void
+  onPage: (rows: Record<string, unknown>[]) => void,
 ): Promise<ResultType<number, EvlogError>> {
   let pagina = 1;
   let paginasObtidas = 0;
@@ -277,7 +279,7 @@ async function harvestEntidade(
     const fetched = await fetchJson<PncpPageEnvelope>(
       url,
       { headers: { accept: "application/json", "user-agent": userAgent } },
-      { retries: 4, timeoutMs: 30_000 }
+      { retries: 4, timeoutMs: 30_000 },
     );
 
     if (Result.isError(fetched)) {
@@ -288,7 +290,7 @@ async function harvestEntidade(
         dadosPublicosErrors.HARVEST_FALHOU({
           url,
           internal: { cause: fetched.error.message },
-        })
+        }),
       );
     }
 
@@ -320,7 +322,7 @@ function buildUrl(path: string, params: Record<string, unknown>): string {
 
 function mapRows<T>(
   rows: Record<string, unknown>[],
-  mapper: (raw: Record<string, unknown>) => T | null
+  mapper: (raw: Record<string, unknown>) => T | null,
 ): T[] {
   const out: T[] = [];
   for (const raw of rows) {

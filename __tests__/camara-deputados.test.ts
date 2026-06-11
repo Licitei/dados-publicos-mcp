@@ -68,7 +68,9 @@ const autoresCsv =
 /* --------------------------------- mapping -------------------------------- */
 
 test("idFromUri extrai o id numerico do final da uri", () => {
-  expect(idFromUri("https://dadosabertos.camara.leg.br/api/v2/deputados/220593")).toBe(220593);
+  expect(
+    idFromUri("https://dadosabertos.camara.leg.br/api/v2/deputados/220593"),
+  ).toBe(220593);
   expect(idFromUri("")).toBeNull();
   expect(idFromUri(null)).toBeNull();
 });
@@ -130,7 +132,9 @@ test("resolverEscopo aceita lista de anos, intervalo e flags", () => {
   ]);
   // Anos fora do intervalo CEAP sao descartados.
   expect(resolverEscopo({ anos: [1999, 2024] }).anos).toEqual([2024]);
-  expect(resolverEscopo({ incluirProposicoes: true }).incluirProposicoes).toBe(true);
+  expect(resolverEscopo({ incluirProposicoes: true }).incluirProposicoes).toBe(
+    true,
+  );
   // Sem escopo cai no default (apenas 1 ano).
   expect(resolverEscopo(undefined).anos.length).toBe(1);
 });

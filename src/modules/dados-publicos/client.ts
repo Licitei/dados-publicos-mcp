@@ -27,7 +27,7 @@ export const BRASIL_API_BASE_URL = "https://brasilapi.com.br";
 export const MINHA_RECEITA_BASE_URL = "https://minhareceita.org";
 
 export async function fetchPublicJson(
-  input: FetchJsonInput
+  input: FetchJsonInput,
 ): Promise<ResultType<unknown, EvlogError>> {
   const url = buildUrl(input.baseUrl, input.path, input.params);
   const cacheKey = url.toString();
@@ -37,7 +37,10 @@ export async function fetchPublicJson(
     return Result.ok(cached.value);
   }
 
-  const fetched = await fetchWithRetry(url, input.timeoutMs ?? defaultTimeoutMs);
+  const fetched = await fetchWithRetry(
+    url,
+    input.timeoutMs ?? defaultTimeoutMs,
+  );
 
   if (Result.isError(fetched)) return fetched;
 
@@ -51,7 +54,11 @@ export async function fetchPublicJson(
   return Result.ok(fetched.value);
 }
 
-function buildUrl(baseUrl: string, path: string, params?: Record<string, unknown>) {
+function buildUrl(
+  baseUrl: string,
+  path: string,
+  params?: Record<string, unknown>,
+) {
   const url = new URL(path, `${baseUrl}/`);
 
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -70,12 +77,12 @@ function buildUrl(baseUrl: string, path: string, params?: Record<string, unknown
  */
 async function fetchWithRetry(
   url: URL,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<ResultType<unknown, EvlogError>> {
   const target = url.toString();
 
   const attempt = async (
-    n: number
+    n: number,
   ): Promise<ResultType<unknown, EvlogError>> => {
     const attempted = await Result.tryPromise({
       try: () =>
@@ -136,7 +143,7 @@ async function fetchWithRetry(
 
 async function parseBody(
   response: Response,
-  url: string
+  url: string,
 ): Promise<ResultType<unknown, EvlogError>> {
   if (response.status === 204) return Result.ok(null);
 

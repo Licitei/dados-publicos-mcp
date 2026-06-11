@@ -33,12 +33,12 @@ export function dbPath(): string {
  * banco ainda nao foi construido (build()).
  */
 export async function withDb<T>(
-  fn: (db: Database) => T
+  fn: (db: Database) => T,
 ): Promise<ResultType<T, EvlogError>> {
   return Result.gen(function* () {
     if (!dbExists(RECEITA_CNPJ_KEY, DB_FILE)) {
       return yield* Result.err(
-        receitaCnpjErrors.INDICE_AUSENTE({ path: dbPath() })
+        receitaCnpjErrors.INDICE_AUSENTE({ path: dbPath() }),
       );
     }
 
@@ -49,13 +49,23 @@ export async function withDb<T>(
 }
 
 function descricaoSituacao(codigo: string): string {
-  return SITUACAO_CADASTRAL[codigo] ?? SITUACAO_CADASTRAL[codigo.padStart(2, "0")] ?? "desconhecida";
+  return (
+    SITUACAO_CADASTRAL[codigo] ??
+    SITUACAO_CADASTRAL[codigo.padStart(2, "0")] ??
+    "desconhecida"
+  );
 }
 
-function descricaoDominio(db: Database, tabela: string, codigo: string): string | null {
+function descricaoDominio(
+  db: Database,
+  tabela: string,
+  codigo: string,
+): string | null {
   if (!codigo) return null;
   const row = db
-    .query("SELECT descricao FROM dominios WHERE tabela = ? AND codigo = ? LIMIT 1")
+    .query(
+      "SELECT descricao FROM dominios WHERE tabela = ? AND codigo = ? LIMIT 1",
+    )
     .get(tabela, codigo) as { descricao: string } | undefined;
   return row?.descricao ?? null;
 }
@@ -97,7 +107,7 @@ type EmpresaDb = {
  */
 export function consultarCnpj(
   db: Database,
-  cnpj: string
+  cnpj: string,
 ): ResultType<Record<string, unknown> | null, EvlogError> {
   // Validacao recuperavel inline: CNPJ precisa ter 14 digitos. (normalizeCnpj
   // do core panica em invariante, entao validamos aqui para devolver um erro
@@ -114,7 +124,7 @@ export function consultarCnpj(
               data_inicio_atividade, cnae_fiscal_principal, cnae_fiscal_secundaria,
               logradouro, numero, complemento, bairro, cep, uf, municipio,
               ddd1, telefone1, correio_eletronico
-       FROM estabelecimentos WHERE cnpj_completo = ? LIMIT 1`
+       FROM estabelecimentos WHERE cnpj_completo = ? LIMIT 1`,
     )
     .get(normalizado) as EstabelecimentoDb | undefined;
 
@@ -123,17 +133,22 @@ export function consultarCnpj(
   const empresa = db
     .query(
       `SELECT cnpj_basico, razao_social, natureza_juridica, capital_social, porte_empresa
-       FROM empresas WHERE cnpj_basico = ? LIMIT 1`
+       FROM empresas WHERE cnpj_basico = ? LIMIT 1`,
     )
     .get(estab.cnpj_basico) as EmpresaDb | undefined;
 
   const simples = db
     .query(
       `SELECT opcao_simples, data_opcao_simples, opcao_mei, data_opcao_mei
-       FROM simples WHERE cnpj_basico = ? LIMIT 1`
+       FROM simples WHERE cnpj_basico = ? LIMIT 1`,
     )
     .get(estab.cnpj_basico) as
-    | { opcao_simples: string; data_opcao_simples: string | null; opcao_mei: string; data_opcao_mei: string | null }
+    | {
+        opcao_simples: string;
+        data_opcao_simples: string | null;
+        opcao_mei: string;
+        data_opcao_mei: string | null;
+      }
     | undefined;
 
   return Result.ok({
@@ -141,23 +156,38 @@ export function consultarCnpj(
     cnpj_basico: estab.cnpj_basico,
     razao_social: empresa?.razao_social ?? null,
     nome_fantasia: estab.nome_fantasia || null,
-    matriz_filial: MATRIZ_FILIAL[estab.identificador_matriz_filial] ?? estab.identificador_matriz_filial,
+    matriz_filial:
+      MATRIZ_FILIAL[estab.identificador_matriz_filial] ??
+      estab.identificador_matriz_filial,
     situacao_cadastral: descricaoSituacao(estab.situacao_cadastral),
     situacao_cadastral_codigo: estab.situacao_cadastral,
     data_situacao_cadastral: estab.data_situacao_cadastral,
-    motivo_situacao_cadastral: descricaoDominio(db, "motivos", estab.motivo_situacao_cadastral),
+    motivo_situacao_cadastral: descricaoDominio(
+      db,
+      "motivos",
+      estab.motivo_situacao_cadastral,
+    ),
     data_inicio_atividade: estab.data_inicio_atividade,
     cnae_principal: estab.cnae_fiscal_principal,
-    cnae_principal_descricao: descricaoDominio(db, "cnaes", estab.cnae_fiscal_principal),
+    cnae_principal_descricao: descricaoDominio(
+      db,
+      "cnaes",
+      estab.cnae_fiscal_principal,
+    ),
     cnae_secundaria: estab.cnae_fiscal_secundaria
-      ? estab.cnae_fiscal_secundaria.split(",").map((c) => c.trim()).filter(Boolean)
+      ? estab.cnae_fiscal_secundaria
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean)
       : [],
     natureza_juridica: empresa?.natureza_juridica ?? null,
     natureza_juridica_descricao: empresa
       ? descricaoDominio(db, "naturezas", empresa.natureza_juridica)
       : null,
     capital_social: empresa?.capital_social ?? null,
-    porte: empresa ? PORTE_EMPRESA[empresa.porte_empresa] ?? empresa.porte_empresa : null,
+    porte: empresa
+      ? (PORTE_EMPRESA[empresa.porte_empresa] ?? empresa.porte_empresa)
+      : null,
     endereco: {
       logradouro: estab.logradouro,
       numero: estab.numero,
@@ -196,7 +226,7 @@ function ftsQuery(termo: string): string {
 export function buscarEmpresaPorNome(
   db: Database,
   termo: string,
-  limite = 20
+  limite = 20,
 ): Record<string, unknown>[] {
   const query = ftsQuery(termo);
   if (!query) return [];
@@ -207,9 +237,13 @@ export function buscarEmpresaPorNome(
     .query(
       `SELECT e.cnpj_basico, e.razao_social, e.porte_empresa
        FROM empresas_fts f JOIN empresas e ON e.cnpj_basico = f.cnpj_basico
-       WHERE empresas_fts MATCH ? LIMIT ?`
+       WHERE empresas_fts MATCH ? LIMIT ?`,
     )
-    .all(query, lim) as { cnpj_basico: string; razao_social: string; porte_empresa: string }[];
+    .all(query, lim) as {
+    cnpj_basico: string;
+    razao_social: string;
+    porte_empresa: string;
+  }[];
 
   const resultados: Record<string, unknown>[] = [];
   const vistos = new Set<string>();
@@ -222,10 +256,16 @@ export function buscarEmpresaPorNome(
       .query(
         `SELECT cnpj_completo, nome_fantasia, situacao_cadastral, uf, municipio
          FROM estabelecimentos WHERE cnpj_basico = ?
-         ORDER BY identificador_matriz_filial ASC LIMIT 1`
+         ORDER BY identificador_matriz_filial ASC LIMIT 1`,
       )
       .get(r.cnpj_basico) as
-      | { cnpj_completo: string; nome_fantasia: string; situacao_cadastral: string; uf: string; municipio: string }
+      | {
+          cnpj_completo: string;
+          nome_fantasia: string;
+          situacao_cadastral: string;
+          uf: string;
+          municipio: string;
+        }
       | undefined;
 
     resultados.push({
@@ -234,7 +274,9 @@ export function buscarEmpresaPorNome(
       razao_social: r.razao_social,
       nome_fantasia: matriz?.nome_fantasia ?? null,
       porte: PORTE_EMPRESA[r.porte_empresa] ?? r.porte_empresa,
-      situacao_cadastral: matriz ? descricaoSituacao(matriz.situacao_cadastral) : null,
+      situacao_cadastral: matriz
+        ? descricaoSituacao(matriz.situacao_cadastral)
+        : null,
       uf: matriz?.uf ?? null,
     });
     if (resultados.length >= lim) break;
@@ -246,7 +288,7 @@ export function buscarEmpresaPorNome(
       .query(
         `SELECT f.cnpj_completo, est.cnpj_basico, est.nome_fantasia, est.situacao_cadastral, est.uf
          FROM estabelecimentos_fts f JOIN estabelecimentos est ON est.cnpj_completo = f.cnpj_completo
-         WHERE estabelecimentos_fts MATCH ? LIMIT ?`
+         WHERE estabelecimentos_fts MATCH ? LIMIT ?`,
       )
       .all(query, lim) as {
       cnpj_completo: string;
@@ -260,14 +302,20 @@ export function buscarEmpresaPorNome(
       if (vistos.has(r.cnpj_basico)) continue;
       vistos.add(r.cnpj_basico);
       const emp = db
-        .query("SELECT razao_social, porte_empresa FROM empresas WHERE cnpj_basico = ? LIMIT 1")
-        .get(r.cnpj_basico) as { razao_social: string; porte_empresa: string } | undefined;
+        .query(
+          "SELECT razao_social, porte_empresa FROM empresas WHERE cnpj_basico = ? LIMIT 1",
+        )
+        .get(r.cnpj_basico) as
+        | { razao_social: string; porte_empresa: string }
+        | undefined;
       resultados.push({
         cnpj_basico: r.cnpj_basico,
         cnpj: r.cnpj_completo,
         razao_social: emp?.razao_social ?? null,
         nome_fantasia: r.nome_fantasia,
-        porte: emp ? PORTE_EMPRESA[emp.porte_empresa] ?? emp.porte_empresa : null,
+        porte: emp
+          ? (PORTE_EMPRESA[emp.porte_empresa] ?? emp.porte_empresa)
+          : null,
         situacao_cadastral: descricaoSituacao(r.situacao_cadastral),
         uf: r.uf,
       });
@@ -285,7 +333,7 @@ export function buscarEmpresaPorNome(
 export function buscarSocioPorNome(
   db: Database,
   termo: string,
-  opts?: { cpfVisivel?: string; limite?: number }
+  opts?: { cpfVisivel?: string; limite?: number },
 ): Record<string, unknown>[] {
   const query = ftsQuery(termo);
   if (!query) return [];
@@ -297,7 +345,7 @@ export function buscarSocioPorNome(
       `SELECT s.cnpj_basico, s.nome_socio, s.cpf_visivel, s.identificador_socio,
               s.qualificacao_socio, s.data_entrada_sociedade
        FROM socios_fts f JOIN socios s ON s.cnpj_basico = f.cnpj_basico AND s.nome_socio = f.nome_socio
-       WHERE socios_fts MATCH ? LIMIT ?`
+       WHERE socios_fts MATCH ? LIMIT ?`,
     )
     .all(query, lim * 4) as {
     cnpj_basico: string;
@@ -336,15 +384,15 @@ export function buscarSocioPorNome(
  */
 export function sociosEmComum(
   db: Database,
-  cnpjs: string[]
+  cnpjs: string[],
 ): Record<string, unknown>[] {
   const basicos = Array.from(
     new Set(
       cnpjs
         .map((c) => onlyDigits(c))
         .filter(Boolean)
-        .map((c) => c.slice(0, 8))
-    )
+        .map((c) => c.slice(0, 8)),
+    ),
   );
   if (basicos.length < 2) return [];
 
@@ -358,7 +406,7 @@ export function sociosEmComum(
        WHERE cnpj_basico IN (${placeholders})
        GROUP BY nome_socio_norm, cpf_visivel
        HAVING qtd >= 2
-       ORDER BY qtd DESC, nome_socio ASC`
+       ORDER BY qtd DESC, nome_socio ASC`,
     )
     .all(...basicos) as {
     nome_socio: string;
@@ -392,7 +440,7 @@ export type FiltroEmpresas = {
  */
 export function filtrarEmpresas(
   db: Database,
-  filtro: FiltroEmpresas
+  filtro: FiltroEmpresas,
 ): Record<string, unknown>[] {
   const lim = Math.min(Math.max(filtro.limite ?? 20, 1), 200);
   const where: string[] = [];
@@ -400,7 +448,9 @@ export function filtrarEmpresas(
 
   if (filtro.cnae) {
     const cnae = onlyDigits(filtro.cnae);
-    where.push("(est.cnae_fiscal_principal = ? OR ',' || est.cnae_fiscal_secundaria || ',' LIKE ?)");
+    where.push(
+      "(est.cnae_fiscal_principal = ? OR ',' || est.cnae_fiscal_secundaria || ',' LIKE ?)",
+    );
     params.push(cnae, `%,${cnae},%`);
   }
   if (filtro.uf) {
@@ -433,7 +483,7 @@ export function filtrarEmpresas(
     .query(
       `SELECT est.cnpj_completo, est.cnpj_basico, est.nome_fantasia,
               est.situacao_cadastral, est.cnae_fiscal_principal, est.uf, est.municipio
-       FROM estabelecimentos est ${porteJoin} ${whereSql} LIMIT ?`
+       FROM estabelecimentos est ${porteJoin} ${whereSql} LIMIT ?`,
     )
     .all(...params, lim) as {
     cnpj_completo: string;
@@ -447,15 +497,21 @@ export function filtrarEmpresas(
 
   return rows.map((r) => {
     const emp = db
-      .query("SELECT razao_social, porte_empresa FROM empresas WHERE cnpj_basico = ? LIMIT 1")
-      .get(r.cnpj_basico) as { razao_social: string; porte_empresa: string } | undefined;
+      .query(
+        "SELECT razao_social, porte_empresa FROM empresas WHERE cnpj_basico = ? LIMIT 1",
+      )
+      .get(r.cnpj_basico) as
+      | { razao_social: string; porte_empresa: string }
+      | undefined;
     return {
       cnpj: r.cnpj_completo,
       razao_social: emp?.razao_social ?? null,
       nome_fantasia: r.nome_fantasia || null,
       situacao_cadastral: descricaoSituacao(r.situacao_cadastral),
       cnae_principal: r.cnae_fiscal_principal,
-      porte: emp ? PORTE_EMPRESA[emp.porte_empresa] ?? emp.porte_empresa : null,
+      porte: emp
+        ? (PORTE_EMPRESA[emp.porte_empresa] ?? emp.porte_empresa)
+        : null,
       uf: r.uf,
       municipio_codigo_rfb: r.municipio,
       municipio: descricaoDominio(db, "municipios", r.municipio),

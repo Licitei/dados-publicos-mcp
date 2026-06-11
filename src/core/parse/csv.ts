@@ -16,7 +16,7 @@ const defaultOptions: Required<CsvOptions> = {
  */
 function decode(
   bytes: Uint8Array | ArrayBuffer | string,
-  encoding: string
+  encoding: string,
 ): string {
   if (typeof bytes === "string") return stripBom(bytes);
 
@@ -39,7 +39,7 @@ function stripBom(text: string): string {
  */
 export function parseCsv(
   bytes: Uint8Array | ArrayBuffer | string,
-  opts?: CsvOptions
+  opts?: CsvOptions,
 ): string[][] {
   const options = { ...defaultOptions, ...opts };
   const text = decode(bytes, options.encoding);
@@ -129,7 +129,7 @@ export function parseCsv(
 export function parseCsvObjects(
   bytes: Uint8Array | ArrayBuffer | string,
   headerOverride?: string[],
-  opts?: CsvOptions
+  opts?: CsvOptions,
 ): Record<string, string>[] {
   const useOverride = headerOverride !== undefined;
   const rows = parseCsv(bytes, {

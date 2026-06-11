@@ -9,8 +9,12 @@
   },
   "scripts": {
     "check": "bun run typecheck && bun run lint:errors && bun test",
+    "format": "oxfmt src __tests__ tooling package.json tsconfig.json",
+    "format:check": "oxfmt --check src __tests__ tooling package.json tsconfig.json",
     "index": "bun src/index.ts index",
     "lint:errors": "bun tooling/static-checks/check-declarative-errors.ts",
+    "lint:oxc": "oxlint src __tests__ tooling",
+    "lint:oxc:fix": "oxlint --fix src __tests__ tooling",
     "prepublishOnly": "bun run check",
     "start": "bun src/index.ts serve",
     "test": "bun test",
@@ -55,6 +59,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.69.0",
     "typescript": "^6.0.3"
   }
 }

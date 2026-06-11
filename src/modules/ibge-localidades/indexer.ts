@@ -29,7 +29,7 @@ const municipiosPayloadSchema = z.array(municipioRawSchema);
  * Exposto para teste sem rede (recebe os bytes/objeto ja em memoria).
  */
 export function flattenMunicipiosPayload(
-  payload: unknown
+  payload: unknown,
 ): ResultType<MunicipioIndexado[], EvlogError> {
   return Result.gen(function* () {
     const parsed = municipiosPayloadSchema.safeParse(payload);
@@ -39,11 +39,9 @@ export function flattenMunicipiosPayload(
         ibgeLocalidadesErrors.FONTE_PARSE({
           url: municipiosUrl,
           internal: {
-            cause: parsed.error.issues
-              .map((issue) => issue.message)
-              .join("; "),
+            cause: parsed.error.issues.map((issue) => issue.message).join("; "),
           },
-        })
+        }),
       );
     }
 
@@ -61,7 +59,7 @@ export function flattenMunicipiosPayload(
 }
 
 async function buildMunicipios(
-  onProgress?: (msg: string) => void
+  onProgress?: (msg: string) => void,
 ): Promise<ResultType<MunicipioIndexado[], EvlogError>> {
   onProgress?.(`Baixando municipios do IBGE: ${municipiosUrl}`);
 
@@ -72,7 +70,7 @@ async function buildMunicipios(
       ibgeLocalidadesErrors.FONTE_DOWNLOAD({
         url: municipiosUrl,
         internal: { cause: fetched.error.message },
-      })
+      }),
     );
   }
 
@@ -90,7 +88,7 @@ export const ibgeLocalidadesIndexAdapter: IndexAdapter & {
   requiresHeavyDownload: false,
   buildMunicipios,
   async build(
-    opts?: BuildOptions
+    opts?: BuildOptions,
   ): Promise<ResultType<BuildSummary, AdapterError>> {
     const built = await buildMunicipios(opts?.onProgress);
 
@@ -108,7 +106,7 @@ export const ibgeLocalidadesIndexAdapter: IndexAdapter & {
     if (Result.isError(saved)) return Result.err(saved.error);
 
     opts?.onProgress?.(
-      `Indice gravado: ${built.value.length} municipios em ${saved.value}`
+      `Indice gravado: ${built.value.length} municipios em ${saved.value}`,
     );
 
     return Result.ok({

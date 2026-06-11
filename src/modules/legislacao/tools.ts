@@ -35,7 +35,8 @@ export function registerLegislacaoTools(server: McpServer) {
       description: "Lista as normas brasileiras disponiveis no catalogo.",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callLegislacaoTool("listar_normas", args))
+    async (args) =>
+      toolContent(await callLegislacaoTool("listar_normas", args)),
   );
 
   server.registerTool(
@@ -45,7 +46,7 @@ export function registerLegislacaoTools(server: McpServer) {
       inputSchema: buscarLegislacaoInputSchema,
     },
     async (args) =>
-      toolContent(await callLegislacaoTool("buscar_legislacao", args))
+      toolContent(await callLegislacaoTool("buscar_legislacao", args)),
   );
 
   server.registerTool(
@@ -54,7 +55,7 @@ export function registerLegislacaoTools(server: McpServer) {
       description: "Retorna um artigo especifico de uma norma brasileira.",
       inputSchema: obterArtigoInputSchema,
     },
-    async (args) => toolContent(await callLegislacaoTool("obter_artigo", args))
+    async (args) => toolContent(await callLegislacaoTool("obter_artigo", args)),
   );
 
   server.registerTool(
@@ -63,7 +64,8 @@ export function registerLegislacaoTools(server: McpServer) {
       description: "Mostra o status e o caminho do indice local.",
       inputSchema: emptyInputSchema,
     },
-    async (args) => toolContent(await callLegislacaoTool("status_indice", args))
+    async (args) =>
+      toolContent(await callLegislacaoTool("status_indice", args)),
   );
 
   server.registerTool(
@@ -74,7 +76,7 @@ export function registerLegislacaoTools(server: McpServer) {
       inputSchema: emptyInputSchema,
     },
     async (args) =>
-      toolContent(await callLegislacaoTool("indexar_legislacao", args))
+      toolContent(await callLegislacaoTool("indexar_legislacao", args)),
   );
 }
 
@@ -112,7 +114,7 @@ export async function callLegislacaoTool(name: string, args: unknown) {
 
 function parseToolInput<TSchema extends z.ZodType>(
   schema: TSchema,
-  args: unknown
+  args: unknown,
 ): ResultType<z.infer<TSchema>, EvlogError> {
   const parsed = schema.safeParse(args);
 
@@ -123,7 +125,7 @@ function parseToolInput<TSchema extends z.ZodType>(
       internal: {
         issues: parsed.error.issues.map((issue) => issue.message),
       },
-    })
+    }),
   );
 }
 

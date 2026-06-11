@@ -45,10 +45,26 @@ export type DatasetSpec = {
  * O parser localiza o CSV pelo nome (ver indexer), nao por posicao.
  */
 export const DATASETS: DatasetSpec[] = [
-  { key: "ceis", zipSuffix: "CEIS", label: "CEIS - Empresas Inidoneas e Suspensas" },
-  { key: "cnep", zipSuffix: "CNEP", label: "CNEP - Empresas Punidas (Lei 12.846)" },
-  { key: "ceaf", zipSuffix: "CEAF", label: "CEAF - Expulsoes da Administracao Federal" },
-  { key: "cepim", zipSuffix: "CEPIM", label: "CEPIM - Entidades Privadas Impedidas" },
+  {
+    key: "ceis",
+    zipSuffix: "CEIS",
+    label: "CEIS - Empresas Inidoneas e Suspensas",
+  },
+  {
+    key: "cnep",
+    zipSuffix: "CNEP",
+    label: "CNEP - Empresas Punidas (Lei 12.846)",
+  },
+  {
+    key: "ceaf",
+    zipSuffix: "CEAF",
+    label: "CEAF - Expulsoes da Administracao Federal",
+  },
+  {
+    key: "cepim",
+    zipSuffix: "CEPIM",
+    label: "CEPIM - Entidades Privadas Impedidas",
+  },
   {
     key: "acordos-leniencia",
     zipSuffix: "AcordosLeniencia",

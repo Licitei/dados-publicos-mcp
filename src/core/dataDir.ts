@@ -33,9 +33,7 @@ export function getDataDir(): string {
   const home = process.env.HOME ?? homedir();
 
   if (!home) {
-    panic(
-      "Sem HOME/USERPROFILE; configure DADOS_PUBLICOS_MCP_DATA_DIR"
-    );
+    panic("Sem HOME/USERPROFILE; configure DADOS_PUBLICOS_MCP_DATA_DIR");
   }
 
   return join(home, ".local", "share", APP_DIR);

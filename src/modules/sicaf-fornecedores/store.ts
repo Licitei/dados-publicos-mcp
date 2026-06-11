@@ -199,7 +199,7 @@ export function resetTable(db: Database): void {
  */
 export function insertFornecedores(
   db: Database,
-  records: FornecedorRecord[]
+  records: FornecedorRecord[],
 ): void {
   batchInsert(db, INSERT_SQL, records, (r) => [
     r.cnpj,
