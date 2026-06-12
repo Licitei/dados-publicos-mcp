@@ -1,9 +1,13 @@
 # Roadmap v2 — dados-publicos-mcp
 
-> Branch `v2`. Baseline = estado atual de `main` (commit `a8e137a`).
+> Branch de integração **`v1`** (criada de `main`). Cada refatoração entra como **PR pequeno
+> mirando `v1`** — feature branch → PR → merge em `v1`. `main` fica congelada como linha estável.
 > A v2 é a refatoração suprema, **track único**: trocar a fundação de dados **e** o modelo de
 > efeitos/erros de uma vez, construir as tools local-first/privacy-first em cima, tudo
 > **Effect v4 native**.
+>
+> **Ordem de ataque dos PRs:** começa pela **HTTP layer** (Effect `HttpClient` + erros tagged),
+> que toda fonte usa para baixar dados — destrava os indexers antes da camada de store.
 
 ## Decisão fundadora (ADR-0001)
 
