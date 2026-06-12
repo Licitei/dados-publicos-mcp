@@ -1,10 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { Embedder, EmbedderLive } from "../src/kernel/embed/embedder";
+import { Embedder, EmbedderLive } from "../../src/kernel/embed/embedder";
 
 describe("kernel/embed (integration, real model, network)", () => {
-  test("embeds query and passage with semantic similarity", async () => {
-    const cosine = await Effect.runPromise(
+  it.effect(
+    "embeds query and passage with semantic similarity",
+    () =>
       Effect.gen(function* () {
         const embedder = yield* Embedder;
         const [query] = yield* embedder.embed("query", [
@@ -16,14 +17,9 @@ describe("kernel/embed (integration, real model, network)", () => {
         ]);
         const dot = (a: number[], b: number[]) =>
           a.reduce((sum, value, i) => sum + value * b[i], 0);
-        return {
-          related: dot(query, related),
-          unrelated: dot(query, unrelated),
-        };
-      }).pipe(Effect.provide(EmbedderLive))
-    );
-
-    expect(cosine.related).toBeGreaterThan(cosine.unrelated);
-    expect(cosine.related).toBeGreaterThan(0.8);
-  }, 120_000);
+        expect(dot(query, related)).toBeGreaterThan(dot(query, unrelated));
+        expect(dot(query, related)).toBeGreaterThan(0.8);
+      }).pipe(Effect.provide(EmbedderLive)),
+    120_000
+  );
 });

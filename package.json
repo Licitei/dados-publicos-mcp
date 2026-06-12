@@ -8,13 +8,14 @@
     "dados-publicos-mcp": "./src/index.ts"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint:errors && bun test && bun run test:effect",
+    "check": "bun run typecheck && bun run lint:errors && bun test && bun run test:unit",
     "index": "bun src/index.ts index",
     "lint:errors": "bun tooling/static-checks/check-declarative-errors.ts",
     "prepublishOnly": "bun run check",
     "start": "bun src/index.ts serve",
     "test": "bun test",
-    "test:effect": "vitest run",
+    "test:unit": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
