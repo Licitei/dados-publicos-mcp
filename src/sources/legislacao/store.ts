@@ -135,7 +135,7 @@ const makeLegislacao = Effect.gen(function* () {
             sql`${node.path} ~ ${lquery}::lquery`
           )
         )
-        .orderBy(sql`nlevel(${node.path})`)
+        .orderBy(sql`nlevel(${node.path})`, node.path)
         .limit(1);
       return yield* Match.value(rows[0]).pipe(
         Match.when(Match.undefined, () =>
@@ -224,7 +224,7 @@ const makeLegislacao = Effect.gen(function* () {
         from bm
         full outer join vec on bm.path = vec.path
         join ${node} n on n.path = coalesce(bm.path, vec.path)
-        order by score desc
+        order by score desc, n.path
         limit ${sql.raw(String(limit))}
       `);
     });

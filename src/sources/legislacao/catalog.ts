@@ -1,8 +1,6 @@
 import { Schema } from "effect";
 import { normalize } from "../../core/normalize";
 
-export { normalize };
-
 export const NodeKind = Schema.Literals([
   "norma",
   "titulo",
@@ -378,19 +376,17 @@ export const normas: Norma[] = [
 export function findNorma(id: string) {
   const normalized = normalize(id);
 
-  return normas.find((norma) => {
-    if (norma.id === id) return true;
-    if (norma.id === normalized) return true;
-    if (normalize(norma.titulo).includes(normalized)) return true;
-
-    return norma.apelidos.some((apelido) => normalize(apelido) === normalized);
-  });
+  return normas.find(
+    (norma) =>
+      norma.id === id ||
+      norma.id === normalized ||
+      normalize(norma.titulo).includes(normalized) ||
+      norma.apelidos.some((apelido) => normalize(apelido) === normalized)
+  );
 }
 
 export const rootSegment = (id: string) =>
   id.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-
-type MutableNode = { -readonly [K in keyof Node]: Node[K] };
 
 type Marker = {
   kind: NodeKind;
@@ -459,7 +455,7 @@ export function buildTree(
   norma: { id: string; titulo: string },
   lines: readonly string[]
 ): Node[] {
-  const root: MutableNode = {
+  const root: Node = {
     path: rootSegment(norma.id),
     parentPath: null,
     kind: "norma",
@@ -469,31 +465,41 @@ export function buildTree(
     position: 0,
   };
 
-  const nodes = [root];
-  const used = new Set([root.path]);
-  const stack = [{ path: root.path, level: 0 }];
-  let current = root;
-  let position = 0;
+  const seed: {
+    nodes: Node[];
+    used: Set<string>;
+    stack: { path: string; level: number }[];
+    position: number;
+  } = {
+    nodes: [root],
+    used: new Set([root.path]),
+    stack: [{ path: root.path, level: 0 }],
+    position: 0,
+  };
 
-  for (const line of lines) {
+  const folded = lines.reduce((acc, line) => {
     const marker = markers.find((candidate) => candidate.pattern.test(line));
 
     if (!marker) {
-      current.text = current.text ? `${current.text} ${line}` : line;
-      continue;
+      const last = acc.nodes[acc.nodes.length - 1];
+      const text = last.text ? `${last.text} ${line}` : line;
+      return {
+        ...acc,
+        nodes: [...acc.nodes.slice(0, -1), { ...last, text }],
+      };
     }
 
     const match = line.match(marker.pattern) ?? [line];
     const { label, segment } = marker.parse(match);
 
-    while (stack[stack.length - 1].level >= marker.level) stack.pop();
-    const parent = stack[stack.length - 1];
+    const trimmed = acc.stack.filter((entry) => entry.level < marker.level);
+    const parent = trimmed[trimmed.length - 1];
 
     const base = `${parent.path}.${segment}`;
-    const path = used.has(base) ? `${base}_${position + 1}` : base;
-    used.add(path);
+    const position = acc.position + 1;
+    const path = acc.used.has(base) ? `${base}_${position}` : base;
 
-    const node: MutableNode = {
+    const node: Node = {
       path,
       parentPath: parent.path,
       kind: marker.kind,
@@ -503,13 +509,16 @@ export function buildTree(
         .slice(match[0]?.length ?? 0)
         .replace(/^[º°.\s–-]+/, "")
         .trim(),
-      position: (position += 1),
+      position,
     };
 
-    nodes.push(node);
-    stack.push({ path, level: marker.level });
-    current = node;
-  }
+    return {
+      nodes: [...acc.nodes, node],
+      used: new Set(acc.used).add(path),
+      stack: [...trimmed, { path, level: marker.level }],
+      position,
+    };
+  }, seed);
 
-  return nodes;
+  return folded.nodes;
 }
