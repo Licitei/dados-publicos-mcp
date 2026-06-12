@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "@effect/vitest";
 import { buildTree } from "../src/sources/legislacao/tree";
 
 const norma = { id: "lei-14133-2021", titulo: "Lei 14.133/2021" };
@@ -21,7 +21,7 @@ describe("legislacao tree parser", () => {
   const nodes = buildTree(norma, lines);
   const byPath = new Map(nodes.map((node) => [node.path, node]));
 
-  test("roots the tree at the norma", () => {
+  it("roots the tree at the norma", () => {
     expect(nodes[0]).toMatchObject({
       path: "lei_14133_2021",
       parentPath: null,
@@ -29,7 +29,7 @@ describe("legislacao tree parser", () => {
     });
   });
 
-  test("nests título → capítulo → artigo with ltree paths", () => {
+  it("nests título → capítulo → artigo with ltree paths", () => {
     expect(byPath.has("lei_14133_2021.tit_ii")).toBe(true);
     expect(byPath.has("lei_14133_2021.tit_ii.cap_i")).toBe(true);
     const artigo = byPath.get("lei_14133_2021.tit_ii.cap_i.art17");
@@ -40,11 +40,11 @@ describe("legislacao tree parser", () => {
     );
   });
 
-  test("attaches container titles as text", () => {
+  it("attaches container titles as text", () => {
     expect(byPath.get("lei_14133_2021.tit_ii")?.text).toBe("Das Licitações");
   });
 
-  test("nests incisos and paragraphs under the article", () => {
+  it("nests incisos and paragraphs under the article", () => {
     const incisoI = byPath.get("lei_14133_2021.tit_ii.cap_i.art17.inc_i");
     expect(incisoI?.kind).toBe("inciso");
     expect(incisoI?.text).toBe("preparatória;");
@@ -54,7 +54,7 @@ describe("legislacao tree parser", () => {
     );
   });
 
-  test("subtree membership follows ltree ancestry", () => {
+  it("subtree membership follows ltree ancestry", () => {
     const underArt17 = nodes.filter((node) =>
       node.path.startsWith("lei_14133_2021.tit_ii.cap_i.art17.")
     );
@@ -66,7 +66,7 @@ describe("legislacao tree parser", () => {
     ]);
   });
 
-  test("starts a fresh article subtree for Art. 18", () => {
+  it("starts a fresh article subtree for Art. 18", () => {
     const alinea = byPath.get("lei_14133_2021.tit_ii.cap_i.art18.ali_a");
     expect(alinea?.kind).toBe("alinea");
     expect(alinea?.text).toBe("o objeto da contratação;");

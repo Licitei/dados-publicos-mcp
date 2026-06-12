@@ -15,6 +15,7 @@
     "start": "bun src/index.ts serve",
     "test": "bun test",
     "test:effect": "vitest run",
+    "test:embedder": "bun test __tests__/embedder.integration.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

@@ -1,5 +1,5 @@
 import type { IndexAdapter } from "./adapter";
-import { legislacaoIndexAdapter } from "../modules/legislacao/indexer";
+import { legislacaoIndexAdapter } from "../sources/legislacao";
 import { ibgeLocalidadesIndexAdapter } from "../modules/ibge-localidades/indexer";
 import { cnaeIndexAdapter } from "../modules/cnae/indexer";
 import { sancoesCguIndexAdapter } from "../modules/sancoes-cgu/indexer";
