@@ -1,44 +1,44 @@
 # dados-publicos-mcp
 
-MCP server local-first que indexa dados públicos brasileiros (licitações, legislação, fornecedores) em banco local e serve por stdio. Erros são valores; estilo **declarativo** (dado + combinators, não glue functions).
+Local-first MCP server that indexes Brazilian public data (procurement, legislation, suppliers) into a local database and serves it over stdio. Errors are values; the style is **declarative** (data + combinators, not glue functions). Code is **English**; only user-facing error strings are pt-BR.
 
 ## Language
 
-**Fonte**:
-Uma origem de dados públicos brasileira (PNCP, Receita, Planalto, IBGE, TSE...). Cada Fonte é uma pasta autocontida em `fontes/` que expõe um `Layer`.
-_Avoid_: módulo, slice, source, provider.
+**Source**:
+A Brazilian public-data origin (PNCP, Receita, Planalto, IBGE, TSE...). Each Source is a self-contained folder under `sources/` that exposes a `Layer`.
+_Avoid_: module, slice, provider, fonte.
 
-**Índice**:
-A cópia local consultável de uma Fonte, construída pelo Indexador e persistida no Store.
-_Avoid_: cache, banco, dump.
+**Index**:
+The local, queryable copy of a Source, built by the Indexer and persisted by the Store.
+_Avoid_: cache, dump, database.
 
-**Indexador**:
-O que baixa + parseia + grava uma Fonte para virar Índice. Implementa `build`/`status`.
+**Indexer**:
+What downloads + parses + writes a Source into an Index. Implements `build`/`status`.
 _Avoid_: builder, crawler, importer.
 
-**Consulta**:
-Leitura com lógica real sobre um Índice (busca, join, agregação). Só existe quando há lógica — leitura trivial fala direto com o Store.
+**Query**:
+A read with real logic over an Index (search, join, aggregation). Exists only where there is logic — trivial reads talk to the Store directly.
 _Avoid_: service, query handler, repository.
 
 **Tool**:
-Uma ferramenta MCP exposta ao agente. Declarada como dado (`{ schema, handler }`), nunca como função de registro com `if/else`.
-_Avoid_: endpoint, comando, action.
+An MCP tool exposed to the agent. Declared as data (`{ schema, handler }`), never as a registration function with `if/else`.
+_Avoid_: endpoint, command, action.
 
-**Dados** (de domínio):
-Catálogo estático de uma Fonte (lista de normas, códigos CNAE...). Arquivo `dados.ts`.
-_Avoid_: catalog (colide com o catálogo de **erros**), seed, fixtures.
+**Data** (domain):
+The static catalog of a Source (list of norms, CNAE codes...). File `data.ts`.
+_Avoid_: catalog (clashes with the **errors** catalog), seed, fixtures.
 
-**Envelope de privacidade**:
-O contrato `{ privacidade: { modo: "local", dadosEnviadosParaTerceiros: false }, fontes, limitacoes, confianca }` que toda Tool de inteligência (#3) retorna. Módulo `Resposta<T>`.
+**Privacy envelope**:
+The contract `{ privacy: { mode: "local", sentToThirdParties: false }, sources, limitations, confidence }` that every intelligence Tool (#3) returns. Module `Response<T>`.
 _Avoid_: response wrapper, metadata.
 
-## Convenções de arquitetura
+## Architecture conventions
 
-Estilo declarativo e layout de pastas (pasta = módulo = seam; regra anti-`utils`; naming) estão em **[ADR-0002](docs/adr/0002-arquitetura-declarativa-e-pastas.md)**. Stack (Effect v4 + PGlite) em **[ADR-0001](docs/adr/0001-effect-pglite.md)**.
+Declarative style and folder layout (folder = module = seam; the anti-`utils` rule; naming) live in **[ADR-0002](docs/adr/0002-declarative-architecture-and-folders.md)**. The stack (Effect v4 + PGlite) lives in **[ADR-0001](docs/adr/0001-effect-pglite.md)**.
 
-## Diálogo de exemplo
+## Example dialogue
 
-— "A Tool `triagem_fornecedor_local` é uma Consulta?"
-— "A Tool *chama* uma Consulta sobre o Índice da Receita. Mas como cruza Receita + sanções + SICAF, a lógica de cruzamento mora numa Consulta; a Tool só declara `schema` + `handler`."
-— "E o catálogo de CNPJs?"
-— "Isso é **Dados** (`dados.ts`) se for estático, ou o próprio Índice se vier da indexação. 'Catálogo' a gente reserva pro de **erros**."
+— "Is the Tool `triagem_fornecedor_local` a Query?"
+— "The Tool *calls* a Query over the Receita Index. Since it crosses Receita + sanctions + SICAF, the crossing logic lives in a Query; the Tool only declares `schema` + `handler`."
+— "And the CNPJ catalog?"
+— "That's **Data** (`data.ts`) if static, or the Index itself if it comes from indexing. We reserve 'catalog' for the **errors** one."
