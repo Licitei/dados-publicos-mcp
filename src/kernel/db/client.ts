@@ -1,29 +1,27 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
+import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
 import { pg_textsearch } from "@electric-sql/pglite/pg_textsearch";
 import { ltree } from "@electric-sql/pglite/contrib/ltree";
+import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
+import * as Pg from "@effect/sql-pg/PgClient";
+import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/pglite";
 
 const extensions = ["vector", "pg_textsearch", "ltree"];
 
-const DbErrorCode = Schema.Literals(["db.OPEN", "db.QUERY", "db.MIGRATE"]);
-export type DbErrorCode = (typeof DbErrorCode)["Type"];
+const socketPort = 5432;
+const socketFile = `.s.PGSQL.${socketPort}`;
 
 export class DbError extends Schema.TaggedErrorClass<DbError>()("DbError", {
-  code: DbErrorCode,
   cause: Schema.optional(Schema.String),
 }) {
   override get message() {
-    switch (this.code) {
-      case "db.OPEN":
-        return "Falha ao abrir o banco local.";
-      case "db.QUERY":
-        return "Falha ao consultar o índice local.";
-      case "db.MIGRATE":
-        return "Falha ao aplicar as migrações do índice local.";
-    }
+    return "Falha ao abrir o banco local.";
   }
 }
 
@@ -39,50 +37,56 @@ export const DbConfig = Context.Reference<DbConfig>(
   }
 );
 
-type DbHandle = ReturnType<typeof drizzle>;
-
-export class Db extends Context.Service<Db, DbHandle>()(
+export class Db extends Context.Service<Db, PgDrizzle.EffectPgDatabase>()(
   "dados-publicos-mcp/Db"
 ) {}
 
 export const DbLayer = Layer.effect(Db)(
   Effect.gen(function* () {
     const cfg = yield* DbConfig;
-    const client = yield* Effect.acquireRelease(
+    const { dir } = yield* Effect.acquireRelease(
       Effect.tryPromise({
-        try: () =>
-          PGlite.create({
+        try: async () => {
+          const pglite = await PGlite.create({
             dataDir: cfg.dataDir,
             extensions: { vector, pg_textsearch, ltree },
-          }),
-        catch: (cause) => new DbError({ code: "db.OPEN", cause: String(cause) }),
+          });
+          const dir = await mkdtemp(join(tmpdir(), "dados-publicos-mcp-"));
+          const server = new PGLiteSocketServer({
+            db: pglite,
+            path: join(dir, socketFile),
+          });
+          await server.start();
+          return { pglite, server, dir };
+        },
+        catch: (cause) => new DbError({ cause: String(cause) }),
       }),
-      (instance) => Effect.promise(() => instance.close())
+      ({ pglite, server }) =>
+        Effect.promise(async () => {
+          await server.stop();
+          await pglite.close();
+        })
     );
 
-    const db = drizzle({ client });
-
-    yield* Effect.tryPromise({
-      try: () =>
-        extensions.reduce(
-          (acc, name) =>
-            acc.then(() =>
-              db.execute(sql`create extension if not exists ${sql.identifier(name)}`)
-            ),
-          Promise.resolve<unknown>(undefined)
-        ),
-      catch: (cause) => new DbError({ code: "db.OPEN", cause: String(cause) }),
+    const client = yield* Pg.make({
+      host: dir,
+      port: socketPort,
+      database: "template1",
+      maxConnections: 1,
     });
+
+    const db = yield* PgDrizzle.make().pipe(
+      Effect.provideService(Pg.PgClient, client),
+      Effect.provide(PgDrizzle.DefaultServices)
+    );
+
+    yield* Effect.forEach(
+      extensions,
+      (name) =>
+        db.execute(sql`create extension if not exists ${sql.identifier(name)}`),
+      { discard: true }
+    );
 
     return db;
-  })
+  }).pipe(Effect.provide(Reactivity.layer))
 );
-
-export const query = <A>(run: (db: DbHandle) => Promise<A>) =>
-  Effect.gen(function* () {
-    const db = yield* Db;
-    return yield* Effect.tryPromise({
-      try: () => run(db),
-      catch: (cause) => new DbError({ code: "db.QUERY", cause: String(cause) }),
-    });
-  });
