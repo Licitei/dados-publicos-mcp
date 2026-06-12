@@ -1,5 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
+import { pg_textsearch } from "@electric-sql/pglite/pg_textsearch";
 import { drizzle } from "drizzle-orm/pglite";
 
 const DbErrorCode = Schema.Literals(["db.OPEN", "db.QUERY", "db.MIGRATE"]);
@@ -44,7 +46,16 @@ export const DbLayer = Layer.effect(Db)(
     const cfg = yield* DbConfig;
     const client = yield* Effect.acquireRelease(
       Effect.tryPromise({
-        try: () => PGlite.create(cfg.dataDir),
+        try: async () => {
+          const instance = await PGlite.create({
+            dataDir: cfg.dataDir,
+            extensions: { vector, pg_textsearch },
+          });
+          await instance.exec(
+            "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_textsearch;"
+          );
+          return instance;
+        },
         catch: (cause) => new DbError({ code: "db.OPEN", cause: String(cause) }),
       }),
       (instance) => Effect.promise(() => instance.close())
