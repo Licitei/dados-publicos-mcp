@@ -1,152 +1,165 @@
 # Roadmap v2 — dados-publicos-mcp
 
-> Branch `v2`. Baseline = estado atual de `main` (commit `a8e137a`), incluindo o WIP
-> que introduziu **kysely como compilador de SQL** sobre `bun:sqlite`.
-> A v2 é a refatoração suprema: trocar a fundação de dados, construir as tools
-> local-first/privacy-first em cima dela e deixar a porta aberta para Effect v4.
+> Branch `v2`. Baseline = estado atual de `main` (commit `a8e137a`).
+> A v2 é a refatoração suprema, **track único**: trocar a fundação de dados **e** o modelo de
+> efeitos/erros de uma vez, construir as tools local-first/privacy-first em cima, tudo
+> **Effect v4 native**.
 
-## Princípios inegociáveis (herdados de `main`, valem em toda a v2)
+## Decisão fundadora (ADR-0001)
 
-- **Better Result native**: APIs retornam `Result<T, EvlogError>`. Sem `throw` para fluxo
-  esperado. Sem `try`/`catch`/`finally` statement-level em `src/`. Erro construído inline no
-  ponto de decisão — sem `toXError`/`wrapError`/`fromError`.
-- **Bun native**: I/O com `Bun.file`/`Bun.write` quando houver equivalente. Sem runtime Node
-  obrigatório. Sem npm/yarn/pnpm.
-- **Local-first**: `bun run start`, `bun run index`, `bun run check` funcionam sem nenhum
-  serviço externo. Sem Docker para o fluxo básico.
-- **Privacy-first**: nenhuma consulta, CNPJ, item de edital ou análise sai para terceiros.
-- **Vertical slice**: cada fonte = `tools → service → indexer → store → errors`, registrada
-  em `src/core/registry.ts`. Migração módulo a módulo, PRs pequenos.
-- **`bun run check` verde** (typecheck + lint:errors + test) antes de fechar qualquer mudança.
+Combinar as três issues numa só fundação:
 
-## As três issues e como se encaixam
+- **#2** SQLite → **PGlite**, com **Drizzle** como camada de schema/query.
+- **#4** `better-result`+`evlog` → **Effect v4** (Effect É o erro-como-valor; substitui, não soma).
+- **#3** tools local-first construídas sobre essa fundação.
 
-| Issue | Tema | Papel na v2 |
-|---|---|---|
-| **#2** | PGlite + Drizzle + drizzle-zod | **Fundação.** Tudo depende disto. |
-| **#3** | Tools local-first / privacy-first para licitação | **Produto.** Construído sobre #2. |
-| **#4** | Avaliar Effect v4 | **Futuro.** Spike só após #2 ter tracer bullet. Não bloqueia nada. |
+**Stack (versionamento unificado Effect — `effect@4.x` ↔ `@effect/*@4.x`):**
 
-Ordem de execução: **#2 (fundação) → #3 (produto) → #4 (avaliação)**.
+| Dep | Papel |
+|---|---|
+| `effect@4.0.0-beta.x` | runtime de efeitos, erros tipados, Layer, Scope, concorrência |
+| `@effect/sql` + `@effect/sql-pglite` | client SQL + adapter PGlite como **Layer** (lifecycle do DB) |
+| `@effect/sql-drizzle` | Drizzle como query builder sobre o client Effect |
+| `drizzle-orm@1.0` | schema (suporte nativo a Effect v4) |
+| `drizzle-zod` | mata duplicação schema↔tipo↔validação |
+| `@electric-sql/pglite` | banco embutido local-first |
+
+> **kysely WIP morre.** `src/core/store/kysely.ts` + `query.ts` (no baseline) ficam órfãos sob
+> esta decisão — `@effect/sql-drizzle` é o caminho. Removidos na Fase 1/4.
+
+### Postura de risco: Effect v4 está em **beta**
+
+v3 ainda é o estável; v4 vira LTS quando estabilizar. Vamos **all-in no beta** mesmo assim
+(evita migração dupla v3→v4). Mitigação obrigatória:
+
+- **Fixar versão exata** de `effect` e todos `@effect/*` (mesmo número), sem `^`.
+- Lockfile (`bun.lock`) commitado; upgrades de beta são PRs deliberados, nunca automáticos.
+- Ler o changelog de cada bump de beta — API do v4 ainda muda.
+
+## Princípios inegociáveis
+
+- **Effect native**: lógica de domínio retorna `Effect<A, E, R>`. Erros são valores tipados
+  (canal `E`), nunca `throw` para fluxo esperado. Sem `try`/`catch`/`finally` statement-level
+  em `src/` — recursos via `Scope`/`Effect.acquireRelease`, não `try/finally`.
+- **Erros = `Data.TaggedError`**: cada erro evlog vira uma classe `Data.TaggedError` com
+  **código estável + mensagem pt-BR** como campos. Catálogo pt-BR preservado.
+- **Borda MCP fina**: tools rodam o efeito (`Effect.runPromise`) e serializam o resultado no
+  formato atual (`Result.serialize()`-equivalente: `{ ok, value } | { ok:false, error }`).
+  Contrato MCP **inalterado**.
+- **DB como Layer**: lifecycle do PGlite vive num `Layer`/`Scope` central — fim do singleton
+  manual `getDb`/`closeAllDbs`. Nenhum `db.close()` em módulos.
+- **Bun native**: I/O com `Bun.file`/`Bun.write` quando houver equivalente. Effect roda em Bun.
+  PGlite é WASM, encapsulado no Layer. Sem runtime Node obrigatório. Sem npm/yarn/pnpm.
+- **Local-first / privacy-first**: `start`/`index`/`check` sem serviço externo; nada do usuário
+  sai para terceiros.
+- **Vertical slice**: cada fonte = `tools → service → indexer → store → errors`, em
+  `src/core/registry.ts`. Migração módulo a módulo, PRs pequenos.
+- **`bun run check` verde** antes de fechar qualquer mudança.
+
+### Tooling de static-checks (precisa evoluir na Fase 0)
+
+`lint:errors` hoje bane `throw`/`try`/`catch` e helpers `better-result`. Com Effect:
+
+- `throw`/`try`/`catch`/`finally` continuam banidos (Effect satisfaz nativamente).
+- Banir helpers `better-result` deixa de fazer sentido → trocar por convenções Effect (ex:
+  proibir `Effect.runSync`/`runPromise` fora da borda MCP; proibir `Effect.die`/`throw` em
+  services; exigir erros via `Data.TaggedError`).
 
 ---
 
-## Decisão pendente do dia 0: kysely (WIP) vs Drizzle (#2)
+## Fase 0 — Decisão arquitetural + tooling
 
-O baseline da v2 já carrega `src/core/store/kysely.ts` + `query.ts`: kysely usado **só como
-compilador** (`.compile()` → `{ sql, parameters }`), nunca como executor, sobre o handle
-`bun:sqlite` singleton. A issue #2 propõe **Drizzle** como camada padrão.
+- [ ] **ADR-0001** registrado: SQLite→PGlite **+** better-result→Effect v4 **+** evlog→TaggedError,
+      com a stack e a postura de risco (beta) acima.
+- [ ] Atualizar `lint:errors` (`tooling/static-checks/`) para as convenções Effect.
+- [ ] `AGENTS.md` / `README.md` marcados como "em migração p/ Effect v4 + PGlite".
 
-São direções concorrentes para a mesma camada. **Primeiro entregável da v2 é resolver isto**
-no ADR-0001:
+**Saída:** direção escrita; gate de lint não bloqueia código Effect.
 
-- **Opção A — Drizzle (segue #2):** dialeto PG, `drizzle-zod` para matar duplicação
-  schema↔tipo↔validação, `drizzle-kit` para migrations. Custo: reescrever a camada de query
-  recém-criada; aprender ergonomia Drizzle + PGlite.
-- **Opção B — kysely + PGlite:** mantém o compilador-de-SQL já escrito, troca só o dialeto/driver
-  para PGlite. SQL fica explícito (objetivo declarado no header do `kysely.ts`). Custo: perde
-  `drizzle-zod`; valida tipos à mão.
-- **Opção C — híbrido:** Drizzle para schema + `drizzle-zod`; kysely para queries complexas.
-  Custo: duas libs na camada de dados.
+## Fase 1 — Tracer bullet Effect + PGlite + Drizzle (`legislacao`)
 
-> **Ação:** registrar a escolha em `docs/adr/0001-sqlite-para-pglite.md` **antes** do tracer
-> bullet. Sem decisão registrada, a Fase 1 não começa.
+Prova de que os **três** eixos funcionam juntos num módulo real.
 
----
+- [ ] Adicionar a stack (versões fixas, lockfile).
+- [ ] `Layer` central do PGlite via `@effect/sql-pglite` (client + lifecycle por `Scope`).
+- [ ] Schema Drizzle de `legislacao` (+ `drizzle-zod`), queries via `@effect/sql-drizzle`.
+- [ ] Migrar o catálogo de erros de `legislacao` para `Data.TaggedError` (código + msg pt-BR).
+- [ ] `service` retorna `Effect<A, E, R>`; `tools` rodam na borda e serializam no contrato MCP atual.
+- [ ] `indexer` end-to-end: index → status → consulta, com retry/timeout declarativo.
+- [ ] Remover `kysely.ts`/`query.ts` se já sem consumidores; testes passam sem rede pública.
 
-## Fase 0 — Decisão arquitetural (#2 Fase 0)
+**Saída (M2):** `legislacao` rodando Effect+PGlite+Drizzle, `check` verde. Padrão replicável.
 
-- [ ] ADR-0001: SQLite → PGlite. Motivação (dialeto PG, extensões, rota p/ Postgres real,
-      base p/ embeddings) + trade-offs (peso WASM/PGlite vs `bun:sqlite`, catálogo de extensões
-      menor que Postgres real, migração dos índices locais existentes).
-- [ ] ADR-0001 também fecha a decisão **kysely vs Drizzle vs híbrido** acima.
+## Fase 2 — Padrões reutilizáveis
 
-**Saída:** direção da camada de dados definida e escrita.
+Extrair do tracer bullet o que todo módulo reusa:
 
-## Fase 1 — Tracer bullet PGlite (#2 Fase 1)
+- [ ] Helper de borda MCP: `Effect` → `Result.serialize()`-equivalente (um lugar só).
+- [ ] Convenção `Data.TaggedError` por módulo (base + códigos pt-BR).
+- [ ] Layer de store parametrizável por domínio; `drizzle-zod` onde reduz duplicação real.
+- [ ] Pt-BR preservado nos nomes públicos.
 
-- [ ] Adicionar `@electric-sql/pglite` (+ `drizzle-orm` + `drizzle-zod` se Opção A/C).
-- [ ] Store PGlite central com lifecycle = singleton atual (`getDb`/`openReadonly`/`closeAllDbs`).
-      `db.close()` só centralizado — nunca nos módulos.
-- [ ] Migrar **`legislacao`** (ou `cnae`) end-to-end: index → status → consulta.
-- [ ] Contrato público de service/tools **inalterado** (`Result.serialize()` na borda MCP).
-- [ ] Testes do módulo migrado passam sem rede pública.
+## Fase 3 — Migração incremental dos módulos
 
-**Saída:** um módulo real rodando em PGlite, prova de que a fundação funciona.
-
-## Fase 2 — Schemas por módulo (#2 Fase 2)
-
-- [ ] Schema Drizzle (ou equivalente da Opção escolhida) por vertical slice.
-- [ ] `drizzle-zod` onde reduzir duplicação **real** schema↔tipo↔validação.
-- [ ] Nomes públicos em pt-BR preservados (linguagem de domínio).
-
-## Fase 3 — Migração incremental dos módulos (#2 Fase 3)
-
-Ordem (leve → pesado), PRs pequenos. Cada um entrega: schema + indexer PGlite + service
-`Result<T, EvlogError>` + tools sem mudança de contrato + testes equivalentes/melhores.
+Ordem (leve → pesado), PRs pequenos. Cada um: schema Drizzle + Layer/indexer PGlite +
+service `Effect<A,E,R>` + erros `Data.TaggedError` + tools sem mudança de contrato + testes
+equivalentes/melhores.
 
 1. [ ] `legislacao`, `cnae`  *(legislacao já vem da Fase 1)*
 2. [ ] busca textual: `catmat-catser`, `querido-diario`, `sancoes-cgu`
-3. [ ] pesados: `dados-publicos` (PNCP), `receita-cnpj`, `tse-eleitoral`
+3. [ ] pesados: `dados-publicos` (PNCP), `receita-cnpj`, `tse-eleitoral` — aqui a **concorrência
+       estruturada** do Effect (controle de paralelismo, cancelamento, retry) paga mais.
 4. [ ] restantes: `camara-deputados`, `capag`, `ibge-localidades`, `sicaf-fornecedores`
 
-## Fase 4 — Remoção do SQLite (#2 Fase 4)
+## Fase 4 — Remoção do legado
 
-- [ ] Remover `bun:sqlite` da camada de store.
-- [ ] Remover helpers órfãos (`openDb`, `openReadonly`, `batchInsert`, `countRows`, ...).
-      Decidir destino de `kysely.ts`/`query.ts` conforme ADR-0001.
-- [ ] Atualizar `README.md`, `AGENTS.md` para PGlite.
-- [ ] Estratégia p/ índices SQLite antigos: rebuild recomendado (default) vs migração automática
-      só se custo/benefício compensar.
+- [ ] Remover `bun:sqlite` da camada de store; helpers órfãos (`openDb`, `openReadonly`,
+      `batchInsert`, `countRows`, `kysely.ts`, `query.ts`).
+- [ ] Remover `better-result` + helpers `evlog` antigos após último consumidor migrado.
+- [ ] `README.md`/`AGENTS.md` reescritos para Effect v4 + PGlite (tirar "em migração").
+- [ ] Índices SQLite antigos: rebuild recomendado (default); migração automática só se
+      custo/benefício compensar.
 
-## Fase 5 — Extensões PGlite/Postgres (#2 Fase 5)
+## Fase 5 — Extensões PGlite/Postgres
 
-Matriz documentada: extensão → módulo → benefício. Começar pelas de valor direto.
+Matriz documentada: extensão → módulo → benefício. Acessadas via Layer do store.
 
 - **Busca/matching:** `unaccent`, `pg_trgm`, `pg_textsearch` (BM25), `fuzzystrmatch`, `citext`.
-- **Semântica:** `pgvector` + embedding local (avaliar Transformers.js multilingual pequeno /
-  Ollama opcional / ONNX só se empacotamento compensar).
-- **Índices/estruturas:** `btree_gin`, `btree_gist`, `bloom`, `ltree` (hierarquias
-  CNAE/CATMAT/CATSER).
-- **Observabilidade:** `pg_stat_statements`, `auto_explain`, `amcheck`.
+- **Semântica:** `pgvector` + embedding local (Transformers.js multilingual pequeno / Ollama
+  opcional / ONNX só se empacotamento compensar).
+- **Índices/estruturas:** `btree_gin`, `btree_gist`, `bloom`, `ltree` (CNAE/CATMAT/CATSER).
+- **Observabilidade:** `pg_stat_statements`, `auto_explain`, `amcheck` — casa com tracing Effect.
 - **Geo (se entrar no escopo):** `earthdistance`, PostGIS experimental.
 - **Materialização:** `pg_ivm` (views incrementais p/ PNCP/Receita) se fizer sentido.
 
-## Fase 6 — Postgres real opcional (#2 Fase 6)
+## Fase 6 — Postgres real opcional
 
-- [ ] `DADOS_PUBLICOS_MCP_DB_BACKEND=pglite` (default) | `postgres` (avançado).
+- [ ] `DADOS_PUBLICOS_MCP_DB_BACKEND=pglite` (default) | `postgres` (avançado, troca só o Layer
+      p/ `@effect/sql-pg` — mesmo Drizzle, mesmo dialeto).
 - [ ] Nunca bloqueia o uso local básico com PGlite.
 
 ---
 
-## Trilha de produto — tools local-first (#3, depois de #2 estável)
+## Trilha de produto — tools local-first (#3, sobre a fundação)
 
-Cada tool: análise **preliminar/explicável**, retorna `fontes`, `limitacoes`, `confianca` e
-metadados de privacidade `{ modo: "local", dadosEnviadosParaTerceiros: false }`. Sem relatório
-formal, sem parecer jurídico, sem login/telemetria/cloud.
+Cada tool: análise **preliminar/explicável**; retorna `fontes`, `limitacoes`, `confianca` e
+`{ privacidade: { modo: "local", dadosEnviadosParaTerceiros: false } }`. Sem relatório formal,
+sem parecer jurídico, sem login/telemetria/cloud. Implementadas como `Effect`, serializadas na borda.
 
-- [ ] `pesquisar_preco_lite` — preços preliminares (PNCP + IBGE + CATMAT/CATSER + busca fuzzy/vetorial).
+- [ ] `pesquisar_preco_lite` — preços preliminares (PNCP + IBGE + CATMAT/CATSER + fuzzy/vetorial).
 - [ ] `buscar_compras_similares` — `unaccent`+full-text, `pg_trgm`, `pgvector` quando houver embeddings.
 - [ ] `normalizar_item_lite` — normaliza item via CATMAT/CATSER + histórico.
 - [ ] `triagem_fornecedor_local` — CNPJ: Receita + sanções + SICAF + histórico PNCP.
 - [ ] `resumir_contratacao_local` — resume contratação por número PNCP / dados locais.
 - [ ] `mapear_mercado_publico_lite` — visão de mercado por termo/UF/órgão/fornecedor.
 
-## Trilha futura — Effect v4 (#4, não bloqueia nada)
-
-Retomar **só quando**: Effect v4 maduro **e** #2 tem tracer bullet funcional. Spike isolado em
-módulo pequeno (`cnae`/`legislacao`) → interop `EvlogError`↔Effect errors → I/O Bun-native →
-indexador com concorrência estruturada → decisão registrada em ADR. Migrar só se o ganho
-(menos código acidental, melhor composição/testabilidade/concorrência, erros mais explícitos)
-for claro e com zero regressão local-first.
-
 ---
 
 ## Marcos
 
-- **M1 — Fundação decidida:** ADR-0001 (PGlite + kysely/Drizzle) escrito. *(fim Fase 0)*
-- **M2 — Tracer bullet:** `legislacao` em PGlite, check verde. *(fim Fase 1)* → destrava spike #4.
-- **M3 — Tudo migrado:** 12 módulos em PGlite. *(fim Fase 3)*
-- **M4 — SQLite morto:** `bun:sqlite` removido, docs atualizadas. *(fim Fase 4)*
-- **M5 — Produto local-first:** ≥1 tool de inteligência (#3) entregue sobre PGlite.
-- **M6 — Extensões:** matriz de extensões + ≥1 em produção (ex: `pg_trgm`/`unaccent`). *(Fase 5)*
+- **M1 — Fundação decidida:** ADR-0001 escrito + lint:errors atualizado. *(fim Fase 0)*
+- **M2 — Tracer bullet:** `legislacao` em Effect+PGlite+Drizzle, erros TaggedError, check verde. *(fim Fase 1)*
+- **M3 — Tudo migrado:** 12 módulos na fundação nova. *(fim Fase 3)*
+- **M4 — Legado morto:** `bun:sqlite` + `better-result` removidos, docs reescritas. *(fim Fase 4)*
+- **M5 — Produto local-first:** ≥1 tool de inteligência (#3) entregue sobre a fundação.
+- **M6 — Extensões:** matriz + ≥1 em produção (ex: `pg_trgm`/`unaccent`). *(Fase 5)*
