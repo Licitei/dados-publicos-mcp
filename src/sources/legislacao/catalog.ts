@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { normalize } from "../../core/normalize";
+import { normalize } from "../../kernel/text/normalize";
 
 export const NodeKind = Schema.Literals([
   "norma",
@@ -23,14 +23,6 @@ export const Node = Schema.Struct({
   position: Schema.Number,
 });
 export type Node = (typeof Node)["Type"];
-
-export type Norma = {
-  id: string;
-  titulo: string;
-  apelidos: string[];
-  url: string;
-  temas: string[];
-};
 
 export const LegislacaoErrorCode = Schema.Literals([
   "legislacao.NORMA_NOT_FOUND",
@@ -63,7 +55,7 @@ export class LegislacaoError extends Schema.TaggedErrorClass<LegislacaoError>()(
   }
 }
 
-export const normas: Norma[] = [
+export const normas = [
   {
     id: "lei-14133-2021",
     titulo: "Lei 14.133/2021 - Licitacoes e Contratos Administrativos",
@@ -372,6 +364,8 @@ export const normas: Norma[] = [
     temas: ["trabalhista", "coletivo-processual"],
   },
 ];
+
+export type Norma = (typeof normas)[number];
 
 export function findNorma(id: string) {
   const normalized = normalize(id);
