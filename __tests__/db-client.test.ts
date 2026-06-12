@@ -63,6 +63,30 @@ describe("kernel/db", () => {
     expect(Number(rows.rows[0].distance)).toBeCloseTo(1);
   });
 
+  test("loads ltree and resolves subtree ancestry", async () => {
+    const rows = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* query((db) =>
+          db.execute(sql`create table tree (id integer primary key, path ltree)`)
+        );
+        yield* query((db) =>
+          db.execute(sql`insert into tree values
+            (1, 'l14133'),
+            (2, 'l14133.t2'),
+            (3, 'l14133.t2.art17'),
+            (4, 'l8666')`)
+        );
+        return yield* query((db) =>
+          db.execute(
+            sql`select id from tree where path <@ 'l14133.t2' order by id`
+          )
+        );
+      }).pipe(Effect.provide(DbLayer))
+    );
+
+    expect(rows.rows.map((r) => r.id)).toEqual([2, 3]);
+  });
+
   test("loads pg_textsearch and ranks a bm25 match in pt-BR", async () => {
     const rows = await Effect.runPromise(
       Effect.gen(function* () {
