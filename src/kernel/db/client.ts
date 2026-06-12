@@ -12,6 +12,7 @@ import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import * as Pg from "@effect/sql-pg/PgClient";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { sql } from "drizzle-orm";
+import { relations } from "./relations";
 
 const extensions = ["vector", "pg_textsearch", "ltree", "pg_trgm"];
 
@@ -56,13 +57,8 @@ export const DbConfig = Context.Reference<DbConfig>(
   }
 );
 
-export class Db extends Context.Service<Db, PgDrizzle.EffectPgDatabase>()(
-  "dados-publicos-mcp/Db"
-) {}
-
-export const DbLayer = Layer.effect(Db)(
-  Effect.gen(function* () {
-    const cfg = yield* DbConfig;
+const makeDb = Effect.gen(function* () {
+  const cfg = yield* DbConfig;
     const { dir } = yield* Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
@@ -98,7 +94,7 @@ export const DbLayer = Layer.effect(Db)(
       )
     );
 
-    const db = yield* PgDrizzle.make().pipe(
+    const db = yield* PgDrizzle.make({ relations }).pipe(
       Effect.provideService(Pg.PgClient, client),
       Effect.provide(PgDrizzle.DefaultServices),
       Effect.mapError(
@@ -118,5 +114,10 @@ export const DbLayer = Layer.effect(Db)(
     );
 
     return db;
-  }).pipe(Effect.provide(Reactivity.layer))
-);
+}).pipe(Effect.provide(Reactivity.layer));
+
+export class Db extends Context.Service<Db, Effect.Success<typeof makeDb>>()(
+  "dados-publicos-mcp/Db"
+) {}
+
+export const DbLayer = Layer.effect(Db)(makeDb);

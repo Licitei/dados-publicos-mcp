@@ -87,8 +87,8 @@ describe("ibge-localidades store + fuzzy resolver", () => {
         const ibge = yield* seeded;
         const edge = yield* ibge.municipioByCodigo("5101837");
         expect(edge.nome).toBe("Pescaria Brava");
-        expect(edge.uf).toBe("GO");
-        expect(edge.mesorregiao).toBeNull();
+        expect(edge.ufSigla).toBe("GO");
+        expect(edge.mesorregiaoNome).toBeNull();
       }).pipe(Effect.provide(TestLayer)),
     30_000
   );
@@ -115,7 +115,7 @@ describe("ibge-localidades store + fuzzy resolver", () => {
         const ibge = yield* seeded;
         const inGo = yield* ibge.resolveMunicipio("campinas", { uf: "GO" });
         for (const row of inGo) {
-          expect(row.uf).toBe("GO");
+          expect(row.ufSigla).toBe("GO");
         }
         const inSp = yield* ibge.resolveMunicipio("campinas", { uf: "SP" });
         expect(inSp[0].nome).toBe("Campinas");

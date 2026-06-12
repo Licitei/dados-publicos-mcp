@@ -1,50 +1,17 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { and, cosineDistance, eq, sql } from "drizzle-orm";
-import { customType, integer, pgTable, text, vector } from "drizzle-orm/pg-core";
 import { Db } from "../../kernel/db/client";
-import { Embedder, embeddingDimensions } from "../../kernel/embed/embedder";
+import { tableDdl } from "../../kernel/db/ddl";
+import { node } from "../../kernel/db/schemas/legislacao";
+import { Embedder } from "../../kernel/embed/embedder";
 import { LegislacaoError, buildTree, normas, type Norma } from "./catalog";
 import { fetchLines, passage, summarize } from "./indexer";
 
-const ltree = customType<{ data: string }>({ dataType: () => "ltree" });
-
-export const node = pgTable("legislacao_node", {
-  path: ltree("path").primaryKey(),
-  normaId: text("norma_id").notNull(),
-  parentPath: ltree("parent_path"),
-  kind: text("kind").notNull(),
-  label: text("label").notNull(),
-  heading: text("heading").notNull(),
-  text: text("text").notNull(),
-  summary: text("summary").notNull(),
-  position: integer("position").notNull(),
-  embedding: vector("embedding", { dimensions: embeddingDimensions }),
-});
-
 export type NodeRow = typeof node.$inferInsert;
-
-const schemaStatements = [
-  sql`create table if not exists ${node} (
-    path ltree primary key,
-    norma_id text not null,
-    parent_path ltree,
-    kind text not null,
-    label text not null,
-    heading text not null,
-    text text not null,
-    summary text not null,
-    position integer not null,
-    embedding vector(${sql.raw(String(embeddingDimensions))})
-  )`,
-  sql`create index if not exists legislacao_node_gist on ${node} using gist (path)`,
-  sql`create index if not exists legislacao_node_norma on ${node} (norma_id)`,
-  sql`create index if not exists legislacao_node_bm25 on ${node} using bm25 (text) with (text_config='portuguese')`,
-  sql`create index if not exists legislacao_node_hnsw on ${node} using hnsw (embedding vector_cosine_ops)`,
-];
 
 export const createSchema = Effect.gen(function* () {
   const db = yield* Db;
-  yield* Effect.forEach(schemaStatements, (statement) => db.execute(statement), {
+  yield* Effect.forEach(tableDdl(node), (statement) => db.execute(statement), {
     discard: true,
   });
 });
@@ -52,15 +19,20 @@ export const createSchema = Effect.gen(function* () {
 export const replaceNorma = (normaId: string, rows: readonly NodeRow[]) =>
   Effect.gen(function* () {
     const db = yield* Db;
-    yield* db.delete(node).where(eq(node.normaId, normaId));
-    yield* Match.value(rows.length).pipe(
-      Match.when(0, () => Effect.void),
-      Match.orElse(() => db.insert(node).values([...rows]))
+    yield* db.transaction((tx) =>
+      Effect.gen(function* () {
+        yield* tx.delete(node).where(eq(node.normaId, normaId));
+        yield* Match.value(rows.length).pipe(
+          Match.when(0, () => Effect.void),
+          Match.orElse(() => tx.insert(node).values([...rows]))
+        );
+      })
     );
   });
 
 const rrfK = 60;
 const candidates = 50;
+const defaultLimit = 10;
 
 const makeLegislacao = Effect.gen(function* () {
   const db = yield* Db;
@@ -69,27 +41,28 @@ const makeLegislacao = Effect.gen(function* () {
   yield* createSchema;
 
   const getNode = (path: string) =>
-    db
-      .select({
-        path: node.path,
-        normaId: node.normaId,
-        kind: node.kind,
-        label: node.label,
-        heading: node.heading,
-        text: node.text,
-        summary: node.summary,
+    db.query.node
+      .findFirst({
+        where: { path },
+        columns: {
+          path: true,
+          normaId: true,
+          kind: true,
+          label: true,
+          heading: true,
+          text: true,
+          summary: true,
+        },
       })
-      .from(node)
-      .where(eq(node.path, path))
       .pipe(
-        Effect.flatMap((rows) =>
-          Match.value(rows[0]).pipe(
+        Effect.flatMap((found) =>
+          Match.value(found).pipe(
             Match.when(Match.undefined, () =>
               Effect.fail(
                 new LegislacaoError({ code: "legislacao.NODE_NOT_FOUND", path })
               )
             ),
-            Match.orElse((found) =>
+            Match.orElse((current) =>
               Effect.gen(function* () {
                 const breadcrumb = yield* db
                   .select({ label: node.label })
@@ -101,17 +74,13 @@ const makeLegislacao = Effect.gen(function* () {
                     )
                   )
                   .orderBy(sql`nlevel(${node.path})`);
-                const children = yield* db
-                  .select({
-                    path: node.path,
-                    kind: node.kind,
-                    label: node.label,
-                  })
-                  .from(node)
-                  .where(eq(node.parentPath, path))
-                  .orderBy(node.position);
+                const children = yield* db.query.node.findMany({
+                  where: { parentPath: path },
+                  columns: { path: true, kind: true, label: true },
+                  orderBy: (n, { asc }) => asc(n.position),
+                });
                 return {
-                  node: found,
+                  node: current,
                   breadcrumb: breadcrumb.map((row) => row.label),
                   children,
                 };
@@ -151,17 +120,15 @@ const makeLegislacao = Effect.gen(function* () {
     });
 
   const getToc = (normaId: string) =>
-    db
-      .select({
-        path: node.path,
-        parentPath: node.parentPath,
-        kind: node.kind,
-        label: node.label,
-        depth: sql<number>`nlevel(${node.path})`,
+    db.query.node
+      .findMany({
+        where: { normaId },
+        columns: { path: true, parentPath: true, kind: true, label: true },
+        extras: {
+          depth: (n) => sql<number>`nlevel(${n.path})`.as("depth"),
+        },
+        orderBy: (n, { asc }) => asc(n.position),
       })
-      .from(node)
-      .where(eq(node.normaId, normaId))
-      .orderBy(node.position)
       .pipe(
         Effect.flatMap((rows) =>
           Match.value(rows.length).pipe(
@@ -184,7 +151,7 @@ const makeLegislacao = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const [embedding] = yield* embedder.embed("query", [termo]);
-      const limit = options?.limit ?? 10;
+      const limit = options?.limit ?? defaultLimit;
       const normaFilter = Match.value(options?.normaId).pipe(
         Match.when(Match.string, (id) => sql`where norma_id = ${id}`),
         Match.orElse(() => sql``)

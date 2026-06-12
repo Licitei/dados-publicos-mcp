@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
-import { Embedder, embeddingDimensions } from "../../../src/kernel/embed/embedder";
+import { Embedder } from "../../../src/kernel/embed/embedder";
+import { embeddingDimensions } from "../../../src/kernel/db/schemas/legislacao";
 
 export const EmbedderStub = Layer.succeed(Embedder, {
   embed: (kind, texts) =>

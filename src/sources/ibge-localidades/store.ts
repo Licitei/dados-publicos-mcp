@@ -1,77 +1,43 @@
 import { Context, Effect, Layer, Match } from "effect";
-import { eq, sql } from "drizzle-orm";
-import { integer, pgTable, text } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { normalize, onlyDigits } from "../../core/normalize";
-import { IbgeError, ufBySigla, type MunicipioFlat } from "./catalog";
+import { tableDdl } from "../../kernel/db/ddl";
+import { municipio } from "../../kernel/db/schemas/municipio";
+import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import {
+  IbgeError,
+  codigoIbgeLength,
+  ufBySigla,
+  type MunicipioFlat,
+} from "./catalog";
 import { fetchMunicipios } from "./indexer";
-
-export const municipio = pgTable("municipio", {
-  id: text("id").primaryKey(),
-  nome: text("nome").notNull(),
-  nomeNormalizado: text("nome_normalizado").notNull(),
-  ufSigla: text("uf_sigla").notNull(),
-  ufId: integer("uf_id").notNull(),
-  ufNome: text("uf_nome").notNull(),
-  mesorregiaoId: integer("mesorregiao_id"),
-  mesorregiaoNome: text("mesorregiao_nome"),
-  regiaoSigla: text("regiao_sigla").notNull(),
-});
-
-export type MunicipioRow = typeof municipio.$inferInsert;
-
-const schemaStatements = [
-  sql`create table if not exists ${municipio} (
-    id text primary key,
-    nome text not null,
-    nome_normalizado text not null,
-    uf_sigla text not null,
-    uf_id integer not null,
-    uf_nome text not null,
-    mesorregiao_id integer,
-    mesorregiao_nome text,
-    regiao_sigla text not null
-  )`,
-  sql`create index if not exists municipio_uf on ${municipio} (uf_sigla)`,
-  sql`create index if not exists municipio_nome_trgm on ${municipio} using gin (nome_normalizado gin_trgm_ops)`,
-];
 
 export const createSchema = Effect.gen(function* () {
   const db = yield* Db;
-  yield* Effect.forEach(schemaStatements, (statement) => db.execute(statement), {
+  yield* Effect.forEach(tableDdl(municipio), (statement) => db.execute(statement), {
     discard: true,
   });
 });
 
-const toRow = (flat: MunicipioFlat) =>
-  ({
-    id: flat.id,
-    nome: flat.nome,
-    nomeNormalizado: flat.nomeNormalizado,
-    ufSigla: flat.ufSigla,
-    ufId: flat.ufId,
-    ufNome: flat.ufNome,
-    mesorregiaoId: flat.mesorregiaoId,
-    mesorregiaoNome: flat.mesorregiaoNome,
-    regiaoSigla: flat.regiaoSigla,
-  }) satisfies MunicipioRow;
-
-export const replaceAll = (rows: readonly MunicipioRow[]) =>
+export const replaceAll = (rows: readonly MunicipioFlat[]) =>
   Effect.gen(function* () {
     const db = yield* Db;
-    yield* db.delete(municipio);
-    yield* Match.value(rows.length).pipe(
-      Match.when(0, () => Effect.void),
-      Match.orElse(() => db.insert(municipio).values([...rows]))
+    yield* db.transaction((tx) =>
+      Effect.gen(function* () {
+        yield* tx.delete(municipio);
+        yield* Match.value(rows.length).pipe(
+          Match.when(0, () => Effect.void),
+          Match.orElse(() => tx.insert(municipio).values([...rows]))
+        );
+      })
     );
   });
 
 const defaultLimit = 10;
 
 const makeIbgeLocalidades = Effect.gen(function* () {
-  const db = yield* Db;
-
   yield* createSchema;
+  const db = yield* Db;
 
   const validateUf = (sigla: string) =>
     Match.value(ufBySigla.get(sigla.trim().toUpperCase())).pipe(
@@ -94,26 +60,24 @@ const makeIbgeLocalidades = Effect.gen(function* () {
       );
       const normalized = normalize(termo);
       const limit = options?.limit ?? defaultLimit;
-      const score = sql<number>`similarity(${municipio.nomeNormalizado}, ${normalized})`;
       const where = Match.value(ufFilter).pipe(
-        Match.when(Match.string, (uf) => eq(municipio.ufSigla, uf)),
+        Match.when(Match.string, (uf) => ({ ufSigla: uf })),
         Match.orElse(() => undefined)
       );
-      const rows = yield* db
-        .select({
-          codigoIbge: municipio.id,
-          nome: municipio.nome,
-          uf: municipio.ufSigla,
-          ufId: municipio.ufId,
-          ufNome: municipio.ufNome,
-          mesorregiao: municipio.mesorregiaoNome,
-          regiao: municipio.regiaoSigla,
-          score,
-        })
-        .from(municipio)
-        .where(where)
-        .orderBy(sql`${score} desc`, municipio.id)
-        .limit(limit);
+      const rows = yield* db.query.municipio.findMany({
+        where,
+        extras: {
+          score: (m) =>
+            sql<number>`similarity(${m.nomeNormalizado}, ${normalized})`.as(
+              "score"
+            ),
+        },
+        orderBy: (m, { desc, asc }) => [
+          desc(sql`similarity(${m.nomeNormalizado}, ${normalized})`),
+          asc(m.id),
+        ],
+        limit,
+      });
       return yield* Match.value(rows.length).pipe(
         Match.when(0, () =>
           Effect.fail(
@@ -130,57 +94,37 @@ const makeIbgeLocalidades = Effect.gen(function* () {
 
   const municipioByCodigo = (codigo: string) =>
     Effect.gen(function* () {
-      const normalizado = onlyDigits(codigo).padStart(7, "0");
-      const rows = yield* db
-        .select({
-          codigoIbge: municipio.id,
-          nome: municipio.nome,
-          uf: municipio.ufSigla,
-          ufId: municipio.ufId,
-          ufNome: municipio.ufNome,
-          mesorregiao: municipio.mesorregiaoNome,
-          regiao: municipio.regiaoSigla,
-        })
-        .from(municipio)
-        .where(eq(municipio.id, normalizado))
-        .limit(1);
-      return yield* Match.value(rows[0]).pipe(
+      const normalizado = onlyDigits(codigo).padStart(codigoIbgeLength, "0");
+      const found = yield* db.query.municipio.findFirst({
+        where: { id: normalizado },
+      });
+      return yield* Match.value(found).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
             new IbgeError({ code: "ibge.CODE_NOT_FOUND", codigo, normalizado })
           )
         ),
-        Match.orElse((found) => Effect.succeed(found))
+        Match.orElse((row) => Effect.succeed(row))
       );
     });
 
   const listByUf = (uf: string) =>
     Effect.gen(function* () {
       const validated = yield* validateUf(uf);
-      const rows = yield* db
-        .select({
-          codigoIbge: municipio.id,
-          nome: municipio.nome,
-          uf: municipio.ufSigla,
-          ufId: municipio.ufId,
-          ufNome: municipio.ufNome,
-          mesorregiao: municipio.mesorregiaoNome,
-          regiao: municipio.regiaoSigla,
-        })
-        .from(municipio)
-        .where(eq(municipio.ufSigla, validated.sigla))
-        .orderBy(municipio.nomeNormalizado, municipio.id);
+      const municipios = yield* db.query.municipio.findMany({
+        where: { ufSigla: validated.sigla },
+        orderBy: (m, { asc }) => [asc(m.nomeNormalizado), asc(m.id)],
+      });
       return {
         uf: validated.sigla,
         ufId: validated.id,
-        total: rows.length,
-        municipios: rows,
+        total: municipios.length,
+        municipios,
       };
     });
 
   const index = fetchMunicipios.pipe(
-    Effect.map((flat) => flat.map(toRow)),
-    Effect.flatMap((rows) => replaceAll(rows).pipe(Effect.as(rows.length)))
+    Effect.flatMap((flat) => replaceAll(flat).pipe(Effect.as(flat.length)))
   );
 
   return {
