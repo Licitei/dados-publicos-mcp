@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { pipeline } from "@huggingface/transformers";
-
-export const embeddingDimensions = 384;
+import { embeddingDimensions } from "../db/schemas/legislacao";
 
 const EmbedKind = Schema.Literals(["query", "passage"]);
 export type EmbedKind = (typeof EmbedKind)["Type"];

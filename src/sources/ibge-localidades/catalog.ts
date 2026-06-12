@@ -1,5 +1,7 @@
 import { Effect, Match, Schema } from "effect";
-import { normalize } from "../../core/normalize";
+import { normalize } from "../../kernel/text/normalize";
+
+export const codigoIbgeLength = 7;
 
 export const municipiosUrl =
   "https://servicodados.ibge.gov.br/api/v1/localidades/municipios";
@@ -47,21 +49,20 @@ export type MunicipioRaw = (typeof MunicipioRaw)["Type"];
 
 export const MunicipiosPayload = Schema.Array(MunicipioRaw);
 
-export type MunicipioFlat = {
-  id: string;
-  nome: string;
-  nomeNormalizado: string;
-  ufSigla: string;
-  ufId: number;
-  ufNome: string;
-  mesorregiaoId: number | null;
-  mesorregiaoNome: string | null;
-  regiaoSigla: string;
-};
+export const MunicipioFlat = Schema.Struct({
+  id: Schema.String,
+  nome: Schema.String,
+  nomeNormalizado: Schema.String,
+  ufSigla: Schema.String,
+  ufId: Schema.Number,
+  ufNome: Schema.String,
+  mesorregiaoId: Schema.NullOr(Schema.Number),
+  mesorregiaoNome: Schema.NullOr(Schema.String),
+  regiaoSigla: Schema.String,
+});
+export type MunicipioFlat = (typeof MunicipioFlat)["Type"];
 
-export type Uf = { sigla: string; id: number; nome: string };
-
-export const ufs: Uf[] = [
+export const ufs = [
   { sigla: "RO", id: 11, nome: "Rondonia" },
   { sigla: "AC", id: 12, nome: "Acre" },
   { sigla: "AM", id: 13, nome: "Amazonas" },
@@ -90,6 +91,7 @@ export const ufs: Uf[] = [
   { sigla: "GO", id: 52, nome: "Goias" },
   { sigla: "DF", id: 53, nome: "Distrito Federal" },
 ];
+export type Uf = (typeof ufs)[number];
 
 export const ufBySigla = new Map(ufs.map((uf) => [uf.sigla, uf] as const));
 
@@ -114,7 +116,7 @@ export class IbgeError extends Schema.TaggedErrorClass<IbgeError>()("IbgeError",
       case "ibge.MUNICIPIO_NOT_FOUND":
         return `Municipio nao encontrado: ${this.termo}${this.uf ? `/${this.uf}` : ""}`;
       case "ibge.CODE_NOT_FOUND":
-        return `Codigo IBGE nao encontrado: ${this.codigo} (normalizado: ${this.normalizado}). O codigo de municipio tem 7 digitos.`;
+        return `Codigo IBGE nao encontrado: ${this.codigo} (normalizado: ${this.normalizado}). O codigo de municipio tem ${codigoIbgeLength} digitos.`;
       case "ibge.UF_INVALID":
         return `UF invalida: ${this.uf}. Use uma sigla de 2 letras (ex SP, RJ, MG).`;
       case "ibge.PARSE":
@@ -123,7 +125,8 @@ export class IbgeError extends Schema.TaggedErrorClass<IbgeError>()("IbgeError",
   }
 }
 
-const formatCodigoIbge = (id: number) => String(id).padStart(7, "0");
+const formatCodigoIbge = (id: number) =>
+  String(id).padStart(codigoIbgeLength, "0");
 
 const flattenMunicipio = (raw: MunicipioRaw) =>
   Match.value(raw.microrregiao).pipe(
