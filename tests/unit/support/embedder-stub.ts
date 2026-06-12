@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { Embedder, embeddingDimensions } from "../../src/kernel/embed/embedder";
+import { Embedder, embeddingDimensions } from "../../../src/kernel/embed/embedder";
 
 export const EmbedderStub = Layer.succeed(Embedder, {
   embed: (kind, texts) =>

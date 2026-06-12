@@ -17,7 +17,7 @@ import { registerPncpBulkTools } from "./modules/dados-publicos/pncp-tools";
 import { registerDadosPublicosResources } from "./modules/dados-publicos/resources";
 import { registerDadosPublicosTools } from "./modules/dados-publicos/tools";
 import { registerIbgeLocalidadesTools } from "./modules/ibge-localidades/tools";
-import { registerLegislacaoTools } from "./sources/legislacao";
+import { registerLegislacaoTools } from "./modules/legislacao/tools";
 import { registerQueridoDiarioTools } from "./modules/querido-diario/tools";
 import { registerReceitaCnpjTools } from "./modules/receita-cnpj/tools";
 import { registerSancoesCguTools } from "./modules/sancoes-cgu/tools";

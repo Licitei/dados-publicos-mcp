@@ -4,7 +4,7 @@ import {
   Embedder,
   EmbedError,
   embeddingDimensions,
-} from "../src/kernel/embed/embedder";
+} from "../../src/kernel/embed/embedder";
 import { EmbedderStub } from "./support/embedder-stub";
 
 describe("kernel/embed", () => {

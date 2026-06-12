@@ -1,11 +1,7 @@
 import * as cheerio from "cheerio";
-import { Effect } from "effect";
-import type { Norma } from "./data";
+import { Effect, Match } from "effect";
 import { httpResponse } from "../../kernel/http/client";
-import { Embedder } from "../../kernel/embed/embedder";
-import { buildTree } from "./tree";
-import { normas } from "./catalog";
-import { replaceNorma, type NodeRow } from "./store";
+import type { Node } from "./catalog";
 
 export function htmlToParagraphs(html: string) {
   const $ = cheerio.load(html);
@@ -27,12 +23,15 @@ export function htmlToParagraphs(html: string) {
 const decodePlanalto = (buffer: ArrayBuffer) => {
   const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
 
-  return utf8.includes("�")
-    ? new TextDecoder("windows-1252", { fatal: false }).decode(buffer)
-    : utf8;
+  return Match.value(utf8.includes("�")).pipe(
+    Match.when(true, () =>
+      new TextDecoder("windows-1252", { fatal: false }).decode(buffer)
+    ),
+    Match.orElse(() => utf8)
+  );
 };
 
-const fetchLines = (url: string) =>
+export const fetchLines = (url: string) =>
   Effect.gen(function* () {
     const response = yield* httpResponse(url, {
       headers: { accept: "text/html,application/xhtml+xml" },
@@ -41,35 +40,8 @@ const fetchLines = (url: string) =>
     return htmlToParagraphs(decodePlanalto(buffer));
   });
 
-const summarize = (node: { label: string; heading: string; text: string }) =>
+export const summarize = (node: Pick<Node, "label" | "heading" | "text">) =>
   `${node.label} ${node.heading || node.text}`.trim();
 
-const passage = (node: { label: string; heading: string; text: string }) =>
+export const passage = (node: Pick<Node, "label" | "heading" | "text">) =>
   `${node.label} ${node.heading} ${node.text}`.replace(/\s+/g, " ").trim();
-
-export const indexNorma = (norma: Norma) =>
-  Effect.gen(function* () {
-    const embedder = yield* Embedder;
-    const lines = yield* fetchLines(norma.url);
-    const nodes = buildTree(norma, lines);
-    const embeddings = yield* embedder.embed("passage", nodes.map(passage));
-    const rows = nodes.map(
-      (node, position) =>
-        ({
-          path: node.path,
-          normaId: norma.id,
-          parentPath: node.parentPath,
-          kind: node.kind,
-          label: node.label,
-          heading: node.heading,
-          text: node.text,
-          summary: summarize(node),
-          position: node.position,
-          embedding: embeddings[position],
-        }) satisfies NodeRow
-    );
-    yield* replaceNorma(norma.id, rows);
-    return rows.length;
-  });
-
-export const indexAll = Effect.forEach(normas, indexNorma, { concurrency: 2 });

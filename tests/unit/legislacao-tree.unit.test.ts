@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { buildTree } from "../src/sources/legislacao/tree";
+import { buildTree } from "../../src/sources/legislacao/catalog";
 
 const norma = { id: "lei-14133-2021", titulo: "Lei 14.133/2021" };
 
