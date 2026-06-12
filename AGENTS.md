@@ -28,7 +28,7 @@ gate — there is no CI. `prepublishOnly` re-runs it.
 |---|---|---|
 | `bun run typecheck` | `tsc --noEmit` | strict mode; no implicit any / strict null |
 | `bun run lint:errors` | `bun tooling/static-checks/check-declarative-errors.ts` | the declarative-error + no-`try`/`catch` rules below; exits 1 on any hit |
-| `bun test` | `bun:test` (native) | no vitest/jest; tests never hit the public network |
+| `bun test` + `vitest run` | `bun:test` (`*.test.ts`) and `@effect/vitest` (`*.vitest.ts`) | tests never hit the public network |
 
 `lint:errors` scans `src/` only (skips `__tests__/`). It is **line-based** and **forbids**:
 
@@ -156,15 +156,18 @@ const response = fetched.value;
 
 ## Tests
 
-- Location `__tests__/<domain>.test.ts`, one file per module; runner `bun:test`
-  (`import { test, expect, describe, beforeAll } from "bun:test"`); import source from `../src/...`.
-- **No public network**: use `new Database(":memory:")`, inline CSV/XML/ZIP fixtures, or a local
-  `Bun.serve({ hostname: "127.0.0.1", port: 0 })` for HTTP.
-- **Cross-platform**: temp paths via `mkdtemp(join(tmpdir(), "…"))` — never hardcode `/tmp` or `/`;
-  bind servers to `127.0.0.1:0`; no assertions on raw path-separator shapes.
-- Assert Results in two steps: `Result.isOk(r)` / `Result.isError(r)`, then read `.value` / `.error`;
-  identify errors by `r.error.code` (e.g. `"legislacao.INDICE_AUSENTE"`, `"http.STATUS"`).
-- Run: `bun test` (or `bun test __tests__/<domain>.test.ts`).
+- Two runners: **`bun:test`** for Bun-native tests (`__tests__/<domain>.test.ts`, default) and
+  **`@effect/vitest`** for Effect-heavy code (`__tests__/<domain>.vitest.ts`). `bun test` matches
+  `*.test.ts`; `vitest run` matches `*.vitest.ts` — they never overlap.
+- `bun:test` (`import { test, expect, describe } from "bun:test"`): Bun APIs, `bun:sqlite`, local
+  `Bun.serve({ hostname: "127.0.0.1", port: 0 })`.
+- `@effect/vitest` (`import { describe, expect, it } from "@effect/vitest"`): `it.effect` runs the
+  Effect with a `TestContext`; stub I/O (e.g. inject `FetchHttpClient.Fetch`) instead of real
+  servers; drive retry/timeout deterministically with `TestClock.adjust` + `Effect.forkChild`.
+  Runs under Node — no Bun APIs in these files.
+- **No public network** in either runner; **cross-platform** temp paths via
+  `mkdtemp(join(tmpdir(), "…"))`; bind servers to `127.0.0.1:0`.
+- Run: `bun run check` (typecheck + lint + `bun test` + `vitest run`), or each runner directly.
 
 ## Conventions & gotchas
 
