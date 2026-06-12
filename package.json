@@ -49,6 +49,7 @@
     "@effect/sql-pg": "4.0.0-beta.81",
     "@electric-sql/pglite": "^0.4.5",
     "@electric-sql/pglite-socket": "0.2.2",
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-result": "^2.9.2",
     "cac": "^7.0.0",
@@ -64,5 +65,9 @@
     "@types/bun": "latest",
     "typescript": "^6.0.3",
     "vitest": "^3"
-  }
+  },
+  "trustedDependencies": [
+    "onnxruntime-node",
+    "protobufjs"
+  ]
 }
