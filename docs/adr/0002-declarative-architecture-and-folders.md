@@ -23,7 +23,7 @@ src/
   kernel/                         # deep core, by capability
     mcp/   (tool.ts, server.ts, prompts.ts, resources.ts)
     db/    (client.ts PGlite Layer, drizzle.ts)
-    http/  (client.ts, tagged.ts)
+    http/  (client.ts)
     parse/ · text.ts · paths.ts
   domain/  (cnpj.ts, uf.ts, response.ts)   # shared vocabulary
   sources/<source>/  index.ts(barrel) tools.ts query.ts indexer.ts store.ts errors.ts data.ts <source>.test.ts
