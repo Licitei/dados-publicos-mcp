@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Duration, Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
-import { getJson, HttpConfig, httpResponse } from "../src/kernel/http/client";
+import { getJson, HttpConfig, httpResponse } from "../../src/kernel/http/client";
 
 const JSON_BODY = { ok: true, items: [1, 2, 3], name: "licitacao" };
 

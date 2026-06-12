@@ -1,8 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { eq, sql } from "drizzle-orm";
 import { integer, pgTable, text } from "drizzle-orm/pg-core";
-import { Db, DbLayer } from "../src/kernel/db/client";
+import { Db, DbLayer } from "../../src/kernel/db/client";
 
 const items = pgTable("items", {
   id: integer().primaryKey(),
@@ -10,63 +10,68 @@ const items = pgTable("items", {
 });
 
 describe("kernel/db", () => {
-  test("round-trips an insert and select through effect-postgres drizzle", async () => {
-    const rows = await Effect.runPromise(
+  it.effect(
+    "round-trips an insert and select through effect-postgres drizzle",
+    () =>
       Effect.gen(function* () {
         const db = yield* Db;
         yield* db.execute(
           sql`create table items (id integer primary key, name text not null)`
         );
         yield* db.insert(items).values({ id: 1, name: "licitacao" });
-        return yield* db.select().from(items).where(eq(items.id, 1));
-      }).pipe(Effect.provide(DbLayer))
-    );
+        const rows = yield* db.select().from(items).where(eq(items.id, 1));
+        expect(rows).toEqual([{ id: 1, name: "licitacao" }]);
+      }).pipe(Effect.provide(DbLayer)),
+    30_000
+  );
 
-    expect(rows).toEqual([{ id: 1, name: "licitacao" }]);
-  });
+  it.effect(
+    "a failing query surfaces a drizzle query error in the error channel",
+    () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          Effect.gen(function* () {
+            const db = yield* Db;
+            return yield* db.execute(sql`select * from does_not_exist`);
+          })
+        );
+        expect(error._tag).toBe("EffectDrizzleQueryError");
+      }).pipe(Effect.provide(DbLayer)),
+    30_000
+  );
 
-  test("a failing query surfaces a drizzle query error in the error channel", async () => {
-    const error = await Effect.runPromise(
+  it.effect(
+    "loads pgvector and exposes cosine distance",
+    () =>
       Effect.gen(function* () {
         const db = yield* Db;
-        return yield* db.execute(sql`select * from does_not_exist`);
-      }).pipe(Effect.flip, Effect.provide(DbLayer))
-    );
-
-    expect(error._tag).toBe("EffectDrizzleQueryError");
-  });
-
-  test("loads pgvector and exposes cosine distance", async () => {
-    const rows = await Effect.runPromise(
-      Effect.gen(function* () {
-        const db = yield* Db;
-        return yield* db.execute(
+        const rows = yield* db.execute(
           sql`select '[1,0,0]'::vector <=> '[0,1,0]'::vector as distance`
         );
-      }).pipe(Effect.provide(DbLayer))
-    );
+        expect(Number(rows[0].distance)).toBeCloseTo(1);
+      }).pipe(Effect.provide(DbLayer)),
+    30_000
+  );
 
-    expect(Number(rows[0].distance)).toBeCloseTo(1);
-  });
-
-  test("loads ltree and resolves subtree ancestry", async () => {
-    const rows = await Effect.runPromise(
+  it.effect(
+    "loads ltree and resolves subtree ancestry",
+    () =>
       Effect.gen(function* () {
         const db = yield* Db;
         yield* db.execute(sql`create table tree (id integer primary key, path ltree)`);
         yield* db.execute(sql`insert into tree values
           (1, 'l14133'), (2, 'l14133.t2'), (3, 'l14133.t2.art17'), (4, 'l8666')`);
-        return yield* db.execute(
+        const rows = yield* db.execute(
           sql`select id from tree where path <@ 'l14133.t2' order by id`
         );
-      }).pipe(Effect.provide(DbLayer))
-    );
+        expect(rows.map((r) => r.id)).toEqual([2, 3]);
+      }).pipe(Effect.provide(DbLayer)),
+    30_000
+  );
 
-    expect(rows.map((r) => r.id)).toEqual([2, 3]);
-  });
-
-  test("loads pg_textsearch and ranks a bm25 match in pt-BR", async () => {
-    const rows = await Effect.runPromise(
+  it.effect(
+    "loads pg_textsearch and ranks a bm25 match in pt-BR",
+    () =>
       Effect.gen(function* () {
         const db = yield* Db;
         yield* db.execute(sql`create table docs (id integer primary key, body text)`);
@@ -77,12 +82,11 @@ describe("kernel/db", () => {
         yield* db.execute(
           sql`create index docs_bm25 on docs using bm25 (body) with (text_config='portuguese')`
         );
-        return yield* db.execute(
+        const rows = yield* db.execute(
           sql`select id from docs order by body <@> to_bm25query('licitacoes') limit 2`
         );
-      }).pipe(Effect.provide(DbLayer))
-    );
-
-    expect(rows.map((r) => r.id)).toEqual([3, 1]);
-  });
+        expect(rows.map((r) => r.id)).toEqual([3, 1]);
+      }).pipe(Effect.provide(DbLayer)),
+    30_000
+  );
 });
