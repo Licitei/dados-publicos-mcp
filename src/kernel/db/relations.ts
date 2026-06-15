@@ -14,6 +14,7 @@ import { municipio } from "./schemas/municipio";
 import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
+import { sancao } from "./schemas/sancao";
 
 export const relations = defineRelations({
   bem,
@@ -31,4 +32,5 @@ export const relations = defineRelations({
   proposicaoAutor,
   receita,
   receitaOriginario,
+  sancao,
 });
