@@ -6,8 +6,7 @@ import {
   text,
   vector,
 } from "drizzle-orm/pg-core";
-
-export const embeddingDimensions = 384;
+import { embeddingDimensions } from "../../embed/dimensions";
 
 const ltree = customType<{ data: string }>({ dataType: () => "ltree" });
 
