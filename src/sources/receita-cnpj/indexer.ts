@@ -39,7 +39,7 @@ import {
   type SocioFlat,
 } from "./catalog";
 
-const chunkSize = 5_000;
+const chunkSize = 2_000;
 
 const range = (count: number) =>
   Array.from({ length: count }, (_, index) => index);
