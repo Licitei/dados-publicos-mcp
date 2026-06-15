@@ -9,6 +9,8 @@ import { cnae } from "./schemas/cnae";
 import { cota } from "./schemas/despesa-camara";
 import { deputado } from "./schemas/deputado";
 import { despesa } from "./schemas/despesa";
+import { diario } from "./schemas/diario";
+import { diarioCnpj } from "./schemas/diario-cnpj";
 import { dominio } from "./schemas/dominio";
 import { empresa } from "./schemas/empresa";
 import { estabelecimento } from "./schemas/estabelecimento";
@@ -35,6 +37,8 @@ export const relations = defineRelations({
   cota,
   deputado,
   despesa,
+  diario,
+  diarioCnpj,
   dominio,
   empresa,
   estabelecimento,
