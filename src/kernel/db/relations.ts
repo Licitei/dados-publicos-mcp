@@ -7,6 +7,9 @@ import { cnae } from "./schemas/cnae";
 import { cota } from "./schemas/despesa-camara";
 import { deputado } from "./schemas/deputado";
 import { despesa } from "./schemas/despesa";
+import { dominio } from "./schemas/dominio";
+import { empresa } from "./schemas/empresa";
+import { estabelecimento } from "./schemas/estabelecimento";
 import { fornecedor } from "./schemas/fornecedor";
 import { proposicao } from "./schemas/proposicao";
 import { proposicaoAutor } from "./schemas/proposicao-autor";
@@ -15,6 +18,8 @@ import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
+import { simples } from "./schemas/simples";
+import { socio } from "./schemas/socio";
 
 export const relations = defineRelations({
   bem,
@@ -25,6 +30,9 @@ export const relations = defineRelations({
   cota,
   deputado,
   despesa,
+  dominio,
+  empresa,
+  estabelecimento,
   fornecedor,
   municipio,
   node,
@@ -33,4 +41,6 @@ export const relations = defineRelations({
   receita,
   receitaOriginario,
   sancao,
+  simples,
+  socio,
 });
