@@ -1,6 +1,8 @@
 import { defineRelations } from "drizzle-orm";
 import { bem } from "./schemas/bem";
 import { candidato } from "./schemas/candidato";
+import { capagEstado } from "./schemas/capag-estado";
+import { capagMunicipio } from "./schemas/capag-municipio";
 import { catmatMaterial } from "./schemas/catmat-material";
 import { catserService } from "./schemas/catser-service";
 import { cnae } from "./schemas/cnae";
@@ -18,12 +20,15 @@ import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
+import { siconfiEnte } from "./schemas/siconfi-ente";
 import { simples } from "./schemas/simples";
 import { socio } from "./schemas/socio";
 
 export const relations = defineRelations({
   bem,
   candidato,
+  capagEstado,
+  capagMunicipio,
   catmatMaterial,
   catserService,
   cnae,
@@ -41,6 +46,7 @@ export const relations = defineRelations({
   receita,
   receitaOriginario,
   sancao,
+  siconfiEnte,
   simples,
   socio,
 });
