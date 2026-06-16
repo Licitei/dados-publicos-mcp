@@ -172,9 +172,12 @@ Then wire it: add the `XLive` layer to `AppLayer` in `runtime.ts`, the service t
 
 ## The serve tool layer
 
-`src/serve/` exposes **53 MCP tools** = **44 query** + **8 index** + **1 `status_indices`** over the
-low-level `@modelcontextprotocol/sdk` `Server` (no `registerTool`, no prompts, no resources, no
-per-source `status_*` tools, no live-API tools — everything is served from the local index).
+`src/serve/` exposes **58 MCP tools** = **44 query** + **8 index** + **1 `status_indices`** + **5
+`guia_*` skills** over the low-level `@modelcontextprotocol/sdk` `Server` (no `registerTool`, no
+prompts, no resources, no per-source `status_*` tools, no live-API tools — everything is served from
+the local index). The `guia_*` tools (`src/serve/skills.ts`) take no input and return a markdown
+composition recipe (local-first + privacy envelope) for the calling agent to ingest before chaining
+the primitive tools; `foldExit` renders a string result as raw text instead of JSON.
 
 The pattern:
 

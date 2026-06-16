@@ -28,5 +28,6 @@ export const receita = pgTable(
     index("receita_busca_bm25")
       .using("bm25", t.busca)
       .with({ text_config: "portuguese" }),
+    index("receita_busca_trgm").using("gin", t.busca.op("gin_trgm_ops")),
   ]
 );

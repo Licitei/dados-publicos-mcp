@@ -1,3 +1,4 @@
+import { skillTools } from "./skills";
 import { statusIndices } from "./status";
 import type { Tool } from "./tool";
 import { camaraTools } from "./tools/camara";
@@ -33,4 +34,5 @@ export const tools: readonly Tool[] = [
   ...queryTools,
   ...indexTools,
   statusIndices,
+  ...skillTools,
 ];

@@ -90,11 +90,27 @@ const seeded = Effect.gen(function* () {
 });
 
 describe("serve tool layer", () => {
-  it("registry exposes 44 query + 8 index + 1 status = 53 tools", () => {
-    expect(tools).toHaveLength(53);
+  it("registry exposes 44 query + 8 index + 1 status + 5 guia = 58 tools", () => {
+    expect(tools).toHaveLength(58);
     expect(tools.map((tool) => tool.name)).toContain("status_indices");
     expect(tools.map((tool) => tool.name)).toContain("resolver_municipio");
+    expect(tools.map((tool) => tool.name)).toContain("guia_uso");
   });
+
+  it.effect(
+    "guia tools fold their markdown into raw text content",
+    () =>
+      Effect.gen(function* () {
+        const tool = toolByName("guia_triagem_fornecedor");
+        const exit = yield* Effect.exit(tool.handle({}));
+        const result = foldExit(exit);
+        expect(result).not.toHaveProperty("isError");
+        expect(result.content[0].text).toContain(
+          "# Guia: triagem de fornecedor"
+        );
+      }).pipe(Effect.provide(TestLayer)),
+    60_000
+  );
 
   it("every tool exposes an object inputSchema for the wire", () => {
     for (const tool of tools) {

@@ -31,7 +31,8 @@ Este servidor reune, num so banco local:
   Camara, Querido Diario, Compras.gov.br);
 - busca hibrida de verdade: BM25 + pgvector combinados por RRF, mais `pg_trgm`
   para fuzzy e `ltree` para hierarquias;
-- 53 tools MCP pequenas e previsiveis, agrupadas por dominio;
+- 58 tools MCP pequenas e previsiveis, agrupadas por dominio (incluindo 5 `guia_*`
+  que entregam receitas de composicao para o agente local-first ingerir);
 - erros declarativos tipados (`Schema.TaggedErrorClass`), serializados no boundary
   MCP, sem exception solta cruzando a fronteira.
 
@@ -74,8 +75,10 @@ As fontes marcadas com download pesado nao sao baixadas por padrao: rode
 
 ## Ferramentas MCP
 
-São **53 tools**: 44 de consulta, 8 de indexacao e 1 de status. Todas
-retornam JSON. As descricoes abaixo sao as expostas ao cliente MCP.
+São **58 tools**: 44 de consulta, 8 de indexacao, 1 de status e 5 `guia_*`.
+As de consulta/indexacao/status retornam JSON; as `guia_*` retornam markdown
+(receita de composicao) para o agente ingerir. As descricoes abaixo sao as
+expostas ao cliente MCP.
 
 ### Legislacao
 
@@ -183,6 +186,20 @@ retornam JSON. As descricoes abaixo sao as expostas ao cliente MCP.
 > As fontes pesadas sem tool `indexar_*` dedicada (`tse-eleitoral`,
 > `querido-diario`, `pncp`) sao reconstruidas pela CLI: `index <fonte>`
 > ou `index --include-heavy`.
+
+### Guias (skills para o agente)
+
+Tools sem parametros que retornam uma receita de composicao em markdown — o agente
+chama, ingere o guia e entao encadeia as tools primitivas. Encodam o contrato
+local-first / privacy-first (envelope `privacidade / fontes / limitacoes / confianca`).
+
+| Tool | O que faz |
+| --- | --- |
+| `guia_uso` | Guia geral: local-first, privacy-first, resolva-antes-de-buscar. Chamar primeiro. |
+| `guia_pesquisar_preco` | Receita de pesquisa preliminar de precos (CATMAT/CATSER + PNCP). |
+| `guia_triagem_fornecedor` | Receita de due diligence de fornecedor por CNPJ (Receita + sancoes + SICAF + PNCP + socios). |
+| `guia_mapear_mercado` | Receita de visao de mercado por termo/categoria/UF/orgao/fornecedor. |
+| `guia_due_diligence_eleitoral` | Receita de due diligence eleitoral e rastreio de doadores (TSE). |
 
 ## O arsenal de busca
 
@@ -441,7 +458,7 @@ Smoke MCP local via stdio:
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | bun src/index.ts
 ```
 
-Deve listar as 53 tools.
+Deve listar as 58 tools.
 
 ## Limites
 
