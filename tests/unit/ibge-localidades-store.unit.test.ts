@@ -132,6 +132,7 @@ describe("ibge-localidades store + fuzzy resolver", () => {
         expect(rows[0].nome).toBe("Goiânia");
         const scores = rows.map((row) => Number(row.score));
         expect(scores[0]).toBeGreaterThanOrEqual(scores[scores.length - 1]);
+        expect(rows.map((row) => row.nome)).not.toContain("Santos");
       }).pipe(Effect.provide(TestLayer)),
     30_000
   );

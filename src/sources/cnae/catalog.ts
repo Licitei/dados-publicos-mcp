@@ -149,3 +149,14 @@ const flattenSubclasse = (raw: SubclasseRaw) => {
 
 export const flatten = (payload: readonly SubclasseRaw[]) =>
   payload.map(flattenSubclasse);
+
+export const subclassePassage = (row: SubclasseFlat) =>
+  cleanText(
+    [
+      row.descricao,
+      row.classeDescricao,
+      row.grupoDescricao,
+      row.divisaoDescricao,
+      row.secaoDescricao,
+    ].join(" ")
+  );

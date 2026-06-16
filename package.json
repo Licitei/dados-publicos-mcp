@@ -8,12 +8,12 @@
     "dados-publicos-mcp": "./src/index.ts"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint:errors && bun test && bun run test:unit",
+    "check": "bun run typecheck && bun run lint:errors && bun run test:unit",
     "index": "bun src/index.ts index",
     "lint:errors": "bun tooling/static-checks/check-declarative-errors.ts",
     "prepublishOnly": "bun run check",
-    "start": "bun src/index.ts serve",
-    "test": "bun test",
+    "start": "bun src/index.ts",
+    "test": "vitest run",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc --noEmit"
@@ -47,19 +47,15 @@
     "bun": ">=1.1.0"
   },
   "dependencies": {
+    "@effect/platform-bun": "4.0.0-beta.81",
     "@effect/sql-pg": "4.0.0-beta.81",
     "@electric-sql/pglite": "^0.4.5",
     "@electric-sql/pglite-socket": "0.2.2",
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-result": "^2.9.2",
-    "cac": "^7.0.0",
     "cheerio": "^1.2.0",
-    "dayjs": "^1.11.20",
     "drizzle-orm": "^1.0.0-rc.3",
-    "effect": "4.0.0-beta.81",
-    "evlog": "^2.18.1",
-    "zod": "^4.4.3"
+    "effect": "4.0.0-beta.81"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.81",

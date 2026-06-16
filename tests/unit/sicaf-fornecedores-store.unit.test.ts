@@ -104,6 +104,8 @@ describe("sicaf store + pagination + bm25", () => {
         expect(inativa.map((r) => r.cnpj)).toEqual(["00111222000133"]);
         const ativos = yield* sicaf.buscar({ nome: "inativa", apenasAtivos: true });
         expect(ativos).toHaveLength(0);
+        const fuzzy = yield* sicaf.buscar({ nome: "constru" });
+        expect(fuzzy.map((r) => r.cnpj)).toContain("44555666000199");
         const none = yield* sicaf.buscar({ nome: "zzzzz inexistente" });
         expect(none).toHaveLength(0);
       }).pipe(Effect.provide(TestLayer)),
