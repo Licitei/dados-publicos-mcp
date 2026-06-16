@@ -5,18 +5,47 @@ export const cdnBase = "https://cdn.tse.jus.br/estatistica/sead/odsele";
 
 export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
 
-export type DatasetTipo = "consulta_cand" | "bem_candidato";
+export type DatasetTipo =
+  | "consulta_cand"
+  | "bem_candidato"
+  | "prestacao_contas";
 
 export const zipUrl = (tipo: DatasetTipo, ano: number) =>
-  `${cdnBase}/${tipo}/${tipo}_${ano}.zip`;
+  tipo === "prestacao_contas"
+    ? `${cdnBase}/prestacao_contas/prestacao_de_contas_eleitorais_candidatos_${ano}.zip`
+    : `${cdnBase}/${tipo}/${tipo}_${ano}.zip`;
 
-const tipoPattern = {
-  consulta_cand: /consulta_cand/i,
-  bem_candidato: /bem_candidato/i,
-} satisfies Record<DatasetTipo, RegExp>;
+export const candidatoFile = /consulta_cand/i;
+export const bemFile = /bem_candidato/i;
 
-export const acceptBrasil = (tipo: DatasetTipo) => (name: string) =>
-  /_BRASIL\.csv$/i.test(name) && tipoPattern[tipo].test(name);
+export const acceptBrasil = (pattern: RegExp) => (name: string) =>
+  /_BRASIL\.csv$/i.test(name) && pattern.test(name);
+
+export type TabelaPrestacao = "receita" | "receita_originario" | "despesa";
+
+export const classifyPrestacao = (name: string): TabelaPrestacao | null => {
+  const lower = name.toLowerCase();
+  return !/_brasil\.csv$/i.test(name)
+    ? null
+    : lower.includes("receitas_candidatos_doador_originario")
+      ? "receita_originario"
+      : lower.includes("receitas_candidatos")
+        ? "receita"
+        : lower.includes("despesas_contratadas")
+          ? "despesa"
+          : null;
+};
+
+export const acceptPrestacao = (name: string) =>
+  classifyPrestacao(name) !== null;
+
+export const ehDocumento = (termo: string) => {
+  const digits = onlyDigits(termo);
+  return (
+    digits.length >= 11 &&
+    digits.length === termo.replace(/[.\-/\s]/g, "").length
+  );
+};
 
 const sentinels = new Set(["#NULO#", "#NULO", "-1", "#NE#", "#NI#"]);
 
@@ -151,6 +180,125 @@ export const mapCandidatos = (records: readonly Record<string, string>[]) =>
 
 export const mapBens = (records: readonly Record<string, string>[]) =>
   records.map(mapBem);
+
+export const ReceitaFlat = Schema.Struct({
+  sqReceita: Schema.String,
+  sqCandidato: Schema.String,
+  cpfCandidato: Schema.String,
+  anoEleicao: Schema.NullOr(Schema.Number),
+  cpfCnpjDoador: Schema.String,
+  nomeDoador: Schema.String,
+  nomeDoadorRfb: Schema.String,
+  cnaeCodigo: Schema.String,
+  cnaeDescricao: Schema.String,
+  ufDoador: Schema.String,
+  valor: Schema.NullOr(Schema.Number),
+  data: Schema.String,
+  origem: Schema.String,
+  natureza: Schema.String,
+  recibo: Schema.String,
+  busca: Schema.String,
+});
+export type ReceitaFlat = (typeof ReceitaFlat)["Type"];
+
+export const DespesaFlat = Schema.Struct({
+  sqDespesa: Schema.String,
+  sqCandidato: Schema.String,
+  cpfCandidato: Schema.String,
+  anoEleicao: Schema.NullOr(Schema.Number),
+  cpfCnpjForn: Schema.String,
+  nomeForn: Schema.String,
+  nomeFornRfb: Schema.String,
+  cnaeCodigo: Schema.String,
+  cnaeDescricao: Schema.String,
+  ufForn: Schema.String,
+  valor: Schema.NullOr(Schema.Number),
+  data: Schema.String,
+  descricao: Schema.String,
+  documento: Schema.String,
+  busca: Schema.String,
+});
+export type DespesaFlat = (typeof DespesaFlat)["Type"];
+
+export const ReceitaOrigFlat = Schema.Struct({
+  sqReceita: Schema.String,
+  anoEleicao: Schema.NullOr(Schema.Number),
+  cpfCnpjOrig: Schema.String,
+  nomeOrig: Schema.String,
+  nomeOrigRfb: Schema.String,
+  tipoOrig: Schema.String,
+  cnaeCodigo: Schema.String,
+  valor: Schema.NullOr(Schema.Number),
+  data: Schema.String,
+});
+export type ReceitaOrigFlat = (typeof ReceitaOrigFlat)["Type"];
+
+const mapReceita = (record: Record<string, string>) => {
+  const nomeDoador = field(record, ["NM_DOADOR"]);
+  const nomeDoadorRfb = field(record, ["NM_DOADOR_RFB"]);
+  return {
+    sqReceita: field(record, ["SQ_RECEITA"]),
+    sqCandidato: field(record, ["SQ_CANDIDATO"]),
+    cpfCandidato: onlyDigits(field(record, ["NR_CPF_CANDIDATO"])),
+    anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
+    cpfCnpjDoador: onlyDigits(field(record, ["NR_CPF_CNPJ_DOADOR"])),
+    nomeDoador,
+    nomeDoadorRfb,
+    cnaeCodigo: field(record, ["CD_CNAE_DOADOR"]),
+    cnaeDescricao: field(record, ["DS_CNAE_DOADOR"]),
+    ufDoador: field(record, ["SG_UF_DOADOR"]),
+    valor: numeroBr(pick(record, ["VR_RECEITA"])),
+    data: dataBr(field(record, ["DT_RECEITA"])) ?? "",
+    origem: field(record, ["DS_ORIGEM_RECEITA"]),
+    natureza: field(record, ["DS_NATUREZA_RECEITA"]),
+    recibo: field(record, ["NR_RECIBO_DOACAO"]),
+    busca: normalize(`${nomeDoador} ${nomeDoadorRfb}`),
+  } satisfies ReceitaFlat;
+};
+
+const mapDespesa = (record: Record<string, string>) => {
+  const nomeForn = field(record, ["NM_FORNECEDOR"]);
+  const nomeFornRfb = field(record, ["NM_FORNECEDOR_RFB"]);
+  return {
+    sqDespesa: field(record, ["SQ_DESPESA"]),
+    sqCandidato: field(record, ["SQ_CANDIDATO"]),
+    cpfCandidato: onlyDigits(field(record, ["NR_CPF_CANDIDATO"])),
+    anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
+    cpfCnpjForn: onlyDigits(field(record, ["NR_CPF_CNPJ_FORNECEDOR"])),
+    nomeForn,
+    nomeFornRfb,
+    cnaeCodigo: field(record, ["CD_CNAE_FORNECEDOR"]),
+    cnaeDescricao: field(record, ["DS_CNAE_FORNECEDOR"]),
+    ufForn: field(record, ["SG_UF_FORNECEDOR"]),
+    valor: numeroBr(pick(record, ["VR_DESPESA_CONTRATADA"])),
+    data: dataBr(field(record, ["DT_DESPESA"])) ?? "",
+    descricao: field(record, ["DS_DESPESA"]),
+    documento: field(record, ["NR_DOCUMENTO"]),
+    busca: normalize(`${nomeForn} ${nomeFornRfb}`),
+  } satisfies DespesaFlat;
+};
+
+const mapReceitaOriginario = (record: Record<string, string>) => ({
+  sqReceita: field(record, ["SQ_RECEITA"]),
+  anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
+  cpfCnpjOrig: onlyDigits(field(record, ["NR_CPF_CNPJ_DOADOR_ORIGINARIO"])),
+  nomeOrig: field(record, ["NM_DOADOR_ORIGINARIO"]),
+  nomeOrigRfb: field(record, ["NM_DOADOR_ORIGINARIO_RFB"]),
+  tipoOrig: field(record, ["DS_TP_DOADOR_ORIGINARIO", "TP_DOADOR_ORIGINARIO"]),
+  cnaeCodigo: field(record, ["CD_CNAE_DOADOR_ORIGINARIO"]),
+  valor: numeroBr(pick(record, ["VR_RECEITA"])),
+  data: dataBr(field(record, ["DT_RECEITA"])) ?? "",
+}) satisfies ReceitaOrigFlat;
+
+export const mapReceitas = (records: readonly Record<string, string>[]) =>
+  records.map(mapReceita);
+
+export const mapDespesas = (records: readonly Record<string, string>[]) =>
+  records.map(mapDespesa);
+
+export const mapReceitasOriginario = (
+  records: readonly Record<string, string>[]
+) => records.map(mapReceitaOriginario);
 
 export const TseErrorCode = Schema.Literals(["tse.MISSING_IDENTIFIER"]);
 export type TseErrorCode = (typeof TseErrorCode)["Type"];
