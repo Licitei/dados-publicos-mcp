@@ -37,6 +37,7 @@ import { sancao } from "../kernel/db/schemas/sancao";
 import { senador } from "../kernel/db/schemas/senador";
 import { siconfiEnte } from "../kernel/db/schemas/siconfi-ente";
 import { siconfiFato } from "../kernel/db/schemas/siconfi-fato";
+import { sinapiInsumo } from "../kernel/db/schemas/sinapi-insumo";
 import { simples } from "../kernel/db/schemas/simples";
 import { socio } from "../kernel/db/schemas/socio";
 import { tcuInidoneo } from "../kernel/db/schemas/tcu-inidoneo";
@@ -63,6 +64,7 @@ const layout = {
   transferegov: { convenio },
   "painel-precos": { precoPraticado },
   "transparencia-despesas": { despesaFederal },
+  sinapi: { sinapiInsumo },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>
