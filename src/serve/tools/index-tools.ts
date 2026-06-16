@@ -7,6 +7,7 @@ import { IbgeLocalidades } from "../../sources/ibge-localidades/store";
 import { Legislacao } from "../../sources/legislacao/store";
 import { SancoesCgu } from "../../sources/sancoes-cgu/store";
 import { Sicaf } from "../../sources/sicaf-fornecedores/store";
+import { TcuInidoneos } from "../../sources/tcu-inidoneos/store";
 import { defineTool } from "../tool";
 
 const NoInput = Schema.Struct({});
@@ -74,6 +75,14 @@ const indexarCamara = defineTool({
   run: () => CamaraDeputados.pipe(Effect.flatMap((service) => service.index)),
 });
 
+const indexarTcuInidoneos = defineTool({
+  name: "indexar_tcu_inidoneos",
+  description:
+    "Baixa as listas de inidoneos/inabilitados do TCU e recria o indice local neste computador.",
+  input: NoInput,
+  run: () => TcuInidoneos.pipe(Effect.flatMap((service) => service.index)),
+});
+
 export const indexTools = [
   indexarLegislacao,
   indexarIbgeLocalidades,
@@ -83,4 +92,5 @@ export const indexTools = [
   indexarSancoes,
   indexarCapag,
   indexarCamara,
+  indexarTcuInidoneos,
 ] as const;

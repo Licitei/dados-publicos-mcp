@@ -13,6 +13,7 @@ import { queridoDiarioTools } from "./tools/querido-diario";
 import { receitaTools } from "./tools/receita";
 import { sancoesTools } from "./tools/sancoes";
 import { sicafTools } from "./tools/sicaf";
+import { tcuTools } from "./tools/tcu";
 import { tseTools } from "./tools/tse";
 
 export const queryTools: readonly Tool[] = [
@@ -28,6 +29,7 @@ export const queryTools: readonly Tool[] = [
   ...queridoDiarioTools,
   ...capagTools,
   ...pncpTools,
+  ...tcuTools,
 ];
 
 export const tools: readonly Tool[] = [

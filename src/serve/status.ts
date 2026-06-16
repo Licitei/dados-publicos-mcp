@@ -31,6 +31,7 @@ import { sancao } from "../kernel/db/schemas/sancao";
 import { siconfiEnte } from "../kernel/db/schemas/siconfi-ente";
 import { simples } from "../kernel/db/schemas/simples";
 import { socio } from "../kernel/db/schemas/socio";
+import { tcuInidoneo } from "../kernel/db/schemas/tcu-inidoneo";
 import { defineTool } from "./tool";
 
 const layout = {
@@ -46,6 +47,7 @@ const layout = {
   "querido-diario": { diario, diarioCnpj },
   capag: { capagEstado, capagMunicipio, siconfiEnte },
   pncp: { contratacao, contrato, ata },
+  "tcu-inidoneos": { tcuInidoneo },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

@@ -15,6 +15,7 @@ import { QueridoDiarioLive } from "./sources/querido-diario/store";
 import { ReceitaCnpjLive } from "./sources/receita-cnpj/store";
 import { SancoesCguLive } from "./sources/sancoes-cgu/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
+import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
 const Persistence = DbPersistenceLive.pipe(Layer.provide(BunServices.layer));
@@ -37,7 +38,8 @@ export const AppLayer = Layer.mergeAll(
   CamaraDeputadosLive,
   QueridoDiarioLive,
   CapagLive,
-  PncpLive
+  PncpLive,
+  TcuInidoneosLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

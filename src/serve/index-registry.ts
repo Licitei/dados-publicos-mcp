@@ -11,6 +11,7 @@ import { QueridoDiario } from "../sources/querido-diario/store";
 import { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
+import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
 import type { AppServices } from "./tool";
 
@@ -27,6 +28,7 @@ export const FonteKey = Schema.Literals([
   "querido-diario",
   "capag",
   "pncp",
+  "tcu-inidoneos",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -174,5 +176,9 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
           )
         )
       ),
+  },
+  "tcu-inidoneos": {
+    heavy: false,
+    run: () => TcuInidoneos.pipe(Effect.flatMap((service) => service.index)),
   },
 };
