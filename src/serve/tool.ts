@@ -11,13 +11,18 @@ import type { Cnae } from "../sources/cnae/store";
 import type { IbgeEconomia } from "../sources/ibge-economia/store";
 import type { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import type { Legislacao } from "../sources/legislacao/store";
+import type { PainelPrecos } from "../sources/painel-precos/store";
 import type { Pncp } from "../sources/pncp/store";
 import type { QueridoDiario } from "../sources/querido-diario/store";
 import type { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import type { SancoesCgu } from "../sources/sancoes-cgu/store";
 import type { SenadoFederal } from "../sources/senado/store";
 import type { Sicaf } from "../sources/sicaf-fornecedores/store";
+import type { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
+import type { Sinapi } from "../sources/sinapi/store";
 import type { TcuInidoneos } from "../sources/tcu-inidoneos/store";
+import type { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
+import type { Transferegov } from "../sources/transferegov/store";
 import type { TseEleitoral } from "../sources/tse-eleitoral/store";
 
 export type AppServices =
@@ -37,6 +42,11 @@ export type AppServices =
   | IbgeEconomia
   | SenadoFederal
   | CmedAnvisa
+  | SiconfiFiscal
+  | Transferegov
+  | PainelPrecos
+  | TransparenciaDespesas
+  | Sinapi
   | Db
   | Embedder
   | HttpClient.HttpClient;

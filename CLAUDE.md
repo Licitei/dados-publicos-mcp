@@ -9,15 +9,17 @@ live is Effect-native:
 
 - **`src/kernel/**`** — Effect v4 (`4.0.0-beta.81`) + PGlite + Drizzle. One local Postgres with four
   extensions: `vector` (pgvector), `pg_textsearch` (BM25), `ltree`, `pg_trgm`.
-- **`src/sources/**`** — 12 source slices, each a `Context.Service` store + an `XLive` Layer.
+- **`src/sources/**`** — 21 source slices, each a `Context.Service` store + an `XLive` Layer.
 - **`src/serve/**`** — the MCP tool layer over the low-level `@modelcontextprotocol/sdk` Server
   (`tool.ts`/`fold.ts`/`server.ts`/`status.ts`/`registry.ts`/`index-registry.ts`/`tools/<source>.ts`).
 - **`src/runtime.ts`** — `ManagedRuntime` over `AppLayer` (12 `XLive` `provideMerge` `Infra`).
 - **`src/index.ts`** — CLI via `effect/unstable/cli` + `@effect/platform-bun` (`BunRuntime.runMain`).
 
-`serve` (the default, no-subcommand action) wires the real `src/sources` slices — 58 MCP tools
-(44 query + 8 `indexar_*` + `status_indices` + 5 `guia_*` skills that return composition recipes for
-the agent to ingest). The `index` subcommand recria os índices locais.
+`serve` (the default, no-subcommand action) wires the real `src/sources` slices — 85 MCP tools
+(67 query + 12 `indexar_*` + `status_indices` + 5 `guia_*` skills that return composition recipes for
+the agent to ingest). Heavy sources (tse-eleitoral, querido-diario, pncp, siconfi-fiscal, transferegov,
+painel-precos, transparencia-despesas, sinapi) are CLI-only via `index <fonte>`. The `index`
+subcommand recria os índices locais.
 `DADOS_PUBLICOS_MCP_DATA_DIR` (via `Config`, resolved in `src/kernel/db/persistence.ts`) points
 PGlite at a persistent path so índices sobrevivem entre execuções; unset → platform default under
 `$XDG_DATA_HOME`/`$HOME/.local/share`.
