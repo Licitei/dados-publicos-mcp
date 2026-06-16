@@ -13,6 +13,7 @@ import { pncpTools } from "./tools/pncp";
 import { queridoDiarioTools } from "./tools/querido-diario";
 import { receitaTools } from "./tools/receita";
 import { sancoesTools } from "./tools/sancoes";
+import { senadoTools } from "./tools/senado";
 import { sicafTools } from "./tools/sicaf";
 import { tcuTools } from "./tools/tcu";
 import { tseTools } from "./tools/tse";
@@ -32,6 +33,7 @@ export const queryTools: readonly Tool[] = [
   ...pncpTools,
   ...tcuTools,
   ...ibgeEconomiaTools,
+  ...senadoTools,
 ];
 
 export const tools: readonly Tool[] = [

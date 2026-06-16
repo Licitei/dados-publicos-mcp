@@ -3,6 +3,7 @@ import { ata } from "./schemas/ata";
 import { bem } from "./schemas/bem";
 import { candidato } from "./schemas/candidato";
 import { capagEstado } from "./schemas/capag-estado";
+import { ceapsDespesa } from "./schemas/ceaps-despesa";
 import { capagMunicipio } from "./schemas/capag-municipio";
 import { catmatMaterial } from "./schemas/catmat-material";
 import { catserService } from "./schemas/catser-service";
@@ -26,6 +27,7 @@ import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
+import { senador } from "./schemas/senador";
 import { siconfiEnte } from "./schemas/siconfi-ente";
 import { simples } from "./schemas/simples";
 import { socio } from "./schemas/socio";
@@ -37,6 +39,7 @@ export const relations = defineRelations({
   candidato,
   capagEstado,
   capagMunicipio,
+  ceapsDespesa,
   catmatMaterial,
   catserService,
   cnae,
@@ -59,6 +62,7 @@ export const relations = defineRelations({
   receita,
   receitaOriginario,
   sancao,
+  senador,
   siconfiEnte,
   simples,
   socio,

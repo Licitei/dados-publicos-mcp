@@ -28,7 +28,9 @@ import { proposicao } from "../kernel/db/schemas/proposicao";
 import { proposicaoAutor } from "../kernel/db/schemas/proposicao-autor";
 import { receita } from "../kernel/db/schemas/receita";
 import { receitaOriginario } from "../kernel/db/schemas/receita-originario";
+import { ceapsDespesa } from "../kernel/db/schemas/ceaps-despesa";
 import { sancao } from "../kernel/db/schemas/sancao";
+import { senador } from "../kernel/db/schemas/senador";
 import { siconfiEnte } from "../kernel/db/schemas/siconfi-ente";
 import { simples } from "../kernel/db/schemas/simples";
 import { socio } from "../kernel/db/schemas/socio";
@@ -50,6 +52,7 @@ const layout = {
   pncp: { contratacao, contrato, ata },
   "tcu-inidoneos": { tcuInidoneo },
   "ibge-economia": { municipioEconomia },
+  senado: { senador, ceapsDespesa },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

@@ -14,6 +14,7 @@ import type { Pncp } from "../sources/pncp/store";
 import type { QueridoDiario } from "../sources/querido-diario/store";
 import type { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import type { SancoesCgu } from "../sources/sancoes-cgu/store";
+import type { SenadoFederal } from "../sources/senado/store";
 import type { Sicaf } from "../sources/sicaf-fornecedores/store";
 import type { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import type { TseEleitoral } from "../sources/tse-eleitoral/store";
@@ -33,6 +34,7 @@ export type AppServices =
   | Pncp
   | TcuInidoneos
   | IbgeEconomia
+  | SenadoFederal
   | Db
   | Embedder
   | HttpClient.HttpClient;

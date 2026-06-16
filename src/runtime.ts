@@ -15,6 +15,7 @@ import { PncpLive } from "./sources/pncp/store";
 import { QueridoDiarioLive } from "./sources/querido-diario/store";
 import { ReceitaCnpjLive } from "./sources/receita-cnpj/store";
 import { SancoesCguLive } from "./sources/sancoes-cgu/store";
+import { SenadoFederalLive } from "./sources/senado/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
 import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
@@ -41,7 +42,8 @@ export const AppLayer = Layer.mergeAll(
   CapagLive,
   PncpLive,
   TcuInidoneosLive,
-  IbgeEconomiaLive
+  IbgeEconomiaLive,
+  SenadoFederalLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

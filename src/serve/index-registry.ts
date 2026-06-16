@@ -11,6 +11,7 @@ import { Pncp } from "../sources/pncp/store";
 import { QueridoDiario } from "../sources/querido-diario/store";
 import { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import { SancoesCgu } from "../sources/sancoes-cgu/store";
+import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
@@ -31,6 +32,7 @@ export const FonteKey = Schema.Literals([
   "pncp",
   "tcu-inidoneos",
   "ibge-economia",
+  "senado",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -187,6 +189,22 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
     heavy: false,
     run: (scope) =>
       IbgeEconomia.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.anos).pipe(
+            Match.when(
+              (anos: readonly number[] | undefined): anos is readonly number[] =>
+                anos !== undefined && anos.length > 0,
+              (anos) => service.indexAno(Math.max(...anos))
+            ),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
+  },
+  senado: {
+    heavy: false,
+    run: (scope) =>
+      SenadoFederal.pipe(
         Effect.flatMap((service) =>
           Match.value(scope.anos).pipe(
             Match.when(
