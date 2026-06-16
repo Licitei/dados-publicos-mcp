@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { Embedder, EmbedError } from "../../src/kernel/embed/embedder";
-import { embeddingDimensions } from "../../src/kernel/db/schemas/legislacao";
+import { embeddingDimensions } from "../../src/kernel/embed/dimensions";
 import { EmbedderStub } from "./support/embedder-stub";
 
 describe("kernel/embed", () => {

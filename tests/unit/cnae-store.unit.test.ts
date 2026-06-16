@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
 import { Db, DbLayer } from "../../src/kernel/db/client";
 import { Cnae, CnaeLive } from "../../src/sources/cnae/store";
+import { EmbedderStub } from "./support/embedder-stub";
 
 const secaoJ = { id: "J", descricao: "Informacao e Comunicacao" };
 const secaoA = {
@@ -75,8 +76,9 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  CnaeLive.pipe(Layer.provide(DbLayer)),
+  CnaeLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, EmbedderStub, HttpStub))),
   DbLayer,
+  EmbedderStub,
   HttpStub
 );
 
@@ -86,7 +88,7 @@ const seeded = Effect.gen(function* () {
   return cnae;
 });
 
-describe("cnae store + bm25 search", () => {
+describe("cnae store + hybrid search", () => {
   it.effect(
     "resolve strips the mask and returns the full hierarchy, else NOT_FOUND",
     () =>
@@ -105,7 +107,7 @@ describe("cnae store + bm25 search", () => {
   );
 
   it.effect(
-    "search ranks by bm25 relevance and honors the limit",
+    "search ranks by hybrid RRF relevance and honors the limit",
     () =>
       Effect.gen(function* () {
         const cnae = yield* seeded;
@@ -114,10 +116,13 @@ describe("cnae store + bm25 search", () => {
         expect(rows[0].secaoId).toBe("J");
         const licenciamento = yield* cnae.search("licenciamento");
         expect(licenciamento[0].id).toBe("6202300");
+        expect(Number(licenciamento[0].score)).toBeGreaterThan(1 / 61 + 1e-9);
         const limited = yield* cnae.search("desenvolvimento de programas", {
           limit: 1,
         });
         expect(limited).toHaveLength(1);
+        const semantico = yield* cnae.search("zzzz sem termo lexical");
+        expect(semantico.length).toBeGreaterThan(0);
       }).pipe(Effect.provide(TestLayer)),
     30_000
   );

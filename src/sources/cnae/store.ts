@@ -1,17 +1,20 @@
 import { Context, Effect, Layer, Match } from "effect";
-import { sql } from "drizzle-orm";
+import { cosineDistance, sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { tableDdl } from "../../kernel/db/ddl";
 import { cnae } from "../../kernel/db/schemas/cnae";
+import { Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
   CnaeError,
   levelByDigits,
   secaoNivel,
+  subclassePassage,
   type CnaeNivel,
-  type SubclasseFlat,
 } from "./catalog";
 import { fetchSubclasses } from "./indexer";
+
+type CnaeRow = typeof cnae.$inferInsert;
 
 export const createSchema = Effect.gen(function* () {
   const db = yield* Db;
@@ -20,7 +23,7 @@ export const createSchema = Effect.gen(function* () {
   });
 });
 
-export const replaceAll = (rows: readonly SubclasseFlat[]) =>
+export const replaceAll = (rows: readonly CnaeRow[]) =>
   Effect.gen(function* () {
     const db = yield* Db;
     yield* db.transaction((tx) =>
@@ -36,6 +39,8 @@ export const replaceAll = (rows: readonly SubclasseFlat[]) =>
 
 const defaultLimit = 10;
 const maxLimit = 50;
+const rrfK = 60;
+const candidates = 50;
 
 const detectLevel = (codigo: string) => {
   const trimmed = codigo.trim();
@@ -67,6 +72,7 @@ const whereForLevel = (nivel: CnaeNivel, value: string) =>
 const makeCnae = Effect.gen(function* () {
   yield* createSchema;
   const db = yield* Db;
+  const embedder = yield* Embedder;
 
   const resolve = (codigo: string) =>
     Effect.gen(function* () {
@@ -99,24 +105,39 @@ const makeCnae = Effect.gen(function* () {
         Math.max(options?.limit ?? defaultLimit, 1),
         maxLimit
       );
+      const [queryVector] = yield* embedder.embed("query", [termo]);
       return yield* db.execute(sql`
-        select
-          id,
-          descricao,
-          secao_id as "secaoId",
-          secao_descricao as "secaoDescricao",
-          -rk as score
-        from (
-          select id, descricao, secao_id, secao_descricao,
-            row_number() over () as rk
+        with bm as (
+          select id, rk from (
+            select id, row_number() over () as rk
+            from (
+              select id
+              from ${cnae}
+              order by busca <@> to_bm25query(${q})
+              limit ${sql.raw(String(candidates))}
+            ) ranked
+          ) s
+        ),
+        vec as (
+          select id, row_number() over (order by dist) as rk
           from (
-            select id, descricao, secao_id, secao_descricao
+            select id, ${cosineDistance(cnae.embedding, queryVector)} as dist
             from ${cnae}
-            order by busca <@> to_bm25query(${q})
-            limit ${sql.raw(String(limit))}
+            where embedding is not null
+            order by dist
+            limit ${sql.raw(String(candidates))}
           ) ranked
-        ) scored
-        order by rk
+        )
+        select
+          c.id, c.descricao,
+          c.secao_id as "secaoId", c.secao_descricao as "secaoDescricao",
+          coalesce(1.0 / (${sql.raw(String(rrfK))} + bm.rk), 0)
+            + coalesce(1.0 / (${sql.raw(String(rrfK))} + vec.rk), 0) as score
+        from bm
+        full outer join vec on bm.id = vec.id
+        join ${cnae} c on c.id = coalesce(bm.id, vec.id)
+        order by score desc, c.id
+        limit ${sql.raw(String(limit))}
       `);
     });
 
@@ -145,9 +166,19 @@ const makeCnae = Effect.gen(function* () {
       );
     });
 
-  const index = fetchSubclasses.pipe(
-    Effect.flatMap((flat) => replaceAll(flat).pipe(Effect.as(flat.length)))
-  );
+  const index = Effect.gen(function* () {
+    const flat = yield* fetchSubclasses;
+    const embeddings = yield* embedder.embed(
+      "passage",
+      flat.map(subclassePassage)
+    );
+    const rows = flat.map((row, position) => ({
+      ...row,
+      embedding: embeddings[position],
+    }));
+    yield* replaceAll(rows);
+    return rows.length;
+  });
 
   return { index, indexAll: index, resolve, search, listByLevel };
 });
