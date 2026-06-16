@@ -18,6 +18,7 @@ import { Sicaf } from "../sources/sicaf-fornecedores/store";
 import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
 import { Transferegov } from "../sources/transferegov/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
+import { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
 import type { AppServices } from "./tool";
 
@@ -41,6 +42,7 @@ export const FonteKey = Schema.Literals([
   "siconfi-fiscal",
   "transferegov",
   "painel-precos",
+  "transparencia-despesas",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -252,5 +254,17 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
   "painel-precos": {
     heavy: true,
     run: () => PainelPrecos.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "transparencia-despesas": {
+    heavy: true,
+    run: (scope) =>
+      TransparenciaDespesas.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.mes).pipe(
+            Match.when(Match.string, (mes) => service.indexMes(mes)),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
   },
 };

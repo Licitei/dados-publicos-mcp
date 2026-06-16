@@ -14,6 +14,7 @@ import { convenio } from "./schemas/convenio";
 import { cota } from "./schemas/despesa-camara";
 import { deputado } from "./schemas/deputado";
 import { despesa } from "./schemas/despesa";
+import { despesaFederal } from "./schemas/despesa-federal";
 import { diario } from "./schemas/diario";
 import { diarioCnpj } from "./schemas/diario-cnpj";
 import { dominio } from "./schemas/dominio";
@@ -53,6 +54,7 @@ export const relations = defineRelations({
   cota,
   deputado,
   despesa,
+  despesaFederal,
   diario,
   diarioCnpj,
   dominio,
