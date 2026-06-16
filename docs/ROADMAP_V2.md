@@ -38,7 +38,7 @@
 
 ### Migração de fontes (M3)
 
-Todas as **12 fontes** migradas para slice Effect-native (`src/sources/<source>/` = `store.ts` +
+Todas as **12 fontes (v1)** migradas para slice Effect-native (`src/sources/<source>/` = `store.ts` +
 `query.ts` + `indexer.ts` + `errors.ts` + `data.ts` + teste colocado), cada uma um `Context.Service`
 + `XLive` `Layer`, todas persistindo na mesma PGlite:
 
@@ -50,7 +50,7 @@ Todas as **12 fontes** migradas para slice Effect-native (`src/sources/<source>/
 
 `src/serve/` — tools declaradas como **dados** (`{ name, schema, handler }`) e folded por um
 `defineTool` profundo (`tool.ts`/`fold.ts`); zero `registerTool`/`IndexAdapter`/registry legado.
-**58 tools** = 44 query + 8 index + `status_indices` + 5 `guia_*` (skills que retornam receita de
+**85 tools** = 67 query + 12 index + `status_indices` + 5 `guia_*` (skills que retornam receita de
 composição em markdown para o agente ingerir; `foldExit` renderiza string como texto cru). O servidor
 é Effect-native sobre o `@modelcontextprotocol/sdk` `Server`.
 
