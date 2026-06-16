@@ -20,7 +20,9 @@ import { SancoesCguLive } from "./sources/sancoes-cgu/store";
 import { SenadoFederalLive } from "./sources/senado/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
 import { SiconfiFiscalLive } from "./sources/siconfi-fiscal/store";
+import { SinapiLive } from "./sources/sinapi/store";
 import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
+import { TransparenciaDespesasLive } from "./sources/transparencia-despesas/store";
 import { TransferegovLive } from "./sources/transferegov/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
@@ -51,7 +53,9 @@ export const AppLayer = Layer.mergeAll(
   CmedAnvisaLive,
   SiconfiFiscalLive,
   TransferegovLive,
-  PainelPrecosLive
+  PainelPrecosLive,
+  TransparenciaDespesasLive,
+  SinapiLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);
