@@ -22,8 +22,14 @@ const failureText = (error: unknown) =>
     Match.orElse(() => "Falha ao executar a ferramenta.")
   );
 
+const successText = (value: unknown) =>
+  Match.value(value).pipe(
+    Match.when(Match.string, (text) => text),
+    Match.orElse(() => JSON.stringify(value, null, 2))
+  );
+
 export const foldExit = Exit.match({
-  onSuccess: (value: unknown) => textContent(JSON.stringify(value, null, 2)),
+  onSuccess: (value: unknown) => textContent(successText(value)),
   onFailure: (cause: Cause.Cause<unknown>) =>
     errorContent(
       Cause.findErrorOption(cause).pipe(

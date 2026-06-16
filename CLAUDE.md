@@ -15,8 +15,9 @@ live is Effect-native:
 - **`src/runtime.ts`** — `ManagedRuntime` over `AppLayer` (12 `XLive` `provideMerge` `Infra`).
 - **`src/index.ts`** — CLI via `effect/unstable/cli` + `@effect/platform-bun` (`BunRuntime.runMain`).
 
-`serve` (the default, no-subcommand action) wires the real `src/sources` slices — 53 MCP tools
-(44 query + 8 `indexar_*` + `status_indices`). The `index` subcommand recria os índices locais.
+`serve` (the default, no-subcommand action) wires the real `src/sources` slices — 58 MCP tools
+(44 query + 8 `indexar_*` + `status_indices` + 5 `guia_*` skills that return composition recipes for
+the agent to ingest). The `index` subcommand recria os índices locais.
 `DADOS_PUBLICOS_MCP_DATA_DIR` (via `Config`, resolved in `src/kernel/db/persistence.ts`) points
 PGlite at a persistent path so índices sobrevivem entre execuções; unset → platform default under
 `$XDG_DATA_HOME`/`$HOME/.local/share`.

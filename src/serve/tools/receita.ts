@@ -23,7 +23,8 @@ const BuscarEmpresaInput = Schema.Struct({
 
 const buscarEmpresaPorNome = defineTool({
   name: "buscar_empresa_por_nome",
-  description: "Busca empresas por razao social ou nome fantasia (FTS5).",
+  description:
+    "Busca empresas por razao social ou nome fantasia (BM25 com fallback fuzzy pg_trgm).",
   input: BuscarEmpresaInput,
   run: (args) =>
     ReceitaCnpj.pipe(

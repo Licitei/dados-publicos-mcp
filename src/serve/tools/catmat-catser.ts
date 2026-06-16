@@ -11,7 +11,7 @@ const BuscarMaterialInput = Schema.Struct({
 const buscarMaterial = defineTool({
   name: "buscar_material",
   description:
-    "Busca materiais do CATMAT por nome/descricao (FTS local sobre descricaoItem).",
+    "Busca materiais do CATMAT por nome/descricao (BM25 + vetorial fundidos por RRF, com fallback fuzzy pg_trgm).",
   input: BuscarMaterialInput,
   run: (args) =>
     CatmatCatser.pipe(
@@ -28,7 +28,8 @@ const BuscarServicoInput = Schema.Struct({
 
 const buscarServico = defineTool({
   name: "buscar_servico",
-  description: "Busca servicos do CATSER por nome (FTS local sobre nomeServico).",
+  description:
+    "Busca servicos do CATSER por nome (BM25 + vetorial fundidos por RRF, com fallback fuzzy pg_trgm).",
   input: BuscarServicoInput,
   run: (args) =>
     CatmatCatser.pipe(
