@@ -27,6 +27,7 @@ export const node = pgTable(
   (t) => [
     index("legislacao_node_gist").using("gist", t.path),
     index("legislacao_node_norma").on(t.normaId),
+    index("legislacao_node_parent").on(t.parentPath),
     index("legislacao_node_bm25")
       .using("bm25", t.text)
       .with({ text_config: "portuguese" }),

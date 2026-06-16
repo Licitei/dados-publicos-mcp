@@ -35,29 +35,45 @@ const lines = [
   "a) o objeto da contratação;",
 ];
 
+const normaId2 = "lei-8666-1993";
+
+const lines2 = [
+  "CAPÍTULO II",
+  "Da Licitação e Seus Princípios",
+  "Art. 22. São modalidades de licitação:",
+  "I - concorrência;",
+  "II - tomada de preços;",
+  "III - convite;",
+];
+
+const seedNorma = (id: string, titulo: string, fixture: readonly string[]) =>
+  Effect.gen(function* () {
+    const embedder = yield* Embedder;
+    const nodes = buildTree({ id, titulo }, fixture);
+    const passages = nodes.map((n) => `${n.label} ${n.heading} ${n.text}`.trim());
+    const embeddings = yield* embedder.embed("passage", passages);
+    const rows = nodes.map(
+      (n, i) =>
+        ({
+          path: n.path,
+          normaId: id,
+          parentPath: n.parentPath,
+          kind: n.kind,
+          label: n.label,
+          heading: n.heading,
+          text: n.text,
+          summary: `${n.label} ${n.heading}`.trim(),
+          position: n.position,
+          embedding: embeddings[i],
+        }) satisfies NodeRow
+    );
+    yield* replaceNorma(id, rows);
+    return nodes;
+  });
+
 const seed = Effect.gen(function* () {
   yield* createSchema;
-  const embedder = yield* Embedder;
-  const nodes = buildTree({ id: normaId, titulo: "Lei 14.133/2021" }, lines);
-  const passages = nodes.map((n) => `${n.label} ${n.heading} ${n.text}`.trim());
-  const embeddings = yield* embedder.embed("passage", passages);
-  const rows = nodes.map(
-    (n, i) =>
-      ({
-        path: n.path,
-        normaId,
-        parentPath: n.parentPath,
-        kind: n.kind,
-        label: n.label,
-        heading: n.heading,
-        text: n.text,
-        summary: `${n.label} ${n.heading}`.trim(),
-        position: n.position,
-        embedding: embeddings[i],
-      }) satisfies NodeRow
-  );
-  yield* replaceNorma(normaId, rows);
-  return nodes;
+  return yield* seedNorma(normaId, "Lei 14.133/2021", lines);
 });
 
 describe("legislacao store + query", () => {
@@ -84,6 +100,23 @@ describe("legislacao store + query", () => {
         const leg = yield* Legislacao;
         const hits = yield* leg.search("licitacoes", { normaId: "inexistente" });
         expect(hits).toEqual([]);
+      }).pipe(Effect.provide(TestLayer)),
+    30_000
+  );
+
+  it.effect(
+    "the norma filter never leaks nodes from another norma",
+    () =>
+      Effect.gen(function* () {
+        yield* seed;
+        yield* seedNorma(normaId2, "Lei 8.666/1993", lines2);
+        const leg = yield* Legislacao;
+        const hits = yield* leg.search("licitacao", { normaId });
+        expect(hits.length).toBeGreaterThan(0);
+        expect(hits.every((h) => String(h.norma_id) === normaId)).toBe(true);
+        const hits2 = yield* leg.search("licitacao", { normaId: normaId2 });
+        expect(hits2.length).toBeGreaterThan(0);
+        expect(hits2.every((h) => String(h.norma_id) === normaId2)).toBe(true);
       }).pipe(Effect.provide(TestLayer)),
     30_000
   );
