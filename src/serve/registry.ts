@@ -16,6 +16,7 @@ import { receitaTools } from "./tools/receita";
 import { sancoesTools } from "./tools/sancoes";
 import { senadoTools } from "./tools/senado";
 import { sicafTools } from "./tools/sicaf";
+import { siconfiFiscalTools } from "./tools/siconfi-fiscal";
 import { tcuTools } from "./tools/tcu";
 import { tseTools } from "./tools/tse";
 
@@ -36,6 +37,7 @@ export const queryTools: readonly Tool[] = [
   ...ibgeEconomiaTools,
   ...senadoTools,
   ...cmedTools,
+  ...siconfiFiscalTools,
 ];
 
 export const tools: readonly Tool[] = [

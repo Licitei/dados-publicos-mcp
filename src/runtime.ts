@@ -18,6 +18,7 @@ import { ReceitaCnpjLive } from "./sources/receita-cnpj/store";
 import { SancoesCguLive } from "./sources/sancoes-cgu/store";
 import { SenadoFederalLive } from "./sources/senado/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
+import { SiconfiFiscalLive } from "./sources/siconfi-fiscal/store";
 import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
@@ -45,7 +46,8 @@ export const AppLayer = Layer.mergeAll(
   TcuInidoneosLive,
   IbgeEconomiaLive,
   SenadoFederalLive,
-  CmedAnvisaLive
+  CmedAnvisaLive,
+  SiconfiFiscalLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

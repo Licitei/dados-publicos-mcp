@@ -14,6 +14,7 @@ import { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
+import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
 import type { AppServices } from "./tool";
@@ -35,6 +36,7 @@ export const FonteKey = Schema.Literals([
   "ibge-economia",
   "senado",
   "cmed-anvisa",
+  "siconfi-fiscal",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -222,5 +224,21 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
   "cmed-anvisa": {
     heavy: false,
     run: () => CmedAnvisa.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "siconfi-fiscal": {
+    heavy: true,
+    run: (scope) =>
+      SiconfiFiscal.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.anos).pipe(
+            Match.when(
+              (anos: readonly number[] | undefined): anos is readonly number[] =>
+                anos !== undefined && anos.length > 0,
+              (anos) => service.indexAno(Math.max(...anos))
+            ),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
   },
 };

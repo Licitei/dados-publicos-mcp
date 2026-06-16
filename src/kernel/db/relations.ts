@@ -30,6 +30,7 @@ import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
 import { senador } from "./schemas/senador";
 import { siconfiEnte } from "./schemas/siconfi-ente";
+import { siconfiFato } from "./schemas/siconfi-fato";
 import { simples } from "./schemas/simples";
 import { socio } from "./schemas/socio";
 import { tcuInidoneo } from "./schemas/tcu-inidoneo";
@@ -66,6 +67,7 @@ export const relations = defineRelations({
   sancao,
   senador,
   siconfiEnte,
+  siconfiFato,
   simples,
   socio,
   tcuInidoneo,

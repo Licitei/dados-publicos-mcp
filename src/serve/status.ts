@@ -33,6 +33,7 @@ import { ceapsDespesa } from "../kernel/db/schemas/ceaps-despesa";
 import { sancao } from "../kernel/db/schemas/sancao";
 import { senador } from "../kernel/db/schemas/senador";
 import { siconfiEnte } from "../kernel/db/schemas/siconfi-ente";
+import { siconfiFato } from "../kernel/db/schemas/siconfi-fato";
 import { simples } from "../kernel/db/schemas/simples";
 import { socio } from "../kernel/db/schemas/socio";
 import { tcuInidoneo } from "../kernel/db/schemas/tcu-inidoneo";
@@ -55,6 +56,7 @@ const layout = {
   "ibge-economia": { municipioEconomia },
   senado: { senador, ceapsDespesa },
   "cmed-anvisa": { medicamentoCmed },
+  "siconfi-fiscal": { siconfiFato },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>
