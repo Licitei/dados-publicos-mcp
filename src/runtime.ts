@@ -1,6 +1,8 @@
 import { Layer, ManagedRuntime } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
+import { BunServices } from "@effect/platform-bun";
 import { DbLayer } from "./kernel/db/client";
+import { DbPersistenceLive } from "./kernel/db/persistence";
 import { EmbedderLive } from "./kernel/embed/embedder";
 import { CamaraDeputadosLive } from "./sources/camara-deputados/store";
 import { CapagLive } from "./sources/capag/store";
@@ -15,7 +17,13 @@ import { SancoesCguLive } from "./sources/sancoes-cgu/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
-const Infra = Layer.mergeAll(DbLayer, EmbedderLive, FetchHttpClient.layer);
+const Persistence = DbPersistenceLive.pipe(Layer.provide(BunServices.layer));
+
+const Infra = Layer.mergeAll(
+  DbLayer.pipe(Layer.provide(Persistence)),
+  EmbedderLive,
+  FetchHttpClient.layer
+);
 
 export const AppLayer = Layer.mergeAll(
   LegislacaoLive,
