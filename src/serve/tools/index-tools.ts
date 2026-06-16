@@ -2,11 +2,13 @@ import { Effect, Schema } from "effect";
 import { CamaraDeputados } from "../../sources/camara-deputados/store";
 import { Capag } from "../../sources/capag/store";
 import { CatmatCatser } from "../../sources/catmat-catser/store";
+import { CmedAnvisa } from "../../sources/cmed-anvisa/store";
 import { Cnae } from "../../sources/cnae/store";
 import { IbgeEconomia } from "../../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../../sources/ibge-localidades/store";
 import { Legislacao } from "../../sources/legislacao/store";
 import { SancoesCgu } from "../../sources/sancoes-cgu/store";
+import { SenadoFederal } from "../../sources/senado/store";
 import { Sicaf } from "../../sources/sicaf-fornecedores/store";
 import { TcuInidoneos } from "../../sources/tcu-inidoneos/store";
 import { defineTool } from "../tool";
@@ -92,6 +94,22 @@ const indexarIbgeEconomia = defineTool({
   run: () => IbgeEconomia.pipe(Effect.flatMap((service) => service.index)),
 });
 
+const indexarSenado = defineTool({
+  name: "indexar_senado",
+  description:
+    "Baixa senadores em exercicio e a cota parlamentar CEAPS do Senado e recria o indice local neste computador.",
+  input: NoInput,
+  run: () => SenadoFederal.pipe(Effect.flatMap((service) => service.index)),
+});
+
+const indexarCmed = defineTool({
+  name: "indexar_cmed",
+  description:
+    "Baixa a tabela CMED/ANVISA de precos de medicamentos (PMVG) e recria o indice local neste computador.",
+  input: NoInput,
+  run: () => CmedAnvisa.pipe(Effect.flatMap((service) => service.index)),
+});
+
 export const indexTools = [
   indexarLegislacao,
   indexarIbgeLocalidades,
@@ -103,4 +121,6 @@ export const indexTools = [
   indexarCamara,
   indexarTcuInidoneos,
   indexarIbgeEconomia,
+  indexarSenado,
+  indexarCmed,
 ] as const;
