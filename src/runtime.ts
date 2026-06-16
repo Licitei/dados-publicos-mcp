@@ -20,6 +20,7 @@ import { SenadoFederalLive } from "./sources/senado/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
 import { SiconfiFiscalLive } from "./sources/siconfi-fiscal/store";
 import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
+import { TransferegovLive } from "./sources/transferegov/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
 const Persistence = DbPersistenceLive.pipe(Layer.provide(BunServices.layer));
@@ -47,7 +48,8 @@ export const AppLayer = Layer.mergeAll(
   IbgeEconomiaLive,
   SenadoFederalLive,
   CmedAnvisaLive,
-  SiconfiFiscalLive
+  SiconfiFiscalLive,
+  TransferegovLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

@@ -15,6 +15,7 @@ import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
 import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
+import { Transferegov } from "../sources/transferegov/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
 import type { AppServices } from "./tool";
@@ -37,6 +38,7 @@ export const FonteKey = Schema.Literals([
   "senado",
   "cmed-anvisa",
   "siconfi-fiscal",
+  "transferegov",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -240,5 +242,9 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
           )
         )
       ),
+  },
+  transferegov: {
+    heavy: true,
+    run: () => Transferegov.pipe(Effect.flatMap((service) => service.index)),
   },
 };

@@ -12,6 +12,7 @@ import { catserService } from "../kernel/db/schemas/catser-service";
 import { cnae } from "../kernel/db/schemas/cnae";
 import { contratacao } from "../kernel/db/schemas/contratacao";
 import { contrato } from "../kernel/db/schemas/contrato";
+import { convenio } from "../kernel/db/schemas/convenio";
 import { cota } from "../kernel/db/schemas/despesa-camara";
 import { deputado } from "../kernel/db/schemas/deputado";
 import { despesa } from "../kernel/db/schemas/despesa";
@@ -57,6 +58,7 @@ const layout = {
   senado: { senador, ceapsDespesa },
   "cmed-anvisa": { medicamentoCmed },
   "siconfi-fiscal": { siconfiFato },
+  transferegov: { convenio },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

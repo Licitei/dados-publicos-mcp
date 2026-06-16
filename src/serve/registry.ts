@@ -18,6 +18,7 @@ import { senadoTools } from "./tools/senado";
 import { sicafTools } from "./tools/sicaf";
 import { siconfiFiscalTools } from "./tools/siconfi-fiscal";
 import { tcuTools } from "./tools/tcu";
+import { transferegovTools } from "./tools/transferegov";
 import { tseTools } from "./tools/tse";
 
 export const queryTools: readonly Tool[] = [
@@ -38,6 +39,7 @@ export const queryTools: readonly Tool[] = [
   ...senadoTools,
   ...cmedTools,
   ...siconfiFiscalTools,
+  ...transferegovTools,
 ];
 
 export const tools: readonly Tool[] = [

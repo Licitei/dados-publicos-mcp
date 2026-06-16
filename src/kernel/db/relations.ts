@@ -10,6 +10,7 @@ import { catserService } from "./schemas/catser-service";
 import { cnae } from "./schemas/cnae";
 import { contratacao } from "./schemas/contratacao";
 import { contrato } from "./schemas/contrato";
+import { convenio } from "./schemas/convenio";
 import { cota } from "./schemas/despesa-camara";
 import { deputado } from "./schemas/deputado";
 import { despesa } from "./schemas/despesa";
@@ -47,6 +48,7 @@ export const relations = defineRelations({
   cnae,
   contratacao,
   contrato,
+  convenio,
   cota,
   deputado,
   despesa,

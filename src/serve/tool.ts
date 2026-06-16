@@ -19,6 +19,7 @@ import type { SenadoFederal } from "../sources/senado/store";
 import type { Sicaf } from "../sources/sicaf-fornecedores/store";
 import type { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
 import type { TcuInidoneos } from "../sources/tcu-inidoneos/store";
+import type { Transferegov } from "../sources/transferegov/store";
 import type { TseEleitoral } from "../sources/tse-eleitoral/store";
 
 export type AppServices =
@@ -39,6 +40,7 @@ export type AppServices =
   | SenadoFederal
   | CmedAnvisa
   | SiconfiFiscal
+  | Transferegov
   | Db
   | Embedder
   | HttpClient.HttpClient;
