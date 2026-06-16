@@ -15,6 +15,7 @@ import {
   IbgeLocalidadesLive,
 } from "../../src/sources/ibge-localidades/store";
 import { LegislacaoLive } from "../../src/sources/legislacao/store";
+import { PainelPrecosLive } from "../../src/sources/painel-precos/store";
 import { PncpLive } from "../../src/sources/pncp/store";
 import { QueridoDiarioLive } from "../../src/sources/querido-diario/store";
 import { ReceitaCnpjLive } from "../../src/sources/receita-cnpj/store";
@@ -23,7 +24,9 @@ import { IbgeEconomiaLive } from "../../src/sources/ibge-economia/store";
 import { SenadoFederalLive } from "../../src/sources/senado/store";
 import { SicafLive } from "../../src/sources/sicaf-fornecedores/store";
 import { SiconfiFiscalLive } from "../../src/sources/siconfi-fiscal/store";
+import { SinapiLive } from "../../src/sources/sinapi/store";
 import { TcuInidoneosLive } from "../../src/sources/tcu-inidoneos/store";
+import { TransparenciaDespesasLive } from "../../src/sources/transparencia-despesas/store";
 import { TransferegovLive } from "../../src/sources/transferegov/store";
 import { TseEleitoralLive } from "../../src/sources/tse-eleitoral/store";
 import { EmbedderStub } from "./support/embedder-stub";
@@ -85,7 +88,10 @@ const TestLayer = Layer.mergeAll(
   SenadoFederalLive,
   CmedAnvisaLive,
   SiconfiFiscalLive,
-  TransferegovLive
+  TransferegovLive,
+  PainelPrecosLive,
+  TransparenciaDespesasLive,
+  SinapiLive
 ).pipe(Layer.provideMerge(Infra));
 
 const toolByName = (name: string) => {
@@ -102,8 +108,8 @@ const seeded = Effect.gen(function* () {
 });
 
 describe("serve tool layer", () => {
-  it("registry exposes 60 query + 12 index + 1 status + 5 guia = 78 tools", () => {
-    expect(tools).toHaveLength(78);
+  it("registry exposes 67 query + 12 index + 1 status + 5 guia = 85 tools", () => {
+    expect(tools).toHaveLength(85);
     expect(tools.map((tool) => tool.name)).toContain("status_indices");
     expect(tools.map((tool) => tool.name)).toContain("resolver_municipio");
     expect(tools.map((tool) => tool.name)).toContain("guia_uso");
@@ -113,6 +119,9 @@ describe("serve tool layer", () => {
     expect(tools.map((tool) => tool.name)).toContain("buscar_medicamento_cmed");
     expect(tools.map((tool) => tool.name)).toContain("fiscal_ente_siconfi");
     expect(tools.map((tool) => tool.name)).toContain("buscar_convenio");
+    expect(tools.map((tool) => tool.name)).toContain("estatistica_preco_item");
+    expect(tools.map((tool) => tool.name)).toContain("buscar_despesa_federal");
+    expect(tools.map((tool) => tool.name)).toContain("buscar_insumo_sinapi");
   });
 
   it.effect(

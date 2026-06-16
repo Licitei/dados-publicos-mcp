@@ -31,7 +31,7 @@ Este servidor reune, num so banco local:
   Camara, Querido Diario, Compras.gov.br);
 - busca hibrida de verdade: BM25 + pgvector combinados por RRF, mais `pg_trgm`
   para fuzzy e `ltree` para hierarquias;
-- 58 tools MCP pequenas e previsiveis, agrupadas por dominio (incluindo 5 `guia_*`
+- 85 tools MCP pequenas e previsiveis, agrupadas por dominio (incluindo 5 `guia_*`
   que entregam receitas de composicao para o agente local-first ingerir);
 - erros declarativos tipados (`Schema.TaggedErrorClass`), serializados no boundary
   MCP, sem exception solta cruzando a fronteira.
@@ -75,7 +75,7 @@ As fontes marcadas com download pesado nao sao baixadas por padrao: rode
 
 ## Ferramentas MCP
 
-São **58 tools**: 44 de consulta, 8 de indexacao, 1 de status e 5 `guia_*`.
+São **85 tools**: 67 de consulta, 12 de indexacao, 1 de status e 5 `guia_*`.
 As de consulta/indexacao/status retornam JSON; as `guia_*` retornam markdown
 (receita de composicao) para o agente ingerir. As descricoes abaixo sao as
 expostas ao cliente MCP.
@@ -458,7 +458,7 @@ Smoke MCP local via stdio:
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | bun src/index.ts
 ```
 
-Deve listar as 58 tools.
+Deve listar as 85 tools.
 
 ## Limites
 
