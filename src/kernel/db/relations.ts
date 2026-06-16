@@ -1,12 +1,22 @@
 import { defineRelations } from "drizzle-orm";
+import { ata } from "./schemas/ata";
 import { bem } from "./schemas/bem";
 import { candidato } from "./schemas/candidato";
+import { capagEstado } from "./schemas/capag-estado";
+import { capagMunicipio } from "./schemas/capag-municipio";
 import { catmatMaterial } from "./schemas/catmat-material";
 import { catserService } from "./schemas/catser-service";
 import { cnae } from "./schemas/cnae";
+import { contratacao } from "./schemas/contratacao";
+import { contrato } from "./schemas/contrato";
 import { cota } from "./schemas/despesa-camara";
 import { deputado } from "./schemas/deputado";
 import { despesa } from "./schemas/despesa";
+import { diario } from "./schemas/diario";
+import { diarioCnpj } from "./schemas/diario-cnpj";
+import { dominio } from "./schemas/dominio";
+import { empresa } from "./schemas/empresa";
+import { estabelecimento } from "./schemas/estabelecimento";
 import { fornecedor } from "./schemas/fornecedor";
 import { proposicao } from "./schemas/proposicao";
 import { proposicaoAutor } from "./schemas/proposicao-autor";
@@ -15,16 +25,29 @@ import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
+import { siconfiEnte } from "./schemas/siconfi-ente";
+import { simples } from "./schemas/simples";
+import { socio } from "./schemas/socio";
 
 export const relations = defineRelations({
+  ata,
   bem,
   candidato,
+  capagEstado,
+  capagMunicipio,
   catmatMaterial,
   catserService,
   cnae,
+  contratacao,
+  contrato,
   cota,
   deputado,
   despesa,
+  diario,
+  diarioCnpj,
+  dominio,
+  empresa,
+  estabelecimento,
   fornecedor,
   municipio,
   node,
@@ -33,4 +56,7 @@ export const relations = defineRelations({
   receita,
   receitaOriginario,
   sancao,
+  siconfiEnte,
+  simples,
+  socio,
 });
