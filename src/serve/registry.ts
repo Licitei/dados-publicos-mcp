@@ -1,0 +1,36 @@
+import { statusIndices } from "./status";
+import type { Tool } from "./tool";
+import { camaraTools } from "./tools/camara";
+import { capagTools } from "./tools/capag";
+import { catmatCatserTools } from "./tools/catmat-catser";
+import { cnaeTools } from "./tools/cnae";
+import { ibgeTools } from "./tools/ibge";
+import { indexTools } from "./tools/index-tools";
+import { legislacaoTools } from "./tools/legislacao";
+import { pncpTools } from "./tools/pncp";
+import { queridoDiarioTools } from "./tools/querido-diario";
+import { receitaTools } from "./tools/receita";
+import { sancoesTools } from "./tools/sancoes";
+import { sicafTools } from "./tools/sicaf";
+import { tseTools } from "./tools/tse";
+
+export const queryTools: readonly Tool[] = [
+  ...legislacaoTools,
+  ...ibgeTools,
+  ...cnaeTools,
+  ...catmatCatserTools,
+  ...sicafTools,
+  ...sancoesTools,
+  ...receitaTools,
+  ...tseTools,
+  ...camaraTools,
+  ...queridoDiarioTools,
+  ...capagTools,
+  ...pncpTools,
+];
+
+export const tools: readonly Tool[] = [
+  ...queryTools,
+  ...indexTools,
+  statusIndices,
+];
