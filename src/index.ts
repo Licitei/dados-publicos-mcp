@@ -1,209 +1,202 @@
 #!/usr/bin/env bun
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { Result } from "better-result";
-import { cac } from "cac";
-import type { BuildOptions } from "./core/adapter";
-import { getAdapter, listAdapters } from "./core/registry";
-import { registerStatusTool } from "./core/status";
-import { closeAllDbs } from "./core/store/sqlite-store";
-import { registerCamaraDeputadosTools } from "./modules/camara-deputados/tools";
-import { registerCapagTools } from "./modules/capag/tools";
-import { registerCatmatCatserTools } from "./modules/catmat-catser/tools";
-import { registerCnaeTools } from "./modules/cnae/tools";
-import { registerDadosPublicosPrompts } from "./modules/dados-publicos/prompts";
-import { registerPncpBulkTools } from "./modules/dados-publicos/pncp-tools";
-import { registerDadosPublicosResources } from "./modules/dados-publicos/resources";
-import { registerDadosPublicosTools } from "./modules/dados-publicos/tools";
-import { registerIbgeLocalidadesTools } from "./modules/ibge-localidades/tools";
-import { registerLegislacaoTools } from "./modules/legislacao/tools";
-import { registerQueridoDiarioTools } from "./modules/querido-diario/tools";
-import { registerReceitaCnpjTools } from "./modules/receita-cnpj/tools";
-import { registerSancoesCguTools } from "./modules/sancoes-cgu/tools";
-import { registerSicafFornecedoresTools } from "./modules/sicaf-fornecedores/tools";
-import { registerTseEleitoralTools } from "./modules/tse-eleitoral/tools";
+import {
+  Cause,
+  Console,
+  Effect,
+  Exit,
+  Match,
+  Option,
+  Schema,
+} from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
+import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { runtime } from "./runtime";
+import {
+  FonteKey,
+  indexRegistry,
+  type IndexEntry,
+  type Scope,
+} from "./serve/index-registry";
+import { serve } from "./serve/server";
 
-// Singleton de DBs: fecha tudo no fim do processo (unico ponto de close).
-process.on("exit", () => closeAllDbs());
+class IndexError extends Schema.TaggedErrorClass<IndexError>()("IndexError", {
+  fontes: Schema.Number,
+}) {
+  override get message() {
+    return `${this.fontes} fonte(s) falharam ao indexar.`;
+  }
+}
 
-const cli = cac("dados-publicos-mcp");
+class UnknownFonteError extends Schema.TaggedErrorClass<UnknownFonteError>()(
+  "UnknownFonteError",
+  { fonte: Schema.String }
+) {
+  override get message() {
+    return `Fonte desconhecida: ${this.fonte}`;
+  }
+}
 
-cli
-  .command("[serve]", "Inicia o servidor MCP via stdio")
-  .action(async () => {
-    await serve();
+const splitUpper = (value: string) =>
+  value
+    .split(",")
+    .map((part) => part.trim().toUpperCase())
+    .filter((part) => part.length > 0);
+
+const splitNumbers = (value: string) =>
+  value
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((part) => Number.isFinite(part));
+
+const buildScope = (input: {
+  readonly ufs: Option.Option<string>;
+  readonly anos: Option.Option<string>;
+  readonly mes: Option.Option<string>;
+}): Scope => ({
+  ufs: input.ufs.pipe(Option.map(splitUpper), Option.getOrUndefined),
+  anos: input.anos.pipe(Option.map(splitNumbers), Option.getOrUndefined),
+  mes: input.mes.pipe(
+    Option.map((value) => value.trim()),
+    Option.getOrUndefined
+  ),
+});
+
+const failureMessage = (cause: Cause.Cause<unknown>) =>
+  Cause.findErrorOption(cause).pipe(
+    Option.map((error) =>
+      error !== null && typeof error === "object" && "message" in error
+        ? String(Reflect.get(error, "message"))
+        : String(error)
+    ),
+    Option.getOrElse(() => Cause.pretty(cause))
+  );
+
+const runEntry = (fonte: FonteKey, entry: IndexEntry, scope: Scope) =>
+  Effect.promise(() => runtime.runPromiseExit(entry.run(scope))).pipe(
+    Effect.flatMap((exit) =>
+      Exit.match(exit, {
+        onSuccess: (summary) =>
+          Console.log(`  ok "${fonte}": ${JSON.stringify(summary)}`).pipe(
+            Effect.as(true)
+          ),
+        onFailure: (cause) =>
+          Console.error(`  falha "${fonte}": ${failureMessage(cause)}`).pipe(
+            Effect.as(false)
+          ),
+      })
+    )
+  );
+
+const decodeFonte = Schema.decodeUnknownOption(FonteKey);
+
+const runOne = (
+  fonte: string,
+  scope: Scope
+): Effect.Effect<void, IndexError | UnknownFonteError> =>
+  decodeFonte(fonte).pipe(
+    Option.match({
+      onNone: () =>
+        Console.error(
+          `Fontes disponiveis: ${FonteKey.literals.join(", ")}`
+        ).pipe(Effect.andThen(Effect.fail(new UnknownFonteError({ fonte })))),
+      onSome: (key) =>
+        runEntry(key, indexRegistry[key], scope).pipe(
+          Effect.flatMap((ok) =>
+            Match.value(ok).pipe(
+              Match.when(true, () => Effect.void),
+              Match.orElse(() => Effect.fail(new IndexError({ fontes: 1 })))
+            )
+          )
+        ),
+    })
+  );
+
+const runAll = (
+  includeHeavy: boolean,
+  scope: Scope
+): Effect.Effect<void, IndexError | UnknownFonteError> =>
+  Effect.gen(function* () {
+    const entries = FonteKey.literals.filter(
+      (key) => includeHeavy || !indexRegistry[key].heavy
+    );
+    const pulados = FonteKey.literals.filter(
+      (key) => !includeHeavy && indexRegistry[key].heavy
+    );
+    yield* Match.value(pulados.length).pipe(
+      Match.when(0, () => Effect.void),
+      Match.orElse(() =>
+        Console.log(
+          `Pulando fontes pesadas (use --include-heavy): ${pulados.join(", ")}`
+        )
+      )
+    );
+    const results = yield* Effect.forEach(entries, (key) =>
+      runEntry(key, indexRegistry[key], scope)
+    );
+    const falhas = results.filter((ok) => !ok).length;
+    return yield* Match.value(falhas).pipe(
+      Match.when(0, () =>
+        Console.log(`${entries.length} fonte(s) indexada(s) com sucesso.`)
+      ),
+      Match.orElse(() =>
+        Console.error(`${falhas} fonte(s) falharam.`).pipe(
+          Effect.andThen(Effect.fail(new IndexError({ fontes: falhas })))
+        )
+      )
+    );
   });
 
-cli
-  .command(
-    "index [fonte]",
+const indexCommand = Command.make(
+  "index",
+  {
+    fonte: Argument.string("fonte").pipe(
+      Argument.optional,
+      Argument.withDescription(
+        "Fonte a indexar. Sem fonte: indexa todas as fontes leves."
+      )
+    ),
+    includeHeavy: Flag.boolean("include-heavy").pipe(
+      Flag.withDescription(
+        "Indexa todas as fontes, incluindo as que exigem download pesado"
+      )
+    ),
+    ufs: Flag.string("ufs").pipe(
+      Flag.optional,
+      Flag.withDescription("Recorte de UFs (separadas por virgula). Ex: SP,RJ")
+    ),
+    anos: Flag.string("anos").pipe(
+      Flag.optional,
+      Flag.withDescription(
+        "Recorte de anos (separados por virgula). Ex: 2024,2025"
+      )
+    ),
+    mes: Flag.string("mes").pipe(
+      Flag.optional,
+      Flag.withDescription("Recorte de mes (YYYY-MM). Ex: 2026-01")
+    ),
+  },
+  (config) => {
+    const scope = buildScope(config);
+    return Option.match(config.fonte, {
+      onNone: () => runAll(config.includeHeavy, scope),
+      onSome: (fonte) => runOne(fonte, scope),
+    });
+  }
+).pipe(
+  Command.withDescription(
     "Recria indice(s) local(is). Sem fonte: indexa todas as fontes leves."
   )
-  .option("--all", "Indexa todas as fontes leves (requiresHeavyDownload=false)")
-  .option(
-    "--include-heavy",
-    "Indexa todas as fontes, incluindo as que exigem download pesado"
-  )
-  .option("--ufs <ufs>", "Recorte de UFs (separadas por virgula). Ex: SP,RJ")
-  .option("--anos <anos>", "Recorte de anos (separados por virgula). Ex: 2024,2025")
-  .option("--mes <mes>", "Recorte de mes (YYYY-MM). Ex: 2026-01")
-  .action(async (fonte: string | undefined, options: CliIndexOptions) => {
-    await runIndex(fonte, options);
-  });
+);
 
-cli.help();
-cli.version("0.1.0");
-cli.parse();
+const root = Command.make("dados-publicos-mcp", {}, () =>
+  Effect.promise(() => serve())
+).pipe(
+  Command.withDescription("Inicia o servidor MCP via stdio."),
+  Command.withSubcommands([indexCommand])
+);
 
-type CliIndexOptions = {
-  all?: boolean;
-  includeHeavy?: boolean;
-  ufs?: string;
-  anos?: string;
-  mes?: string;
-};
-
-/**
- * Monta o BuildOptions.scope a partir das flags simples de escopo da CLI.
- * Cada adapter le apenas as chaves que conhece; chaves extras sao ignoradas.
- */
-function buildScope(options: CliIndexOptions): Record<string, unknown> {
-  const scope: Record<string, unknown> = {};
-
-  if (options.ufs) {
-    scope.ufs = options.ufs
-      .split(",")
-      .map((uf) => uf.trim().toUpperCase())
-      .filter(Boolean);
-  }
-
-  if (options.anos) {
-    scope.anos = options.anos
-      .split(",")
-      .map((ano) => Number(ano.trim()))
-      .filter((ano) => Number.isFinite(ano));
-  }
-
-  if (options.mes) {
-    scope.mes = options.mes.trim();
-  }
-
-  return scope;
-}
-
-async function buildAdapterKey(
-  key: string,
-  buildOptions: BuildOptions
-): Promise<boolean> {
-  const adapter = getAdapter(key);
-
-  if (!adapter) {
-    console.error(`Fonte desconhecida: ${key}`);
-    const disponiveis = listAdapters()
-      .map((a) => a.key)
-      .join(", ");
-    console.error(`Fontes disponiveis: ${disponiveis}`);
-    return false;
-  }
-
-  console.info(`Indexando "${adapter.key}" (${adapter.titulo})...`);
-  const result = await adapter.build(buildOptions);
-
-  if (Result.isOk(result)) {
-    console.info(
-      `  ok: ${result.value.registros} registros em ${result.value.caminho}`
-    );
-    return true;
-  }
-
-  console.error(`  falha em "${adapter.key}": ${result.error.message}`);
-  return false;
-}
-
-async function runIndex(
-  fonte: string | undefined,
-  options: CliIndexOptions
-): Promise<void> {
-  const scope = buildScope(options);
-  const buildOptions: BuildOptions = {
-    scope,
-    includeHeavy: options.includeHeavy ?? false,
-    onProgress: (msg) => console.info(`  ${msg}`),
-  };
-
-  // index <fonte>: recria apenas um dominio.
-  if (fonte) {
-    const ok = await buildAdapterKey(fonte, buildOptions);
-    if (!ok) process.exitCode = 1;
-    return;
-  }
-
-  // index (sem arg) / index --all / index --include-heavy: indexa em lote.
-  // Por padrao indexa todas as fontes leves; --include-heavy adiciona as pesadas.
-  const includeHeavy = options.includeHeavy ?? false;
-  const alvos = listAdapters().filter(
-    (adapter) => includeHeavy || !adapter.requiresHeavyDownload
-  );
-
-  if (alvos.length === 0) {
-    console.error("Nenhuma fonte elegivel para indexacao.");
-    process.exitCode = 1;
-    return;
-  }
-
-  const pulados = listAdapters().filter(
-    (adapter) => !includeHeavy && adapter.requiresHeavyDownload
-  );
-  if (pulados.length > 0) {
-    console.info(
-      `Pulando fontes pesadas (use --include-heavy): ${pulados
-        .map((a) => a.key)
-        .join(", ")}`
-    );
-  }
-
-  let falhas = 0;
-  for (const adapter of alvos) {
-    const ok = await buildAdapterKey(adapter.key, buildOptions);
-    if (!ok) falhas += 1;
-  }
-
-  if (falhas > 0) {
-    console.error(`${falhas} fonte(s) falharam.`);
-    process.exitCode = 1;
-    return;
-  }
-
-  console.info(`${alvos.length} fonte(s) indexada(s) com sucesso.`);
-}
-
-async function serve() {
-  const server = new McpServer({
-    name: "dados-publicos-mcp",
-    version: "0.1.0",
-  });
-
-  registerLegislacaoTools(server);
-  registerDadosPublicosTools(server);
-  registerDadosPublicosResources(server);
-  registerDadosPublicosPrompts(server);
-
-  // Fontes locais religadas na fase de integracao.
-  registerIbgeLocalidadesTools(server);
-  registerCnaeTools(server);
-  registerSancoesCguTools(server);
-  registerCatmatCatserTools(server);
-  registerSicafFornecedoresTools(server);
-  registerCapagTools(server);
-  registerReceitaCnpjTools(server);
-  registerTseEleitoralTools(server);
-  registerCamaraDeputadosTools(server);
-  registerQueridoDiarioTools(server);
-  registerPncpBulkTools(server);
-
-  // Tool agregada de status de todos os indices.
-  registerStatusTool(server);
-
-  await server.connect(new StdioServerTransport());
-}
+Command.run(root, { version: "0.1.0" }).pipe(
+  Effect.provide(BunServices.layer),
+  BunRuntime.runMain
+);
