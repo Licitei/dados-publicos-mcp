@@ -11,6 +11,7 @@ import type { Cnae } from "../sources/cnae/store";
 import type { IbgeEconomia } from "../sources/ibge-economia/store";
 import type { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import type { Legislacao } from "../sources/legislacao/store";
+import type { PainelPrecos } from "../sources/painel-precos/store";
 import type { Pncp } from "../sources/pncp/store";
 import type { QueridoDiario } from "../sources/querido-diario/store";
 import type { ReceitaCnpj } from "../sources/receita-cnpj/store";
@@ -41,6 +42,7 @@ export type AppServices =
   | CmedAnvisa
   | SiconfiFiscal
   | Transferegov
+  | PainelPrecos
   | Db
   | Embedder
   | HttpClient.HttpClient;

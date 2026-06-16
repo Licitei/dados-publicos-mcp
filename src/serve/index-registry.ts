@@ -7,6 +7,7 @@ import { Cnae } from "../sources/cnae/store";
 import { IbgeEconomia } from "../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import { Legislacao } from "../sources/legislacao/store";
+import { PainelPrecos } from "../sources/painel-precos/store";
 import { defaultModalidades } from "../sources/pncp/catalog";
 import { Pncp } from "../sources/pncp/store";
 import { QueridoDiario } from "../sources/querido-diario/store";
@@ -39,6 +40,7 @@ export const FonteKey = Schema.Literals([
   "cmed-anvisa",
   "siconfi-fiscal",
   "transferegov",
+  "painel-precos",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -246,5 +248,9 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
   transferegov: {
     heavy: true,
     run: () => Transferegov.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "painel-precos": {
+    heavy: true,
+    run: () => PainelPrecos.pipe(Effect.flatMap((service) => service.index)),
   },
 };

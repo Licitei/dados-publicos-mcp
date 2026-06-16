@@ -10,6 +10,7 @@ import { ibgeTools } from "./tools/ibge";
 import { ibgeEconomiaTools } from "./tools/ibge-economia";
 import { indexTools } from "./tools/index-tools";
 import { legislacaoTools } from "./tools/legislacao";
+import { painelPrecosTools } from "./tools/painel-precos";
 import { pncpTools } from "./tools/pncp";
 import { queridoDiarioTools } from "./tools/querido-diario";
 import { receitaTools } from "./tools/receita";
@@ -40,6 +41,7 @@ export const queryTools: readonly Tool[] = [
   ...cmedTools,
   ...siconfiFiscalTools,
   ...transferegovTools,
+  ...painelPrecosTools,
 ];
 
 export const tools: readonly Tool[] = [

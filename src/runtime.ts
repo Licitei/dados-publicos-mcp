@@ -12,6 +12,7 @@ import { CnaeLive } from "./sources/cnae/store";
 import { IbgeEconomiaLive } from "./sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "./sources/ibge-localidades/store";
 import { LegislacaoLive } from "./sources/legislacao/store";
+import { PainelPrecosLive } from "./sources/painel-precos/store";
 import { PncpLive } from "./sources/pncp/store";
 import { QueridoDiarioLive } from "./sources/querido-diario/store";
 import { ReceitaCnpjLive } from "./sources/receita-cnpj/store";
@@ -49,7 +50,8 @@ export const AppLayer = Layer.mergeAll(
   SenadoFederalLive,
   CmedAnvisaLive,
   SiconfiFiscalLive,
-  TransferegovLive
+  TransferegovLive,
+  PainelPrecosLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

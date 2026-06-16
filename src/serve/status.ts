@@ -25,6 +25,7 @@ import { fornecedor } from "../kernel/db/schemas/fornecedor";
 import { medicamentoCmed } from "../kernel/db/schemas/medicamento-cmed";
 import { node } from "../kernel/db/schemas/legislacao";
 import { municipio } from "../kernel/db/schemas/municipio";
+import { precoPraticado } from "../kernel/db/schemas/preco-praticado";
 import { municipioEconomia } from "../kernel/db/schemas/municipio-economia";
 import { proposicao } from "../kernel/db/schemas/proposicao";
 import { proposicaoAutor } from "../kernel/db/schemas/proposicao-autor";
@@ -59,6 +60,7 @@ const layout = {
   "cmed-anvisa": { medicamentoCmed },
   "siconfi-fiscal": { siconfiFato },
   transferegov: { convenio },
+  "painel-precos": { precoPraticado },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

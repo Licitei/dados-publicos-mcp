@@ -26,6 +26,7 @@ import { proposicaoAutor } from "./schemas/proposicao-autor";
 import { municipio } from "./schemas/municipio";
 import { municipioEconomia } from "./schemas/municipio-economia";
 import { node } from "./schemas/legislacao";
+import { precoPraticado } from "./schemas/preco-praticado";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
 import { sancao } from "./schemas/sancao";
@@ -62,6 +63,7 @@ export const relations = defineRelations({
   municipio,
   municipioEconomia,
   node,
+  precoPraticado,
   proposicao,
   proposicaoAutor,
   receita,
