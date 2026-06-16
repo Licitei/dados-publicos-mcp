@@ -16,6 +16,7 @@ import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
 import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
+import { Sinapi } from "../sources/sinapi/store";
 import { Transferegov } from "../sources/transferegov/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
@@ -43,6 +44,7 @@ export const FonteKey = Schema.Literals([
   "transferegov",
   "painel-precos",
   "transparencia-despesas",
+  "sinapi",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -262,6 +264,22 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
         Effect.flatMap((service) =>
           Match.value(scope.mes).pipe(
             Match.when(Match.string, (mes) => service.indexMes(mes)),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
+  },
+  sinapi: {
+    heavy: true,
+    run: (scope) =>
+      Sinapi.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.anos).pipe(
+            Match.when(
+              (anos: readonly number[] | undefined): anos is readonly number[] =>
+                anos !== undefined && anos.length > 0,
+              (anos) => service.indexAno(Math.max(...anos))
+            ),
             Match.orElse(() => service.index)
           )
         )

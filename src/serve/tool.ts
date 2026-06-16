@@ -19,6 +19,7 @@ import type { SancoesCgu } from "../sources/sancoes-cgu/store";
 import type { SenadoFederal } from "../sources/senado/store";
 import type { Sicaf } from "../sources/sicaf-fornecedores/store";
 import type { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
+import type { Sinapi } from "../sources/sinapi/store";
 import type { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import type { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
 import type { Transferegov } from "../sources/transferegov/store";
@@ -45,6 +46,7 @@ export type AppServices =
   | Transferegov
   | PainelPrecos
   | TransparenciaDespesas
+  | Sinapi
   | Db
   | Embedder
   | HttpClient.HttpClient;

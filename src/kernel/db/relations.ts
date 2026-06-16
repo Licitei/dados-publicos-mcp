@@ -34,6 +34,7 @@ import { sancao } from "./schemas/sancao";
 import { senador } from "./schemas/senador";
 import { siconfiEnte } from "./schemas/siconfi-ente";
 import { siconfiFato } from "./schemas/siconfi-fato";
+import { sinapiInsumo } from "./schemas/sinapi-insumo";
 import { simples } from "./schemas/simples";
 import { socio } from "./schemas/socio";
 import { tcuInidoneo } from "./schemas/tcu-inidoneo";
@@ -75,6 +76,7 @@ export const relations = defineRelations({
   siconfiEnte,
   siconfiFato,
   simples,
+  sinapiInsumo,
   socio,
   tcuInidoneo,
 });

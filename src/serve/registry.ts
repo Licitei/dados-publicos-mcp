@@ -18,6 +18,7 @@ import { sancoesTools } from "./tools/sancoes";
 import { senadoTools } from "./tools/senado";
 import { sicafTools } from "./tools/sicaf";
 import { siconfiFiscalTools } from "./tools/siconfi-fiscal";
+import { sinapiTools } from "./tools/sinapi";
 import { tcuTools } from "./tools/tcu";
 import { transparenciaDespesasTools } from "./tools/transparencia-despesas";
 import { transferegovTools } from "./tools/transferegov";
@@ -44,6 +45,7 @@ export const queryTools: readonly Tool[] = [
   ...transferegovTools,
   ...painelPrecosTools,
   ...transparenciaDespesasTools,
+  ...sinapiTools,
 ];
 
 export const tools: readonly Tool[] = [
