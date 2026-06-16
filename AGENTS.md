@@ -1,180 +1,232 @@
 # AGENTS.md — dados-publicos-mcp
 
-MCP server (AGPL-3.0, **Bun + TypeScript**) that indexes Brazilian public-procurement
-legislation and related public data **locally** (SQLite/JSON) and serves it to MCP clients
-over stdio. Each data source is a self-contained vertical-slice module plugged into a core
-adapter registry. Errors are values (`better-result` + `evlog` catalogs); I/O is bun-native.
+MCP server (AGPL-3.0, **Bun + TypeScript + Effect v4**) that indexes Brazilian public-procurement
+legislation and related public data **locally** and serves it to MCP clients over stdio. Public data
+only — **zero secrets, zero API keys**. Each data source is a self-contained vertical slice over one
+shared local database.
+
+## One world — Effect-native
+
+The v1→v2 cutover has landed. **There is no legacy layer anymore.** The whole tree is the
+Effect-native v2 world: `better-result`, `evlog`, `zod`, `dayjs`, `bun:sqlite`, `cac`,
+`src/modules/**` and `src/core/**` are **deleted**. There is one PGlite database, one tool layer over
+the low-level MCP SDK `Server`, and one CLI. Every file you touch follows the v2 idiom below.
+
+| | **v2 — the only world** |
+|---|---|
+| Lives in | `src/kernel/**`, `src/sources/**`, `src/serve/**`, `src/runtime.ts`, `src/index.ts` |
+| Stack | Effect `4.0.0-beta.81` + PGlite + Drizzle + local embeddings |
+| Errors | `Schema.TaggedErrorClass` + `Effect.fail` (never `throw`) |
+| Identifiers | **English** — pt-BR **only** inside user-facing error/description strings |
+| Static rules | universal **+ v2-strict** on `src/kernel/` and `src/sources/` |
+
+## The tree
+
+```
+src/
+  kernel/              shared infrastructure (the toolbox)
+    db/                ONE PGlite db: client.ts, persistence.ts, ddl.ts, relations.ts, schemas/*
+    embed/             local embeddings (@huggingface/transformers, multilingual-e5-small)
+    http/              the gold-standard HTTP client (getJson + Schema decode + classified retry)
+    csv/ zip/ xlsx/ text/   parsing kernels reused across sources
+  sources/<x>/         12 vertical slices: catalog.ts + indexer.ts + store.ts
+  serve/               the MCP tool layer (declared tools over the low-level SDK Server)
+  runtime.ts           ManagedRuntime over AppLayer (12 sources ⊕ Infra)
+  index.ts             the CLI (effect/unstable/cli + @effect/platform-bun)
+```
+
+The 12 sources: `legislacao`, `ibge-localidades`, `cnae`, `catmat-catser`, `sicaf-fornecedores`,
+`sancoes-cgu`, `receita-cnpj`, `tse-eleitoral`, `camara-deputados`, `querido-diario`, `capag`, `pncp`.
 
 ## Quick commands
 
 ```bash
-bun install                       # Bun only — no npm/yarn/pnpm
+bun install                                   # Bun only — no npm/yarn/pnpm
 
-bun run start                     # serve over stdio   (= bun src/index.ts serve)
-bun run index                     # build all LIGHT indices (requiresHeavyDownload=false)
-bun src/index.ts index legislacao            # one source
-bun src/index.ts index --include-heavy       # include heavy downloads
-bun src/index.ts index receita-cnpj --include-heavy --ufs SP,RJ --anos 2024,2025 --mes 2026-01
+bun run start                                 # serve over stdio  (= bun src/index.ts, no subcommand)
+bun run index                                 # index all LIGHT sources (= bun src/index.ts index)
+bun src/index.ts index legislacao             # one source
+bun src/index.ts index --include-heavy        # include heavy downloads
+bun src/index.ts index pncp --mes 2026-01     # scoped index (pncp month window)
+bun src/index.ts index querido-diario --ufs SP,RJ --anos 2024,2025
 
-bun run check                     # THE GATE: typecheck + lint:errors + test
+bun run check                                 # THE GATE — make it green before finishing any change
 ```
 
-**Run `bun run check` and make all three green before finishing any change.** It is the only
-gate — there is no CI. `prepublishOnly` re-runs it.
+`bun run check` = `typecheck` (`tsc --noEmit`, the type gate — no `dist`, `src` ships as-is)
+`+ lint:errors` (the AST checker) `+ test:unit` (`vitest run`). There is **no `bun test`** anymore and
+**no CI** — `check` is the only gate; `prepublishOnly` re-runs it. The integration suite is separate
+(`bun run test:integration`, `vitest.integration.config.ts`).
 
-## Static checks (must pass)
+## The static checks (`bun run lint:errors`)
 
-| Command | Runs | Enforces |
-|---|---|---|
-| `bun run typecheck` | `tsc --noEmit` | strict mode; no implicit any / strict null |
-| `bun run lint:errors` | `bun tooling/static-checks/check-declarative-errors.ts` | the declarative-error + no-`try`/`catch` rules below; exits 1 on any hit |
-| `bun test` | `bun:test` (native) | no vitest/jest; tests never hit the public network |
+`tooling/static-checks/check-declarative-errors.ts` is **AST-based** (typescript compiler,
+`ts.createSourceFile` walk) — not line-based. It dispatches on `ts.SyntaxKind` so it can tell a TS
+`as` cast from a SQL `as` alias inside a `sql\`...\`` template. **Two tiers by path:**
 
-`lint:errors` scans `src/` only (skips `__tests__/`). It is **line-based** and **forbids**:
+**universal** (all of `src/`):
+`no-throw` · `no-instanceof` · `no-statement-try-catch-finally` · `no-error-helper-functions`
+(`to*Error`/`map*Error`/`wrap*Error`/`*Failure`/`*Fault`, or any function returning an error).
 
-- `instanceof`, `throw new Error`, `HTTPError`/`TimeoutError`, `isHTTPError`/`isTimeoutError`.
-- **statement-level `try {` / `catch (` / `catch {` / `finally`** — exception handling and
-  resource `try/finally` are banned. (The object-key form `Result.try({ try, catch })` and the
-  inline `catch:` handler are fine — they are not statements.)
-- **error wrapper/helper functions**: `toXError` / `isXError` / `mapError` / `wrapError` /
-  `fromError`, `*Failure` / `*Fault`, `const xError = (...)`, or any function whose return type
-  *is* `EvlogError`. Build the error inline at the decision point instead.
+**v2-strict** (`src/kernel/` and `src/sources/` only — `src/serve/` and `src/index.ts` are universal
+tier but follow the same idiom by convention):
+`no-as-cast` (`as const`/`satisfies` ok) · `no-let-var` · `no-enum` · `no-imperative-while-loop` ·
+`no-mutation-accumulator` (`+=`/`++`) · `no-mutable-mapped-type` (`-readonly`) ·
+`switch-only-in-get-message` · `error-class-must-use-TaggedErrorClass` ·
+`error-code-discrimination` · `no-barrel-passthrough-reexport` ·
+`retry-must-classify-errors` · `no-unbounded-concurrency` ·
+`no-widened-effect-error-channel` (no `Effect.Effect<_, Error|unknown|any>`) ·
+`no-v3-service-api` (no `Context.Tag`/`GenericTag`/`Effect.Tag`/`Effect.Service`) ·
+`service-needs-layer`.
 
-## Architecture
+To **add a rule**, see the `static-checks-authoring` skill — every rule must be proven
+false-positive-clean on the six gold files first.
 
-Core defines one adapter contract; every source implements it and registers in
-`src/core/registry.ts`. The CLI/`serve()` iterate the registry. Each source is a vertical slice:
-`tools` (MCP) → `service` (read queries) → `indexer` (build) → `store` (SQLite/schema) →
-`errors` (evlog catalog).
+## The idiom (the gold standard)
 
-```
-src/
-  index.ts                CLI (serve | index [fonte]); registerXxxTools() in serve();
-                          process.on("exit", closeAllDbs) — the ONLY db close.
-  core/
-    adapter.ts            IndexAdapter contract: key, titulo, storage, requiresHeavyDownload, build(), status()
-    registry.ts           adapters[] + getAdapter(key) / listAdapters()
-    status.ts             registerStatusTool() — aggregate status of all indices
-    dataDir.ts            getDataDir() / dominioDir(key) / dominioPath(key, file) — cross-platform
-    normalize.ts          normalize(), onlyDigits(), normalizeCnpj()
-    store/
-      sqlite-store.ts     DB SINGLETON: getDb / openDb / openReadonly / closeAllDbs; batchInsert, countRows, dbExists
-      json-store.ts       createJsonStore<T>() — Bun.file/Bun.write, zod-validated, cached
-    http/download.ts      fetchWithRetry() / fetchJson<T>() / downloadToFile() — all return Result; Bun.write
-    parse/                csv.ts, numero-br.ts, data-br.ts, zip.ts (Bun.inflateSync) — no external deps
-  modules/<source>/
-    tools.ts              registerXxxTools(server) + zod input schemas + Result.serialize() responses
-    service.ts            read queries → Result<T, EvlogError> (never throw)
-    indexer.ts            xxxIndexAdapter: build() (download→parse→persist) + status()
-    store.ts              DOMINIO/DB_FILE, getIndexPath(), indiceExiste(), createSchema (CREATE … IF NOT EXISTS)
-    errors.ts             defineErrorCatalog('domain', {...}) + the evlog module augmentation
-    catalog.ts            static domain constants/types (optional)
-  mcp/                    reserved, currently EMPTY — MCP wiring lives in modules/*/tools.ts
-```
+**`src/kernel/http/client.ts` is THE reference idiom.** Every file copies its moves:
 
-`adapter.key` MUST equal the data-dir folder name. `BuildSummary` carries `dominio`, `registros`,
-`atualizadoEm` (ISO-8601), `caminho`; `StatusInfo` adds `existe`/`storage`/`requiresHeavyDownload`.
+- **Closed sets**: `Schema.Literals([...])` + `export type X = (typeof X)["Type"]` — never `enum`.
+- **Errors**: `class XError extends Schema.TaggedErrorClass<XError>()("XError", { code, ... })` with
+  `override get message()` switching on `this.code` and returning pt-BR strings. Built inline at the
+  failure site (`Effect.fail(new XError({ code, ... }))`), never via a helper.
+- **Config**: `Context.Reference` over a `Schema.Struct` with a `defaultValue` thunk (`DbConfig`,
+  `EmbedConfig`) — not a service.
+- **Services**: `class Svc extends Context.Service<Svc, Effect.Success<typeof make>>()("...") {}` +
+  an exported `Layer.effect(Svc)(make)`. Shape **inferred** from `make`, never hand-written.
+- **Branching**: `Match.value/.tag/.when/.orElse`, `Match.type<T>()` — `switch` only in `get message()`.
+- **Effects**: pipe combinators (`Effect.flatMap`/`mapError`/`retry`/`catchTag`/`timeout`/`forEach`/
+  `acquireRelease`/`tryPromise({ try, catch })`). Errors flow through `Effect.fail` — **never throw**.
+- **Boundaries**: HTTP via the kernel (`getJson(url, Schema)` decodes JSON through a Schema so parse
+  faults become a typed `http.PARSE`; never `response.json()`/`JSON.parse` raw). Fan-out to gov.br is
+  **bounded** (`Effect.forEach(xs, f, { concurrency: 2 })`). Retry is **classified** (the kernel
+  http client already does `Effect.retry` over a classified retryable-status set — do not touch it).
+  Resources via `Effect.acquireRelease`.
+- **Determinism**: any `LIMIT` query needs a total-order tiebreaker (`order by score desc, path`).
 
-## Error handling (hard rules)
+**Style**: English identifiers/files/folders; **no code comments, including JSDoc**; pt-BR **only** in
+user-facing error/description strings; **no barrel/passthrough re-exports** (import from the source
+module); declared data + combinators over imperative glue.
 
-All failures are values: `Result<T, EvlogError>` from `better-result`, errors from per-module
-`evlog` catalogs. Functions **return** errors — they never `throw`, never `try/catch`.
+## Storage — ONE PGlite database
 
-**Required pattern** — build the catalog error inline, at the decision point:
+There is a single local Postgres-in-process (PGlite) opened once per process in
+`src/kernel/db/client.ts`. It runs over a unix socket via `@electric-sql/pglite-socket`, exposed to
+Effect as a genuine `@effect/sql-pg` `PgClient`, with Drizzle (`drizzle-orm/effect-postgres`,
+`relations` from `db/relations.ts`) on top. Four extensions are enabled on boot:
 
-```ts
-// guard at a decision point
-if (!indiceExiste()) {
-  return Result.err(legislacaoErrors.INDICE_AUSENTE());
-}
+| extension | role |
+|---|---|
+| `vector` (pgvector) | dense semantic recall — HNSW `vector_cosine_ops` |
+| `pg_textsearch` (`bm25`) | lexical recall — BM25 over Portuguese-analyzed text |
+| `ltree` | hierarchical paths (e.g. legislation `art1.par2.inc3`) + GiST index |
+| `pg_trgm` | fuzzy/typo-tolerant name matching |
 
-// wrap throwing I/O with an inline `catch:` handler (the ONLY place errors are built)
-return Result.tryPromise({
-  try: async () => JSON.parse(await response.text()),
-  catch: (cause): EvlogError =>
-    httpErrors.PARSE({ url, internal: { cause: String(cause) } }),
-});
+**Persistence**: `DbConfig` is a `Context.Reference<{ dataDir?: string }>`. `src/kernel/db/persistence.ts`
+(`DbPersistenceLive`) resolves the data dir from `Config` and provides it: it reads
+`DADOS_PUBLICOS_MCP_DATA_DIR`, else a platform default (`$XDG_DATA_HOME` or `$HOME/.local/share` on
+linux/mac, `LOCALAPPDATA`/`APPDATA`/`%USERPROFILE%\AppData\Local` on win32), always under
+`dados-publicos-mcp/`, and `makeDirectory(..., { recursive: true })`. Provided beneath `DbLayer` in
+`runtime.ts`, this makes indexes **persist across runs**. When `DbConfig` is left at its default `{}`
+(as tests do, providing `DbLayer` directly) PGlite opens **ephemeral**.
 
-// compose Results with a single guard, or Result.gen + yield* / Result.await
-const fetched = await fetchWithRetry(url);
-if (Result.isError(fetched)) return Result.err(domainErrors.DOWNLOAD({ url, internal: { cause: fetched.error.message } }));
-const response = fetched.value;
-```
+Per-source DDL lives next to the slice — each source's table schemas are in
+`src/kernel/db/schemas/<table>.ts` (Drizzle `pgTable` with the BM25 / HNSW / GiST / trgm indices
+declared inline), and `db/ddl.ts` derives the `create table`/`create index` statements a source runs
+to (re)create its own schema. Rebuilds are in-place inside a transaction (`delete` + `insert`), never
+by dropping the database.
 
-- One `defineErrorCatalog('<domain>', {...})` per module in `errors.ts`, keys `SCREAMING_SNAKE_CASE`,
-  each with `status`, `message` (string or factory), `why`/`fix`, `tags`; add the
-  `declare module 'evlog'` augmentation. Codes are auto-prefixed `domain.CODE`.
-- **No error helper/wrapper functions** (`toXError`, `isXError`, `mapError`…), no function returning
-  `EvlogError`. Build it inline in a `catch:` handler. Discard-and-fallback uses
-  `Result.try(...).unwrapOr(fallback)`, not `try/catch`.
-- `panic(msg)` ONLY for impossible state / invariants (a thrown defect) — never for user input.
-- pt-BR for all `message`/`why`/`fix`.
+## Search — BM25 ⊕ pgvector RRF (⊕ trgm, ⊕ ltree)
 
-## better-result idioms (use these, declaratively)
+The flagship retrieval pattern (see `src/sources/legislacao/store.ts`) is **Reciprocal Rank Fusion**
+of two independent candidate lists, fused in one SQL statement:
 
-- Create: `Result.ok(v)` / `Result.err(e)`. Wrap I/O: `Result.try({try,catch})` (sync),
-  `Result.tryPromise({try,catch}, { retry })` (async).
-- Compose: a single `if (Result.isError(x)) return …` guard, or
-  `Result.gen(async function* () { const v = yield* Result.await(p); … return Result.ok(v); })`.
-- Inspect/transform: `Result.isOk/isError`, `.map`, `.mapError`, `.unwrapOr(fallback)`,
-  `.match({ok,err})`. Batch: `Result.partition`. RPC: `Result.serialize` (tools return this).
-- There is **no resource/bracket/`using` API** — resource lifetime is the **DB singleton**, not `try/finally`.
+- a **BM25** list (`order by text <@> to_bm25query(${termo}) limit 50`), and
+- a **vector** list (`cosineDistance(embedding, queryEmbedding)` over the HNSW index, `limit 50`),
+- joined `full outer join` on the row key, scored `1/(k+rk_bm) + 1/(k+rk_vec)` (`k = 60`),
+  `order by score desc, <key>` for determinism.
 
-## Databases — singleton only
+Embeddings are generated locally by the `Embedder` kernel service (`multilingual-e5-small`, with the
+`query:`/`passage:` prefixes the model expects). `pg_trgm` backs fuzzy name lookups
+(companies, suppliers, sanctioned parties); `ltree` backs hierarchical navigation and exact
+article/section resolution in legislation (`lquery` matches like `root.*.artN`, `@>` for breadcrumbs).
 
-- Open via `getDb(absPath,{readonly?})` / `openDb(dominio,file)` (rw) / `openReadonly(dominio,file)`
-  from `core/store/sqlite-store.ts`. Each `(path, mode)` is opened **once per process** and reused.
-- **Never** `new Database(...)` in a module. **Never** call `db.close()` — the process-exit hook
-  (`closeAllDbs`) owns lifetime. Reads use `openReadonly` (won't create; guard with `dbExists`/
-  `INDICE_AUSENTE` first); builds use `openDb`. Rebuilds are in-place (`DELETE FROM` / `CREATE … IF
-  NOT EXISTS`) — no module deletes its `.db` file (the invariant that makes the singleton safe).
+## Adding a Source — the recipe
 
-## 100% bun-native I/O
+Use the **`effect-v4-source-authoring`** skill; the worked example is `src/sources/legislacao/`. A
+slice is three files plus its table schema(s):
 
-- Files: `Bun.file(p).exists()` / `.text()` / `.json()` / `.bytes()` / `.stat()`, `.size` (sync,
-  `> 0` = exists), `.delete()`; write/download with `Bun.write(dest, data | Response)`.
-- Compression: `Bun.inflateSync` / `Bun.deflateSync` / `Bun.gunzipSync`.
-- **Blessed node retains** (no bun equivalent — keep these): `node:path` (`join`/`dirname`),
-  `node:os` `homedir`, `node:fs` `mkdirSync`, `node:fs/promises` `mkdir`, `node:zlib` `crc32`,
-  and test-only `mkdtemp`/`tmpdir`. Everything else uses `Bun.*`.
+1. **`db/schemas/<table>.ts`** (+ entry in `db/relations.ts`): the Drizzle `pgTable`, with BM25 /
+   HNSW / GiST / trgm indices declared inline as needed.
+2. **`sources/<x>/catalog.ts`**: declared static data (the source's URLs / norms / modalidades /
+   error catalog as a `Schema.TaggedErrorClass`) and pure tree/shape builders.
+3. **`sources/<x>/indexer.ts`**: fetch via the kernel http client, parse via a kernel
+   (`csv`/`zip`/`xlsx`/`text`), map to rows, embed passages. Bounded fan-out, classified retry.
+4. **`sources/<x>/store.ts`**: the `Context.Service` (`make` gen function returning the read/index
+   methods: `index`, `search`, getters) + exported `Layer.effect`. Owns `createSchema`, in-place
+   `replace*` transactions, and the RRF/trgm/ltree queries.
 
-## Adding a new data source
+Then wire it: add the `XLive` layer to `AppLayer` in `runtime.ts`, the service tools in
+`src/serve/tools/<x>.ts`, register them in `src/serve/registry.ts`, add the `FonteKey` literal +
+`indexRegistry` entry (and `status.ts` layout) in `src/serve/`.
 
-1. `src/modules/<x>/` with: `errors.ts`, `store.ts`, `service.ts`, `indexer.ts`, `tools.ts`
-   (+ `catalog.ts` if static data).
-2. `errors.ts`: `defineErrorCatalog('<x>', {...})` + the `declare module 'evlog'` augmentation.
-3. `store.ts`: `DOMINIO`/`DB_FILE`, `getIndexPath()` (= `dominioPath(DOMINIO, DB_FILE)`),
-   `indiceExiste()` (`dbExists`), idempotent `createSchema(db)`.
-4. `indexer.ts`: export one `<x>IndexAdapter` — `build()` (download via `core/http`, parse via
-   `core/parse`, persist via `openDb` + `batchInsert`) and `status()` (`dbExists` + `countRows` +
-   `Bun.file(path).stat()` mtime). No `db.close()`, no `try/finally`.
-5. `service.ts`: read queries returning `Result<T, EvlogError>`, opening via `openReadonly` after a
-   `dbExists` guard.
-6. `tools.ts`: `register<X>Tools(server)` (zod schemas, `Result.serialize()` responses).
-7. Register in `src/core/registry.ts` **and** call `register<X>Tools(server)` in `serve()`.
-8. Add `__tests__/<x>.test.ts`.
+## The serve tool layer
+
+`src/serve/` exposes **58 MCP tools** = **44 query** + **8 index** + **1 `status_indices`** + **5
+`guia_*` skills** over the low-level `@modelcontextprotocol/sdk` `Server` (no `registerTool`, no
+prompts, no resources, no per-source `status_*` tools, no live-API tools — everything is served from
+the local index). The `guia_*` tools (`src/serve/skills.ts`) take no input and return a markdown
+composition recipe (local-first + privacy envelope) for the calling agent to ingest before chaining
+the primitive tools; `foldExit` renders a string result as raw text instead of JSON.
+
+The pattern:
+
+- **`tool.ts`** — `defineTool({ name, description, input: Schema.Struct, run })` builds a declared
+  `Tool` descriptor: it turns the input `Schema` into a JSON Schema via
+  `Schema.toJsonSchemaDocument`, and wraps `run` so args are decoded through the `Schema`
+  (`Schema.decodeUnknownEffect`) before the handler runs. `AppServices` is the union of all 12 source
+  services + `Db` + `Embedder` + `HttpClient` — the env every tool may require.
+- **`tools/<source>.ts`** — declared arrays of `defineTool(...)` descriptors. Reusable input checks
+  live in `serve/checks.ts` (`NonEmptyString`, `Uf`, `positiveIntMax`, year ranges).
+- **`registry.ts`** — concatenates every slice's tool array into the flat `tools` list
+  (`queryTools ⊕ indexTools ⊕ statusIndices`).
+- **`server.ts`** — the low-level `Server`: `ListToolsRequestSchema` returns the descriptors;
+  `CallToolRequestSchema` looks the tool up by name (`Match`), runs `tool.handle(args)` against the
+  shared `runtime` (`runtime.runPromiseExit`), and folds the `Exit`.
+- **`fold.ts`** — `foldExit`: success → `textContent(JSON.stringify(...))`; failure → `errorContent`
+  with the tagged error's pt-BR `message` (or "Parametros invalidos" for a `SchemaError`). Errors are
+  data folded into MCP content, never thrown across the SDK boundary.
+
+`status_indices` (`serve/status.ts`) reports a row count per table per source from the local db — it
+is the one introspection tool.
+
+## The CLI & runtime
+
+`src/index.ts` is `effect/unstable/cli` (`Command`/`Flag`/`Argument`), run via `BunRuntime.runMain`
+with `@effect/platform-bun`'s `BunServices.layer` satisfying the CLI `Environment`
+(FileSystem/Path/Terminal/Stdio/...). The **root command with no subcommand** is `serve()` (stdio MCP
+server). The **`index` subcommand** takes an optional `<fonte>` and `--all`/`--include-heavy`/
+`--ufs`/`--anos`/`--mes` flags; it resolves the source via `FonteKey` and runs that source's index
+effect against the shared `runtime` (so it shares the same persistent DB). An unknown fonte or an
+index failure `Effect.fail`s a tagged error → non-zero exit; all output goes through `Console`.
+
+`src/runtime.ts` is a single `ManagedRuntime` over `AppLayer` = the 12 source `XLive` layers
+`provideMerge` `Infra` (`DbLayer` over the persistence layer ⊕ `EmbedderLive` ⊕
+`FetchHttpClient.layer`). Both the CLI index path and the serve callbacks resolve services against it.
 
 ## Tests
 
-- Location `__tests__/<domain>.test.ts`, one file per module; runner `bun:test`
-  (`import { test, expect, describe, beforeAll } from "bun:test"`); import source from `../src/...`.
-- **No public network**: use `new Database(":memory:")`, inline CSV/XML/ZIP fixtures, or a local
-  `Bun.serve({ hostname: "127.0.0.1", port: 0 })` for HTTP.
-- **Cross-platform**: temp paths via `mkdtemp(join(tmpdir(), "…"))` — never hardcode `/tmp` or `/`;
-  bind servers to `127.0.0.1:0`; no assertions on raw path-separator shapes.
-- Assert Results in two steps: `Result.isOk(r)` / `Result.isError(r)`, then read `.value` / `.error`;
-  identify errors by `r.error.code` (e.g. `"legislacao.INDICE_AUSENTE"`, `"http.STATUS"`).
-- Run: `bun test` (or `bun test __tests__/<domain>.test.ts`).
+`@effect/vitest` only (no `bun test`, no `__tests__/`). `tests/unit/*.unit.test.ts` and
+`tests/integration/*.integration.test.ts`: `it.effect` runs the Effect with a `TestContext`; stub I/O
+via injected layers (e.g. `FetchHttpClient.Fetch`); drive retry/timeout with `TestClock`. Tests
+provide `DbLayer` directly with the default `DbConfig` `{}` → **ephemeral** PGlite (the persistence
+layer only lives in the real runtime). No public network in either runner; bind local servers to
+`127.0.0.1:0`; cross-platform temp via `mkdtemp(join(tmpdir(), …))`.
 
-## Conventions & gotchas
+## Pointers
 
-- **TS strict + ESM**, Bun-only (`bun@1.3.9`, engines `>=1.1.0`); deps via `bun add`/`bun remove`.
-- **pt-BR domain language**: identifiers (`buscarLegislacao`, `dominio`, `registros`) and all
-  user-facing/error text are Portuguese — match it.
-- Generated indices are **never committed**: `*.db`, `*.db-{shm,wal}`, `.cache/` are gitignored;
-  they live under `getDataDir()` (`~/.local/share/dados-publicos-mcp/`, Windows `%APPDATA%`,
-  override `DADOS_PUBLICOS_MCP_DATA_DIR`).
-- **AGPL-3.0-only**. Published artifacts: `src/` + `README.md` + `LICENSE` (`package.json#files`).
-- `serve` is the default command (`bun src/index.ts` serves; it does not index). `src/mcp/` is empty.
-- `Result.try` does NOT catch async — use `Result.tryPromise` for `await` work.
-- The linter is line-based: never put `try {` / `catch (` / `finally` in a comment, or it trips.
+Architecture decisions: `docs/adr/0001-effect-pglite.md`,
+`docs/adr/0002-declarative-architecture-and-folders.md` (note: the linter requires
+`Schema.TaggedErrorClass`, which supersedes those ADRs' `Data.TaggedError` wording). Domain
+vocabulary: `CONTEXT.md`. Roadmap: `docs/ROADMAP_V2.md`. Skills: `effect-v4-source-authoring`,
+`static-checks-authoring`. **AGPL-3.0-only** — published artifacts are `src/` + `README.md` + `LICENSE`.
