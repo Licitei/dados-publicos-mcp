@@ -8,6 +8,7 @@ import { CamaraDeputadosLive } from "./sources/camara-deputados/store";
 import { CapagLive } from "./sources/capag/store";
 import { CatmatCatserLive } from "./sources/catmat-catser/store";
 import { CnaeLive } from "./sources/cnae/store";
+import { IbgeEconomiaLive } from "./sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "./sources/ibge-localidades/store";
 import { LegislacaoLive } from "./sources/legislacao/store";
 import { PncpLive } from "./sources/pncp/store";
@@ -39,7 +40,8 @@ export const AppLayer = Layer.mergeAll(
   QueridoDiarioLive,
   CapagLive,
   PncpLive,
-  TcuInidoneosLive
+  TcuInidoneosLive,
+  IbgeEconomiaLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

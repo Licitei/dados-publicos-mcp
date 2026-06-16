@@ -23,6 +23,7 @@ import { estabelecimento } from "../kernel/db/schemas/estabelecimento";
 import { fornecedor } from "../kernel/db/schemas/fornecedor";
 import { node } from "../kernel/db/schemas/legislacao";
 import { municipio } from "../kernel/db/schemas/municipio";
+import { municipioEconomia } from "../kernel/db/schemas/municipio-economia";
 import { proposicao } from "../kernel/db/schemas/proposicao";
 import { proposicaoAutor } from "../kernel/db/schemas/proposicao-autor";
 import { receita } from "../kernel/db/schemas/receita";
@@ -48,6 +49,7 @@ const layout = {
   capag: { capagEstado, capagMunicipio, siconfiEnte },
   pncp: { contratacao, contrato, ata },
   "tcu-inidoneos": { tcuInidoneo },
+  "ibge-economia": { municipioEconomia },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

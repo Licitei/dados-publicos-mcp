@@ -21,6 +21,7 @@ import { fornecedor } from "./schemas/fornecedor";
 import { proposicao } from "./schemas/proposicao";
 import { proposicaoAutor } from "./schemas/proposicao-autor";
 import { municipio } from "./schemas/municipio";
+import { municipioEconomia } from "./schemas/municipio-economia";
 import { node } from "./schemas/legislacao";
 import { receita } from "./schemas/receita";
 import { receitaOriginario } from "./schemas/receita-originario";
@@ -51,6 +52,7 @@ export const relations = defineRelations({
   estabelecimento,
   fornecedor,
   municipio,
+  municipioEconomia,
   node,
   proposicao,
   proposicaoAutor,

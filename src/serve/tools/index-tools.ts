@@ -3,6 +3,7 @@ import { CamaraDeputados } from "../../sources/camara-deputados/store";
 import { Capag } from "../../sources/capag/store";
 import { CatmatCatser } from "../../sources/catmat-catser/store";
 import { Cnae } from "../../sources/cnae/store";
+import { IbgeEconomia } from "../../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../../sources/ibge-localidades/store";
 import { Legislacao } from "../../sources/legislacao/store";
 import { SancoesCgu } from "../../sources/sancoes-cgu/store";
@@ -83,6 +84,14 @@ const indexarTcuInidoneos = defineTool({
   run: () => TcuInidoneos.pipe(Effect.flatMap((service) => service.index)),
 });
 
+const indexarIbgeEconomia = defineTool({
+  name: "indexar_ibge_economia",
+  description:
+    "Baixa populacao estimada e PIB dos municipios (IBGE SIDRA) e recria o indice local neste computador.",
+  input: NoInput,
+  run: () => IbgeEconomia.pipe(Effect.flatMap((service) => service.index)),
+});
+
 export const indexTools = [
   indexarLegislacao,
   indexarIbgeLocalidades,
@@ -93,4 +102,5 @@ export const indexTools = [
   indexarCapag,
   indexarCamara,
   indexarTcuInidoneos,
+  indexarIbgeEconomia,
 ] as const;

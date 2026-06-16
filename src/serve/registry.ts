@@ -6,6 +6,7 @@ import { capagTools } from "./tools/capag";
 import { catmatCatserTools } from "./tools/catmat-catser";
 import { cnaeTools } from "./tools/cnae";
 import { ibgeTools } from "./tools/ibge";
+import { ibgeEconomiaTools } from "./tools/ibge-economia";
 import { indexTools } from "./tools/index-tools";
 import { legislacaoTools } from "./tools/legislacao";
 import { pncpTools } from "./tools/pncp";
@@ -30,6 +31,7 @@ export const queryTools: readonly Tool[] = [
   ...capagTools,
   ...pncpTools,
   ...tcuTools,
+  ...ibgeEconomiaTools,
 ];
 
 export const tools: readonly Tool[] = [

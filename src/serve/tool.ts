@@ -7,6 +7,7 @@ import type { CamaraDeputados } from "../sources/camara-deputados/store";
 import type { Capag } from "../sources/capag/store";
 import type { CatmatCatser } from "../sources/catmat-catser/store";
 import type { Cnae } from "../sources/cnae/store";
+import type { IbgeEconomia } from "../sources/ibge-economia/store";
 import type { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import type { Legislacao } from "../sources/legislacao/store";
 import type { Pncp } from "../sources/pncp/store";
@@ -31,6 +32,7 @@ export type AppServices =
   | Capag
   | Pncp
   | TcuInidoneos
+  | IbgeEconomia
   | Db
   | Embedder
   | HttpClient.HttpClient;

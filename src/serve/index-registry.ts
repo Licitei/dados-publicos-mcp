@@ -3,6 +3,7 @@ import { CamaraDeputados } from "../sources/camara-deputados/store";
 import { Capag } from "../sources/capag/store";
 import { CatmatCatser } from "../sources/catmat-catser/store";
 import { Cnae } from "../sources/cnae/store";
+import { IbgeEconomia } from "../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import { Legislacao } from "../sources/legislacao/store";
 import { defaultModalidades } from "../sources/pncp/catalog";
@@ -29,6 +30,7 @@ export const FonteKey = Schema.Literals([
   "capag",
   "pncp",
   "tcu-inidoneos",
+  "ibge-economia",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -180,5 +182,21 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
   "tcu-inidoneos": {
     heavy: false,
     run: () => TcuInidoneos.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "ibge-economia": {
+    heavy: false,
+    run: (scope) =>
+      IbgeEconomia.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.anos).pipe(
+            Match.when(
+              (anos: readonly number[] | undefined): anos is readonly number[] =>
+                anos !== undefined && anos.length > 0,
+              (anos) => service.indexAno(Math.max(...anos))
+            ),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
   },
 };
