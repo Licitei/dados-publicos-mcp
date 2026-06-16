@@ -2,28 +2,42 @@
 
 Read **AGENTS.md** for the full picture. This file is the load-bearing subset.
 
-## Before writing a line: which world?
+## One world: v2 Effect-native
 
-This repo is mid-migration and lives in two layers at once.
+The v1→v2 cutover is **done**. There is no migration, no legacy layer, no two worlds. Everything
+live is Effect-native:
 
-- **v2 — Effect-native (target)**: `src/kernel/**`, `src/sources/**`. Effect v4 + PGlite + Drizzle.
-  English identifiers. Errors are `Schema.TaggedErrorClass` + `Effect.fail`. **v2-strict** static
-  rules apply here.
-- **v1 — legacy (still the live serving path)**: `src/modules/**`, `src/core/**`, `src/index.ts`.
-  `better-result` + `evlog` + `bun:sqlite`. pt-BR identifiers. Only the universal static rules apply.
+- **`src/kernel/**`** — Effect v4 (`4.0.0-beta.81`) + PGlite + Drizzle. One local Postgres with four
+  extensions: `vector` (pgvector), `pg_textsearch` (BM25), `ltree`, `pg_trgm`.
+- **`src/sources/**`** — 12 source slices, each a `Context.Service` store + an `XLive` Layer.
+- **`src/serve/**`** — the MCP tool layer over the low-level `@modelcontextprotocol/sdk` Server
+  (`tool.ts`/`fold.ts`/`server.ts`/`status.ts`/`registry.ts`/`index-registry.ts`/`tools/<source>.ts`).
+- **`src/runtime.ts`** — `ManagedRuntime` over `AppLayer` (12 `XLive` `provideMerge` `Infra`).
+- **`src/index.ts`** — CLI via `effect/unstable/cli` + `@effect/platform-bun` (`BunRuntime.runMain`).
 
-`serve` still wires the legacy `src/modules/legislacao`, not `src/sources/legislacao`. The v2 slice
-is reference architecture awaiting promotion — match the world of the file you are editing; don't mix.
+`serve` (the default, no-subcommand action) wires the real `src/sources` slices — 53 MCP tools
+(44 query + 8 `indexar_*` + `status_indices`). The `index` subcommand recria os índices locais.
+`DADOS_PUBLICOS_MCP_DATA_DIR` (via `Config`, resolved in `src/kernel/db/persistence.ts`) points
+PGlite at a persistent path so índices sobrevivem entre execuções; unset → platform default under
+`$XDG_DATA_HOME`/`$HOME/.local/share`.
+
+## Storage + search
+
+One PGlite database at the dataDir. Search is hybrid: BM25 (`pg_textsearch`) ⊕ pgvector cosine
+fused by RRF, with `pg_trgm` for fuzzy name matching and `ltree` for hierarchical (PageIndex) trees.
+No per-fonte JSON/SQLite/FTS5 — that's gone. There is no live-API / "online real-time" layer:
+índices are built locally, then queried locally.
 
 ## The gate
 
-`bun run check` (typecheck + `lint:errors` + `bun test` + `vitest`) — the only gate, no CI. Make it
-green before finishing any change.
+`bun run check` (`tsc --noEmit` + `lint:errors` + `vitest run`) — the only gate, no CI. Make it
+green before finishing any change. No `bun test`.
 
-`lint:errors` is an **AST** linter (`tooling/static-checks/check-declarative-errors.ts`), two tiers.
-Every rule must be false-positive-clean on the six gold files.
+`lint:errors` is an **AST** linter (`tooling/static-checks/check-declarative-errors.ts`), two tiers;
+the **strict** tier applies only to `src/kernel/` and `src/sources/`. Every rule must be
+false-positive-clean on the six gold files.
 
-## v2 invariants (when in `src/kernel`/`src/sources`)
+## v2-strict invariants (in `src/kernel`/`src/sources`)
 
 - Gold standard = `src/kernel/http/client.ts`. Copy its idiom.
 - `Schema.Literals` codes; `Schema.TaggedErrorClass` with `get message()` switch (pt-BR); error built
@@ -34,7 +48,7 @@ Every rule must be false-positive-clean on the six gold files.
   barrels. Bounded fan-out (`concurrency: 2`); classified retry; JSON decoded through a Schema.
 - Adding a Source → use the `effect-v4-source-authoring` skill.
 
-## Style (both worlds)
+## Style
 
 - English code/files/comments — but **no code comments at all**, including JSDoc.
 - pt-BR **only** inside user-facing error message strings.
