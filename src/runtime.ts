@@ -7,17 +7,23 @@ import { EmbedderLive } from "./kernel/embed/embedder";
 import { CamaraDeputadosLive } from "./sources/camara-deputados/store";
 import { CapagLive } from "./sources/capag/store";
 import { CatmatCatserLive } from "./sources/catmat-catser/store";
+import { CmedAnvisaLive } from "./sources/cmed-anvisa/store";
 import { CnaeLive } from "./sources/cnae/store";
 import { IbgeEconomiaLive } from "./sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "./sources/ibge-localidades/store";
 import { LegislacaoLive } from "./sources/legislacao/store";
+import { PainelPrecosLive } from "./sources/painel-precos/store";
 import { PncpLive } from "./sources/pncp/store";
 import { QueridoDiarioLive } from "./sources/querido-diario/store";
 import { ReceitaCnpjLive } from "./sources/receita-cnpj/store";
 import { SancoesCguLive } from "./sources/sancoes-cgu/store";
 import { SenadoFederalLive } from "./sources/senado/store";
 import { SicafLive } from "./sources/sicaf-fornecedores/store";
+import { SiconfiFiscalLive } from "./sources/siconfi-fiscal/store";
+import { SinapiLive } from "./sources/sinapi/store";
 import { TcuInidoneosLive } from "./sources/tcu-inidoneos/store";
+import { TransparenciaDespesasLive } from "./sources/transparencia-despesas/store";
+import { TransferegovLive } from "./sources/transferegov/store";
 import { TseEleitoralLive } from "./sources/tse-eleitoral/store";
 
 const Persistence = DbPersistenceLive.pipe(Layer.provide(BunServices.layer));
@@ -43,7 +49,13 @@ export const AppLayer = Layer.mergeAll(
   PncpLive,
   TcuInidoneosLive,
   IbgeEconomiaLive,
-  SenadoFederalLive
+  SenadoFederalLive,
+  CmedAnvisaLive,
+  SiconfiFiscalLive,
+  TransferegovLive,
+  PainelPrecosLive,
+  TransparenciaDespesasLive,
+  SinapiLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

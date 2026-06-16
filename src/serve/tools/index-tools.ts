@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import { CamaraDeputados } from "../../sources/camara-deputados/store";
 import { Capag } from "../../sources/capag/store";
 import { CatmatCatser } from "../../sources/catmat-catser/store";
+import { CmedAnvisa } from "../../sources/cmed-anvisa/store";
 import { Cnae } from "../../sources/cnae/store";
 import { IbgeEconomia } from "../../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../../sources/ibge-localidades/store";
@@ -101,6 +102,14 @@ const indexarSenado = defineTool({
   run: () => SenadoFederal.pipe(Effect.flatMap((service) => service.index)),
 });
 
+const indexarCmed = defineTool({
+  name: "indexar_cmed",
+  description:
+    "Baixa a tabela CMED/ANVISA de precos de medicamentos (PMVG) e recria o indice local neste computador.",
+  input: NoInput,
+  run: () => CmedAnvisa.pipe(Effect.flatMap((service) => service.index)),
+});
+
 export const indexTools = [
   indexarLegislacao,
   indexarIbgeLocalidades,
@@ -113,4 +122,5 @@ export const indexTools = [
   indexarTcuInidoneos,
   indexarIbgeEconomia,
   indexarSenado,
+  indexarCmed,
 ] as const;
