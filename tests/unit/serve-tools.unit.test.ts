@@ -8,6 +8,7 @@ import { tools } from "../../src/serve/registry";
 import { CamaraDeputadosLive } from "../../src/sources/camara-deputados/store";
 import { CapagLive } from "../../src/sources/capag/store";
 import { CatmatCatserLive } from "../../src/sources/catmat-catser/store";
+import { CmedAnvisaLive } from "../../src/sources/cmed-anvisa/store";
 import { CnaeLive } from "../../src/sources/cnae/store";
 import {
   IbgeLocalidades,
@@ -79,7 +80,8 @@ const TestLayer = Layer.mergeAll(
   PncpLive,
   TcuInidoneosLive,
   IbgeEconomiaLive,
-  SenadoFederalLive
+  SenadoFederalLive,
+  CmedAnvisaLive
 ).pipe(Layer.provideMerge(Infra));
 
 const toolByName = (name: string) => {
@@ -96,14 +98,15 @@ const seeded = Effect.gen(function* () {
 });
 
 describe("serve tool layer", () => {
-  it("registry exposes 52 query + 11 index + 1 status + 5 guia = 69 tools", () => {
-    expect(tools).toHaveLength(69);
+  it("registry exposes 55 query + 12 index + 1 status + 5 guia = 73 tools", () => {
+    expect(tools).toHaveLength(73);
     expect(tools.map((tool) => tool.name)).toContain("status_indices");
     expect(tools.map((tool) => tool.name)).toContain("resolver_municipio");
     expect(tools.map((tool) => tool.name)).toContain("guia_uso");
     expect(tools.map((tool) => tool.name)).toContain("verificar_inidoneo_tcu");
     expect(tools.map((tool) => tool.name)).toContain("economia_municipio");
     expect(tools.map((tool) => tool.name)).toContain("buscar_senador");
+    expect(tools.map((tool) => tool.name)).toContain("buscar_medicamento_cmed");
   });
 
   it.effect(

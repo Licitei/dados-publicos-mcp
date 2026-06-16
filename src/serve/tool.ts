@@ -6,6 +6,7 @@ import type { Embedder } from "../kernel/embed/embedder";
 import type { CamaraDeputados } from "../sources/camara-deputados/store";
 import type { Capag } from "../sources/capag/store";
 import type { CatmatCatser } from "../sources/catmat-catser/store";
+import type { CmedAnvisa } from "../sources/cmed-anvisa/store";
 import type { Cnae } from "../sources/cnae/store";
 import type { IbgeEconomia } from "../sources/ibge-economia/store";
 import type { IbgeLocalidades } from "../sources/ibge-localidades/store";
@@ -35,6 +36,7 @@ export type AppServices =
   | TcuInidoneos
   | IbgeEconomia
   | SenadoFederal
+  | CmedAnvisa
   | Db
   | Embedder
   | HttpClient.HttpClient;

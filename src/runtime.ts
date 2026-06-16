@@ -7,6 +7,7 @@ import { EmbedderLive } from "./kernel/embed/embedder";
 import { CamaraDeputadosLive } from "./sources/camara-deputados/store";
 import { CapagLive } from "./sources/capag/store";
 import { CatmatCatserLive } from "./sources/catmat-catser/store";
+import { CmedAnvisaLive } from "./sources/cmed-anvisa/store";
 import { CnaeLive } from "./sources/cnae/store";
 import { IbgeEconomiaLive } from "./sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "./sources/ibge-localidades/store";
@@ -43,7 +44,8 @@ export const AppLayer = Layer.mergeAll(
   PncpLive,
   TcuInidoneosLive,
   IbgeEconomiaLive,
-  SenadoFederalLive
+  SenadoFederalLive,
+  CmedAnvisaLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

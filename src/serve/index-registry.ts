@@ -2,6 +2,7 @@ import { Effect, Match, Schema } from "effect";
 import { CamaraDeputados } from "../sources/camara-deputados/store";
 import { Capag } from "../sources/capag/store";
 import { CatmatCatser } from "../sources/catmat-catser/store";
+import { CmedAnvisa } from "../sources/cmed-anvisa/store";
 import { Cnae } from "../sources/cnae/store";
 import { IbgeEconomia } from "../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../sources/ibge-localidades/store";
@@ -33,6 +34,7 @@ export const FonteKey = Schema.Literals([
   "tcu-inidoneos",
   "ibge-economia",
   "senado",
+  "cmed-anvisa",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -216,5 +218,9 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
           )
         )
       ),
+  },
+  "cmed-anvisa": {
+    heavy: false,
+    run: () => CmedAnvisa.pipe(Effect.flatMap((service) => service.index)),
   },
 };

@@ -4,6 +4,7 @@ import type { Tool } from "./tool";
 import { camaraTools } from "./tools/camara";
 import { capagTools } from "./tools/capag";
 import { catmatCatserTools } from "./tools/catmat-catser";
+import { cmedTools } from "./tools/cmed";
 import { cnaeTools } from "./tools/cnae";
 import { ibgeTools } from "./tools/ibge";
 import { ibgeEconomiaTools } from "./tools/ibge-economia";
@@ -34,6 +35,7 @@ export const queryTools: readonly Tool[] = [
   ...tcuTools,
   ...ibgeEconomiaTools,
   ...senadoTools,
+  ...cmedTools,
 ];
 
 export const tools: readonly Tool[] = [

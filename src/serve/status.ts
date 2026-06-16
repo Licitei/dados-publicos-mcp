@@ -21,6 +21,7 @@ import { dominio } from "../kernel/db/schemas/dominio";
 import { empresa } from "../kernel/db/schemas/empresa";
 import { estabelecimento } from "../kernel/db/schemas/estabelecimento";
 import { fornecedor } from "../kernel/db/schemas/fornecedor";
+import { medicamentoCmed } from "../kernel/db/schemas/medicamento-cmed";
 import { node } from "../kernel/db/schemas/legislacao";
 import { municipio } from "../kernel/db/schemas/municipio";
 import { municipioEconomia } from "../kernel/db/schemas/municipio-economia";
@@ -53,6 +54,7 @@ const layout = {
   "tcu-inidoneos": { tcuInidoneo },
   "ibge-economia": { municipioEconomia },
   senado: { senador, ceapsDespesa },
+  "cmed-anvisa": { medicamentoCmed },
 } satisfies Record<string, Record<string, PgTable>>;
 
 const countRows = (table: PgTable) =>

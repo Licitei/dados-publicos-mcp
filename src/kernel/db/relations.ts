@@ -19,6 +19,7 @@ import { dominio } from "./schemas/dominio";
 import { empresa } from "./schemas/empresa";
 import { estabelecimento } from "./schemas/estabelecimento";
 import { fornecedor } from "./schemas/fornecedor";
+import { medicamentoCmed } from "./schemas/medicamento-cmed";
 import { proposicao } from "./schemas/proposicao";
 import { proposicaoAutor } from "./schemas/proposicao-autor";
 import { municipio } from "./schemas/municipio";
@@ -54,6 +55,7 @@ export const relations = defineRelations({
   empresa,
   estabelecimento,
   fornecedor,
+  medicamentoCmed,
   municipio,
   municipioEconomia,
   node,
