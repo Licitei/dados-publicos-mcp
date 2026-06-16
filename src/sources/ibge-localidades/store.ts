@@ -59,25 +59,36 @@ const makeIbgeLocalidades = Effect.gen(function* () {
         Match.orElse(() => Effect.succeed(undefined))
       );
       const normalized = normalize(termo);
-      const limit = options?.limit ?? defaultLimit;
-      const where = Match.value(ufFilter).pipe(
-        Match.when(Match.string, (uf) => ({ ufSigla: uf })),
-        Match.orElse(() => undefined)
+      const limit = Math.min(
+        Math.max(Math.trunc(options?.limit ?? defaultLimit), 1),
+        50
       );
-      const rows = yield* db.query.municipio.findMany({
-        where,
-        extras: {
-          score: (m) =>
-            sql<number>`similarity(${m.nomeNormalizado}, ${normalized})`.as(
-              "score"
-            ),
-        },
-        orderBy: (m, { desc, asc }) => [
-          desc(sql`similarity(${m.nomeNormalizado}, ${normalized})`),
-          asc(m.id),
-        ],
-        limit,
-      });
+      const ufWhere = Match.value(ufFilter).pipe(
+        Match.when(Match.string, (uf) => sql`uf_sigla = ${uf}`),
+        Match.orElse(() => sql`true`)
+      );
+      const rank = sql`greatest(
+        similarity(nome_normalizado, ${normalized}),
+        word_similarity(${normalized}, nome_normalizado),
+        strict_word_similarity(${normalized}, nome_normalizado)
+      )`;
+      const select = (condition: typeof ufWhere) =>
+        db.execute(sql`
+          select
+            id, nome, nome_normalizado as "nomeNormalizado",
+            uf_sigla as "ufSigla", uf_id as "ufId", uf_nome as "ufNome",
+            mesorregiao_id as "mesorregiaoId",
+            mesorregiao_nome as "mesorregiaoNome", regiao_sigla as "regiaoSigla",
+            ${rank} as score
+          from ${municipio}
+          where ${condition}
+          order by score desc, id
+          limit ${sql.raw(String(limit))}
+        `);
+      const matched = yield* select(
+        sql`${ufWhere} and (nome_normalizado % ${normalized} or ${normalized} <% nome_normalizado)`
+      );
+      const rows = matched.length > 0 ? matched : yield* select(ufWhere);
       return yield* Match.value(rows.length).pipe(
         Match.when(0, () =>
           Effect.fail(

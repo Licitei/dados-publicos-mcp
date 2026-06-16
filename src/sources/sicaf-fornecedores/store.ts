@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Match } from "effect";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { tableDdl } from "../../kernel/db/ddl";
 import { fornecedor } from "../../kernel/db/schemas/fornecedor";
@@ -38,6 +38,50 @@ const makeSicaf = Effect.gen(function* () {
   yield* createSchema;
   const db = yield* Db;
 
+  const bm25Fornecedores = (q: string, limit: number, ativoWhere: SQL) =>
+    db.execute(sql`
+      select
+        cnpj, cpf, nome_razao_social as "nomeRazaoSocial", ativo,
+        habilitado_licitar as "habilitadoLicitar", uf_sigla as "ufSigla",
+        nome_municipio as "nomeMunicipio", codigo_cnae as "codigoCnae",
+        nome_cnae as "nomeCnae",
+        natureza_juridica_nome as "naturezaJuridicaNome",
+        porte_empresa_nome as "porteEmpresaNome", -rk as score
+      from (
+        select
+          cnpj, cpf, nome_razao_social, ativo, habilitado_licitar, uf_sigla,
+          nome_municipio, codigo_cnae, nome_cnae, natureza_juridica_nome,
+          porte_empresa_nome, row_number() over () as rk
+        from (
+          select
+            cnpj, cpf, nome_razao_social, ativo, habilitado_licitar, uf_sigla,
+            nome_municipio, codigo_cnae, nome_cnae, natureza_juridica_nome,
+            porte_empresa_nome
+          from ${fornecedor}
+          ${ativoWhere}
+          order by busca <@> to_bm25query(${q})
+          limit ${sql.raw(String(limit))}
+        ) ranked
+      ) scored
+      order by rk
+    `);
+
+  const trgmFornecedores = (q: string, limit: number, ativoAnd: SQL) =>
+    db.execute(sql`
+      select
+        cnpj, cpf, nome_razao_social as "nomeRazaoSocial", ativo,
+        habilitado_licitar as "habilitadoLicitar", uf_sigla as "ufSigla",
+        nome_municipio as "nomeMunicipio", codigo_cnae as "codigoCnae",
+        nome_cnae as "nomeCnae",
+        natureza_juridica_nome as "naturezaJuridicaNome",
+        porte_empresa_nome as "porteEmpresaNome",
+        word_similarity(${q}, busca) as score
+      from ${fornecedor}
+      where word_similarity(${q}, busca) >= 0.2 ${ativoAnd}
+      order by score desc, cnpj
+      limit ${sql.raw(String(limit))}
+    `);
+
   const buscar = (options: {
     readonly nome: string;
     readonly apenasAtivos?: boolean;
@@ -46,29 +90,19 @@ const makeSicaf = Effect.gen(function* () {
     Effect.gen(function* () {
       const q = normalize(options.nome);
       const limit = clamp(options.limit, 20, 100);
-      const ativoFilter = Match.value(options.apenasAtivos).pipe(
+      const ativoWhere = Match.value(options.apenasAtivos).pipe(
         Match.when(true, () => sql`where ativo = true`),
         Match.orElse(() => sql``)
       );
-      return yield* db.execute(sql`
-        select
-          cnpj, cpf, nome_razao_social as "nomeRazaoSocial", ativo,
-          habilitado_licitar as "habilitadoLicitar", uf_sigla as "ufSigla",
-          nome_municipio as "nomeMunicipio", codigo_cnae as "codigoCnae",
-          nome_cnae as "nomeCnae",
-          natureza_juridica_nome as "naturezaJuridicaNome",
-          porte_empresa_nome as "porteEmpresaNome", -rk as score
-        from (
-          select *, row_number() over () as rk
-          from (
-            select * from ${fornecedor}
-            ${ativoFilter}
-            order by busca <@> to_bm25query(${q})
-            limit ${sql.raw(String(limit))}
-          ) ranked
-        ) scored
-        order by rk
-      `);
+      const ativoAnd = Match.value(options.apenasAtivos).pipe(
+        Match.when(true, () => sql`and ativo = true`),
+        Match.orElse(() => sql``)
+      );
+      const lexical = yield* bm25Fornecedores(q, limit, ativoWhere);
+      return yield* Match.value(lexical.length).pipe(
+        Match.when(0, () => trgmFornecedores(q, limit, ativoAnd)),
+        Match.orElse(() => Effect.succeed(lexical))
+      );
     });
 
   const habilitado = (cnpjInput: string) =>
