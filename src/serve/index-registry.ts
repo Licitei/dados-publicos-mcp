@@ -7,6 +7,7 @@ import { Cnae } from "../sources/cnae/store";
 import { IbgeEconomia } from "../sources/ibge-economia/store";
 import { IbgeLocalidades } from "../sources/ibge-localidades/store";
 import { Legislacao } from "../sources/legislacao/store";
+import { PainelPrecos } from "../sources/painel-precos/store";
 import { defaultModalidades } from "../sources/pncp/catalog";
 import { Pncp } from "../sources/pncp/store";
 import { QueridoDiario } from "../sources/querido-diario/store";
@@ -15,7 +16,10 @@ import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
 import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
+import { Sinapi } from "../sources/sinapi/store";
+import { Transferegov } from "../sources/transferegov/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
+import { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
 import { TseEleitoral } from "../sources/tse-eleitoral/store";
 import type { AppServices } from "./tool";
 
@@ -37,6 +41,10 @@ export const FonteKey = Schema.Literals([
   "senado",
   "cmed-anvisa",
   "siconfi-fiscal",
+  "transferegov",
+  "painel-precos",
+  "transparencia-despesas",
+  "sinapi",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -229,6 +237,42 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
     heavy: true,
     run: (scope) =>
       SiconfiFiscal.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.anos).pipe(
+            Match.when(
+              (anos: readonly number[] | undefined): anos is readonly number[] =>
+                anos !== undefined && anos.length > 0,
+              (anos) => service.indexAno(Math.max(...anos))
+            ),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
+  },
+  transferegov: {
+    heavy: true,
+    run: () => Transferegov.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "painel-precos": {
+    heavy: true,
+    run: () => PainelPrecos.pipe(Effect.flatMap((service) => service.index)),
+  },
+  "transparencia-despesas": {
+    heavy: true,
+    run: (scope) =>
+      TransparenciaDespesas.pipe(
+        Effect.flatMap((service) =>
+          Match.value(scope.mes).pipe(
+            Match.when(Match.string, (mes) => service.indexMes(mes)),
+            Match.orElse(() => service.index)
+          )
+        )
+      ),
+  },
+  sinapi: {
+    heavy: true,
+    run: (scope) =>
+      Sinapi.pipe(
         Effect.flatMap((service) =>
           Match.value(scope.anos).pipe(
             Match.when(
