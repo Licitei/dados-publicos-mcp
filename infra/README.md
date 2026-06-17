@@ -23,8 +23,10 @@ through clean imports (`DbLayer`, `DbConfig`, `tableDdl`, the schema tables).
 | file | role |
 |---|---|
 | `tables.ts` | the full table set (mirrors `kernel/db/relations.ts`) |
-| `local-database.ts` | `Mcp.LocalDatabase` custom Resource + its Provider — opens PGlite at the dataDir, enables extensions, runs every table's DDL |
-| `alchemy.run.ts` | the Stack entrypoint (`Alchemy.Stack` + `localState`) |
+| `local-database.ts` | `Mcp.LocalDatabase` custom Resource + its Provider — opens PGlite at the dataDir, enables extensions, runs every table's DDL; redeploy is a no-op while the schema hash is unchanged |
+| `local-index.ts` | `Mcp.LocalIndex` custom Resource + its Provider — runs one source's index pipeline. **Registry + runner are injected** (`LocalIndexConfig`) so it is testable offline; it must never import `src/runtime` |
+| `local-index.run.ts` | production wiring — binds the real `indexRegistry` + `src/runtime` `runtime` and the combined `Provider.collection([LocalDatabase, LocalIndex])`. **Bun-only** (pulls `@effect/platform-bun` via `src/runtime`); keep it out of any vitest import |
+| `alchemy.run.ts` | the Stack entrypoint (`Alchemy.Stack` + `localState`) — deploys `LocalDatabase` + `LocalIndex` |
 
 ## Commands
 
