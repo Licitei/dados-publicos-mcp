@@ -29,14 +29,16 @@ src/
     embed/             local embeddings (@huggingface/transformers, multilingual-e5-small)
     http/              the gold-standard HTTP client (getJson + Schema decode + classified retry)
     csv/ zip/ xlsx/ text/   parsing kernels reused across sources
-  sources/<x>/         12 vertical slices: catalog.ts + indexer.ts + store.ts
+  sources/<x>/         21 vertical slices: catalog.ts + indexer.ts + store.ts
   serve/               the MCP tool layer (declared tools over the low-level SDK Server)
-  runtime.ts           ManagedRuntime over AppLayer (12 sources ⊕ Infra)
+  runtime.ts           ManagedRuntime over AppLayer (21 sources ⊕ Infra)
   index.ts             the CLI (effect/unstable/cli + @effect/platform-bun)
 ```
 
-The 12 sources: `legislacao`, `ibge-localidades`, `cnae`, `catmat-catser`, `sicaf-fornecedores`,
-`sancoes-cgu`, `receita-cnpj`, `tse-eleitoral`, `camara-deputados`, `querido-diario`, `capag`, `pncp`.
+The 21 sources: `legislacao`, `ibge-localidades`, `cnae`, `catmat-catser`, `sicaf-fornecedores`,
+`sancoes-cgu`, `receita-cnpj`, `tse-eleitoral`, `camara-deputados`, `querido-diario`, `capag`, `pncp`,
+`tcu-inidoneos`, `ibge-economia`, `senado`, `cmed-anvisa`, `siconfi-fiscal`, `transferegov`,
+`painel-precos`, `transparencia-despesas`, `sinapi`. The last 8 (heavy) are CLI-only: `index <fonte>`.
 
 ## Quick commands
 
@@ -57,6 +59,13 @@ bun run check                                 # THE GATE — make it green befor
 `+ lint:errors` (the AST checker) `+ test:unit` (`vitest run`). There is **no `bun test`** anymore and
 **no CI** — `check` is the only gate; `prepublishOnly` re-runs it. The integration suite is separate
 (`bun run test:integration`, `vitest.integration.config.ts`).
+
+The canonical local setup is `bun run infra:deploy` — it provisions the single PGlite database (the
+four extensions + every table's DDL) via the `Mcp.LocalDatabase` Alchemy resource (`infra/`, outside
+the v2-strict tier). It is idempotent: a redeploy is a **no-op** when the table DDL is unchanged (the
+resource sha256-hashes the rendered `tableDdl` of every table and skips the DDL unless the hash
+drifts or the dataDir was removed off disk), so it is safe to run on every checkout. `bun run infra:destroy` tears the stack down.
+Prefer it over ad-hoc `index` runs for first-time setup; `index <fonte>` then fills the indices.
 
 ## The static checks (`bun run lint:errors`)
 
@@ -172,7 +181,7 @@ Then wire it: add the `XLive` layer to `AppLayer` in `runtime.ts`, the service t
 
 ## The serve tool layer
 
-`src/serve/` exposes **58 MCP tools** = **44 query** + **8 index** + **1 `status_indices`** + **5
+`src/serve/` exposes **85 MCP tools** = **67 query** + **12 index** + **1 `status_indices`** + **5
 `guia_*` skills** over the low-level `@modelcontextprotocol/sdk` `Server` (no `registerTool`, no
 prompts, no resources, no per-source `status_*` tools, no live-API tools — everything is served from
 the local index). The `guia_*` tools (`src/serve/skills.ts`) take no input and return a markdown
@@ -184,7 +193,7 @@ The pattern:
 - **`tool.ts`** — `defineTool({ name, description, input: Schema.Struct, run })` builds a declared
   `Tool` descriptor: it turns the input `Schema` into a JSON Schema via
   `Schema.toJsonSchemaDocument`, and wraps `run` so args are decoded through the `Schema`
-  (`Schema.decodeUnknownEffect`) before the handler runs. `AppServices` is the union of all 12 source
+  (`Schema.decodeUnknownEffect`) before the handler runs. `AppServices` is the union of all 21 source
   services + `Db` + `Embedder` + `HttpClient` — the env every tool may require.
 - **`tools/<source>.ts`** — declared arrays of `defineTool(...)` descriptors. Reusable input checks
   live in `serve/checks.ts` (`NonEmptyString`, `Uf`, `positiveIntMax`, year ranges).
@@ -210,7 +219,7 @@ server). The **`index` subcommand** takes an optional `<fonte>` and `--all`/`--i
 effect against the shared `runtime` (so it shares the same persistent DB). An unknown fonte or an
 index failure `Effect.fail`s a tagged error → non-zero exit; all output goes through `Console`.
 
-`src/runtime.ts` is a single `ManagedRuntime` over `AppLayer` = the 12 source `XLive` layers
+`src/runtime.ts` is a single `ManagedRuntime` over `AppLayer` = the 21 source `XLive` layers
 `provideMerge` `Infra` (`DbLayer` over the persistence layer ⊕ `EmbedderLive` ⊕
 `FetchHttpClient.layer`). Both the CLI index path and the serve callbacks resolve services against it.
 

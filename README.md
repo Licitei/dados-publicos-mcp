@@ -6,14 +6,14 @@
 
 Servidor MCP local-first para consultar legislação, compras públicas e dados públicos brasileiros.
 
-Ele baixa fontes oficiais, indexa tudo em um PGlite local e expõe tools MCP via stdio. Depois da indexação, as consultas rodam na máquina do usuário: sem chave de API, sem banco externo, sem scraping em tempo de resposta.
+Ele baixa fontes públicas, indexa em um PGlite local e expõe tools MCP via stdio. Depois da indexação, as consultas rodam na máquina do usuário: sem chave de API, sem banco externo, sem scraping em tempo de resposta.
 
 ## Para que serve
 
-- Buscar trechos de legislação e artigos específicos.
+- Buscar legislação e artigos específicos.
 - Resolver município, UF, CNAE, CATMAT e CATSER.
-- Fazer triagem de fornecedor por CNPJ, sanções, SICAF, sócios e contratos.
-- Cruzar dados do PNCP, Receita Federal, CGU, TSE, Câmara, IBGE, Tesouro e Querido Diário.
+- Triar fornecedor por CNPJ, sanções, SICAF, sócios, contratos e vínculos públicos.
+- Cruzar PNCP, Receita, CGU, IBGE, Tesouro, TSE, Câmara, Senado, SICONFI, Transferegov e outras bases públicas.
 - Dar a agentes MCP uma base local, auditável e reproduzível para licitações e due diligence.
 
 ## Fontes
@@ -25,13 +25,24 @@ Ele baixa fontes oficiais, indexa tudo em um PGlite local e expõe tools MCP via
 | `cnae` | leve | CNAE 2.0. |
 | `catmat-catser` | leve | Catálogo de materiais e serviços. |
 | `sicaf-fornecedores` | leve | Fornecedores SICAF. |
-| `sancoes-cgu` | leve | CEIS, CNEP, CEPIM, CEAF e acordos de leniência. |
+| `sancoes-cgu` | leve | CEIS, CNEP, CEPIM, CEAF e leniência. |
+| `receita-cnpj` | leve | Empresas, estabelecimentos, sócios e Simples. |
+| `tse-eleitoral` | leve | Candidatos, bens, receitas e despesas eleitorais. |
+| `camara-deputados` | leve | Deputados, cota parlamentar e proposições. |
+| `querido-diario` | leve | Diários oficiais municipais. |
 | `capag` | leve | CAPAG e entes SICONFI. |
-| `receita-cnpj` | pesada | Empresas, estabelecimentos, sócios e Simples. |
-| `tse-eleitoral` | pesada | Candidatos, bens, receitas e despesas eleitorais. |
-| `camara-deputados` | pesada | Deputados, cota parlamentar e proposições. |
-| `querido-diario` | pesada | Diários oficiais municipais. |
-| `pncp` | pesada | Contratações, contratos e atas do PNCP. |
+| `pncp` | leve | Contratações, contratos e atas do PNCP. |
+| `tcu-inidoneos` | pesada | Empresas inidôneas e suspensas do TCU. |
+| `ibge-economia` | pesada | Indicadores econômicos municipais. |
+| `senado` | pesada | Senadores, matérias e despesas. |
+| `cmed-anvisa` | pesada | Preços de medicamentos CMED. |
+| `siconfi-fiscal` | pesada | Dados fiscais SICONFI. |
+| `transferegov` | pesada | Convênios e transferências. |
+| `painel-precos` | pesada | Preços praticados em compras públicas. |
+| `transparencia-despesas` | pesada | Despesas federais. |
+| `sinapi` | pesada | Insumos e custos SINAPI. |
+
+Fontes pesadas não entram no `bun run index` padrão. Use `index <fonte>` ou `--include-heavy`.
 
 ## Instalação
 
@@ -42,6 +53,12 @@ bun install
 Requisitos: Bun 1.1+.
 
 ## Uso
+
+Preparar o banco local:
+
+```bash
+bun run infra:deploy
+```
 
 Rodar o servidor MCP por stdio:
 
@@ -92,20 +109,20 @@ Exemplo para clientes que aceitam comando local:
 
 ## Tools
 
-O servidor expõe 58 tools:
+O servidor expõe 85 tools:
 
-- 44 consultas;
-- 8 indexadores;
+- 67 consultas;
+- 12 indexadores;
 - 1 status (`status_indices`);
 - 5 guias (`guia_*`) com receitas de composição para agentes.
 
 Principais grupos:
 
-- Legislação: `buscar_legislacao`, `obter_artigo`, `listar_normas`.
+- Legislação: busca e navegação por artigos.
 - Localidades e classificações: IBGE, CNAE, CATMAT/CATSER.
-- Fornecedores: Receita, CGU, SICAF, sócios e sanções.
-- Compras públicas: PNCP, Câmara, CAPAG, Querido Diário.
-- Eleitoral: doações, fornecedores de campanha, candidatos e bens.
+- Fornecedores: Receita, CGU, SICAF, sócios, sanções e TCU.
+- Compras públicas: PNCP, Painel de Preços, SINAPI, Transferegov e despesas federais.
+- Política e fiscal: TSE, Câmara, Senado, CAPAG e SICONFI.
 
 Use `status_indices` para ver o que já está indexado localmente.
 

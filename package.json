@@ -10,6 +10,8 @@
   "scripts": {
     "check": "bun run typecheck && bun run lint:errors && bun run test:unit",
     "index": "bun src/index.ts index",
+    "infra:deploy": "bun alchemy deploy ./infra/alchemy.run.ts",
+    "infra:destroy": "bun alchemy destroy ./infra/alchemy.run.ts",
     "lint:errors": "bun tooling/static-checks/check-declarative-errors.ts",
     "prepublishOnly": "bun run check",
     "start": "bun src/index.ts",
@@ -53,11 +55,13 @@
     "@electric-sql/pglite-socket": "0.2.2",
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "alchemy": "2.0.0-beta.56",
     "cheerio": "^1.2.0",
     "drizzle-orm": "^1.0.0-rc.3",
     "effect": "4.0.0-beta.81"
   },
   "devDependencies": {
+    "@effect/platform-node": "4.0.0-beta.81",
     "@effect/vitest": "4.0.0-beta.81",
     "@types/bun": "latest",
     "typescript": "^6.0.3",
