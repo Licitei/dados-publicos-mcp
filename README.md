@@ -308,6 +308,16 @@ bunx --bun dados-publicos-mcp index
 bunx --bun dados-publicos-mcp
 ```
 
+## Setup local (canonico)
+
+O setup local canonico e `bun run infra:deploy`: ele provisiona o unico banco
+PGlite (as quatro extensoes + a DDL de todas as tabelas) pelo recurso Alchemy
+`Mcp.LocalDatabase` (em `infra/`). E idempotente — um redeploy e no-op quando a
+DDL das tabelas nao mudou (o recurso faz hash da assinatura `getTableConfig` de
+cada tabela e so re-roda a DDL se o hash mudar), entao pode rodar a cada
+checkout. `bun run infra:destroy` desfaz a stack. Depois, `index <fonte>`
+constroi os indices.
+
 ## Persistencia
 
 Todo o estado vive num **unico banco PGlite** no diretorio de dados. A variavel
