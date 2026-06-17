@@ -10,4 +10,7 @@ coverage
 *.db-wal
 .cache/
 
+# Alchemy state (gerado por infra:deploy, local da maquina)
+.alchemy/
+
 .claude/worktrees/
