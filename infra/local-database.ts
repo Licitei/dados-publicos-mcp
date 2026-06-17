@@ -7,10 +7,10 @@ import * as Layer from "effect/Layer";
 import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
-import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import { Db, DbConfig, DbLayer } from "../src/kernel/db/client";
 import { tableDdl } from "../src/kernel/db/ddl";
 import { allTables } from "./tables";
+import { McpProviders } from "./providers";
 
 export const extensions: readonly string[] = [
   "vector",
@@ -26,32 +26,31 @@ const defaultBaseDir = () => {
   return join(home, appDirName);
 };
 
+const dataDirPath = (explicit?: string) =>
+  explicit ?? process.env.DADOS_PUBLICOS_MCP_DATA_DIR ?? defaultBaseDir();
+
 const resolveDataDir = (explicit?: string) => {
-  const dir =
-    explicit ?? process.env.DADOS_PUBLICOS_MCP_DATA_DIR ?? defaultBaseDir();
+  const dir = dataDirPath(explicit);
   mkdirSync(dir, { recursive: true });
   return dir;
 };
 
-const tableFingerprint = (table: PgTable) => {
-  const config = getTableConfig(table);
-  const columns = config.columns
-    .map(
-      (column) =>
-        `${column.name}:${column.getSQLType()}:${column.primary ? "pk" : ""}:${column.notNull ? "nn" : ""}`
-    )
-    .join(",");
-  const indexes = config.indexes
-    .map((entry) => `${entry.config.name}:${entry.config.method ?? ""}`)
-    .sort()
-    .join(",");
-  return `${config.name}(${columns})[${indexes}]`;
-};
+const renderStatement = (statement: { queryChunks: ReadonlyArray<unknown> }) =>
+  statement.queryChunks
+    .map((chunk) => {
+      const value = (chunk as { value?: unknown }).value;
+      return Array.isArray(value) ? value.join("") : "";
+    })
+    .join("");
+
+export const schemaDdl = () =>
+  [
+    ...extensions,
+    ...allTables.flatMap((table) => tableDdl(table)).map(renderStatement),
+  ].join("\n");
 
 export const schemaHash = () =>
-  createHash("sha256")
-    .update([...extensions, ...allTables.map(tableFingerprint)].join("\n"))
-    .digest("hex");
+  createHash("sha256").update(schemaDdl()).digest("hex");
 
 export type LocalDatabaseProps = {
   dataDir?: string;
@@ -69,7 +68,7 @@ export type LocalDatabase = Resource<
   LocalDatabaseProps,
   LocalDatabaseAttributes,
   never,
-  Providers
+  McpProviders
 >;
 
 export const LocalDatabase = Resource<LocalDatabase>("Mcp.LocalDatabase");
@@ -101,27 +100,17 @@ const provision = (props: LocalDatabaseProps) => {
   );
 };
 
-export class Providers extends Provider.ProviderCollection<Providers>()(
-  "Mcp"
-) {}
-
 export const LocalDatabaseProvider = () =>
   Provider.effect(
     LocalDatabase,
     Effect.gen(function* () {
       return {
         list: () => Effect.succeed([]),
-        read: Effect.fn(function* ({ olds, output }) {
-          if (!output) return undefined;
-          const dataDir = resolveDataDir(olds?.dataDir ?? output.dataDir);
-          if (!existsSync(dataDir)) return undefined;
-          if (output.schemaHash !== schemaHash()) return undefined;
-          return { ...output, dataDir };
-        }),
         diff: Effect.fn(function* ({ news, output }) {
           if (!isResolved(news)) return undefined;
           if (!output) return undefined;
-          return output.schemaHash !== schemaHash()
+          const provisioned = existsSync(dataDirPath(news.dataDir));
+          return !provisioned || output.schemaHash !== schemaHash()
             ? { action: "update" }
             : undefined;
         }),
@@ -139,7 +128,7 @@ export const LocalDatabaseProvider = () =>
   );
 
 export const providers = () =>
-  Layer.effect(Providers, Provider.collection([LocalDatabase])).pipe(
+  Layer.effect(McpProviders, Provider.collection([LocalDatabase])).pipe(
     Layer.provide(LocalDatabaseProvider()),
     Layer.orDie
   );

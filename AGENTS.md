@@ -63,8 +63,8 @@ bun run check                                 # THE GATE — make it green befor
 The canonical local setup is `bun run infra:deploy` — it provisions the single PGlite database (the
 four extensions + every table's DDL) via the `Mcp.LocalDatabase` Alchemy resource (`infra/`, outside
 the v2-strict tier). It is idempotent: a redeploy is a **no-op** when the table DDL is unchanged (the
-resource hashes the public `getTableConfig` fingerprint of every table and skips the DDL unless the
-hash drifts), so it is safe to run on every checkout. `bun run infra:destroy` tears the stack down.
+resource sha256-hashes the rendered `tableDdl` of every table and skips the DDL unless the hash
+drifts or the dataDir was removed off disk), so it is safe to run on every checkout. `bun run infra:destroy` tears the stack down.
 Prefer it over ad-hoc `index` runs for first-time setup; `index <fonte>` then fills the indices.
 
 ## The static checks (`bun run lint:errors`)

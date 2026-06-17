@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Test from "alchemy/Test/Vitest";
@@ -49,6 +49,22 @@ describe("LocalDatabase", () => {
       );
       expect(second.schemaHash).toEqual(first.schemaHash);
       expect(second).toEqual(first);
+
+      yield* stack.destroy();
+    })
+  );
+
+  test.provider("re-provisiona quando o dataDir foi removido do disco", (stack) =>
+    Effect.gen(function* () {
+      const dataDir = mkdtempSync(join(tmpdir(), "alchemy-local-db-"));
+
+      yield* LocalDatabase("local-db", { dataDir }).pipe(stack.deploy);
+      rmSync(dataDir, { recursive: true, force: true });
+      expect(existsSync(dataDir)).toBe(false);
+
+      const plan = yield* stack.plan(LocalDatabase("local-db", { dataDir }));
+      const node = Object.values(plan.resources)[0];
+      expect(node?.action).toEqual("update");
 
       yield* stack.destroy();
     })
