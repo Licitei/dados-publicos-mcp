@@ -1,20 +1,10 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { despesaFederal } from "../../kernel/db/schemas/despesa-federal";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultAnoMes, indexMes } from "./indexer";
 import { toAnoMes } from "./catalog";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(despesaFederal),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const despesaView = sql`
   ano_mes as "anoMes", cod_orgao_superior as "codOrgaoSuperior",
@@ -33,7 +23,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeTransparenciaDespesas = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const despesasPorOrgao = (codOrgaoSuperior: string, limit: number) =>

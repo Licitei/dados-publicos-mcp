@@ -1,7 +1,6 @@
 import { Clock, Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { capagEstado } from "../../kernel/db/schemas/capag-estado";
 import { capagMunicipio } from "../../kernel/db/schemas/capag-municipio";
 import { siconfiEnte } from "../../kernel/db/schemas/siconfi-ente";
@@ -12,20 +11,6 @@ import { fetchSnapshot } from "./indexer";
 type EstadoRow = typeof capagEstado.$inferInsert;
 type MunicipioRow = typeof capagMunicipio.$inferInsert;
 type EnteRow = typeof siconfiEnte.$inferInsert;
-
-const tables = [capagEstado, capagMunicipio, siconfiEnte] as const;
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tables,
-    (table) =>
-      Effect.forEach(tableDdl(table), (statement) => db.execute(statement), {
-        discard: true,
-      }),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -101,7 +86,6 @@ const municipioToEnte = (
 });
 
 const makeCapag = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const replaceAll = (snapshot: {

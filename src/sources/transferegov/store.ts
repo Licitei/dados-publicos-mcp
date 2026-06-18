@@ -1,19 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { convenio } from "../../kernel/db/schemas/convenio";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { indexAll } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(convenio),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const convenioView = sql`
   nr_convenio as "nrConvenio", id_proposta as "idProposta", situacao,
@@ -31,7 +21,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeTransferegov = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const conveniosDoProponente = (documentoInput: string) =>

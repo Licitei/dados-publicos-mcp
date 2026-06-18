@@ -1,19 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { fornecedor } from "../../kernel/db/schemas/fornecedor";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { indexFornecedores } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(fornecedor),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const viewColumns = {
   cnpj: true,
@@ -35,7 +25,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeSicaf = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const bm25Fornecedores = (q: string, limit: number, ativoWhere: SQL) =>

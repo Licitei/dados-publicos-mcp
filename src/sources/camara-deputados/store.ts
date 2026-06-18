@@ -1,7 +1,6 @@
 import { Clock, Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { cota } from "../../kernel/db/schemas/despesa-camara";
 import { deputado } from "../../kernel/db/schemas/deputado";
 import { proposicao } from "../../kernel/db/schemas/proposicao";
@@ -20,20 +19,6 @@ import {
   indexProposicaoAutores,
   loadProposicoes,
 } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [
-      ...tableDdl(deputado),
-      ...tableDdl(cota),
-      ...tableDdl(proposicao),
-      ...tableDdl(proposicaoAutor),
-    ],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -86,7 +71,6 @@ const proposicaoView = sql`
 `;
 
 const makeCamara = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
   const embedder = yield* Embedder;
 

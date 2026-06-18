@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
@@ -11,20 +11,12 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import * as Pg from "@effect/sql-pg/PgClient";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
-import { sql } from "drizzle-orm";
 import { relations } from "./relations";
-
-const extensions = ["vector", "pg_textsearch", "ltree", "pg_trgm"];
 
 const socketPort = 5432;
 const socketFile = `.s.PGSQL.${socketPort}`;
 
-const DbErrorCode = Schema.Literals([
-  "db.OPEN",
-  "db.CONNECT",
-  "db.DRIVER",
-  "db.EXTENSION",
-]);
+const DbErrorCode = Schema.Literals(["db.OPEN", "db.CONNECT", "db.DRIVER"]);
 export type DbErrorCode = (typeof DbErrorCode)["Type"];
 
 export class DbError extends Schema.TaggedErrorClass<DbError>()("DbError", {
@@ -39,8 +31,6 @@ export class DbError extends Schema.TaggedErrorClass<DbError>()("DbError", {
         return "Falha ao conectar ao banco local.";
       case "db.DRIVER":
         return "Falha ao inicializar o driver do banco.";
-      case "db.EXTENSION":
-        return "Falha ao habilitar as extensoes do banco.";
     }
   }
 }
@@ -76,10 +66,11 @@ const makeDb = Effect.gen(function* () {
         },
         catch: (cause) => new DbError({ code: "db.OPEN", cause: String(cause) }),
       }),
-      ({ pglite, server }) =>
+      ({ pglite, server, dir }) =>
         Effect.promise(async () => {
           await server.stop();
           await pglite.close();
+          await rm(dir, { recursive: true, force: true });
         })
     );
 
@@ -99,17 +90,6 @@ const makeDb = Effect.gen(function* () {
       Effect.provide(PgDrizzle.DefaultServices),
       Effect.mapError(
         (cause) => new DbError({ code: "db.DRIVER", cause: String(cause) })
-      )
-    );
-
-    yield* Effect.forEach(
-      extensions,
-      (name) =>
-        db.execute(sql`create extension if not exists ${sql.identifier(name)}`),
-      { discard: true }
-    ).pipe(
-      Effect.mapError(
-        (cause) => new DbError({ code: "db.EXTENSION", cause: String(cause) })
       )
     );
 

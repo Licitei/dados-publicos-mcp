@@ -51,21 +51,28 @@ src/sources/<fonte>/store.ts
 src/kernel/db/schemas/<tabela>.ts
 ```
 
+O store **não cria o próprio schema**: ele assume que as tabelas já existem. O
+provisionamento (extensões + DDL) é centralizado e roda via Alchemy
+(`infra/`) / o comando `index`.
+
 Também atualize:
 
+- `src/kernel/db/schema-registry.ts` — registre a tabela em `dbSources` (isso
+  alimenta `allDbTables`, o DDL/hash e o `status_indices`);
 - `src/kernel/db/relations.ts`, se houver relação nova;
 - `src/runtime.ts`;
 - `src/serve/tools/<fonte>.ts`;
 - `src/serve/registry.ts`;
-- `src/serve/index-registry.ts`;
-- `src/serve/status.ts`.
+- `src/serve/index-registry.ts`.
+
+`src/serve/status.ts` deriva o layout do registry — não precisa de edição.
 
 ## Testes
 
 - Unitários ficam em `tests/unit/*.unit.test.ts`.
 - Integração fica em `tests/integration/*.integration.test.ts`.
 - Não dependa de rede pública em testes.
-- Prefira banco PGlite efêmero em teste.
+- Prefira banco PGlite efêmero em teste: use `TestDbLive` (`tests/unit/support/test-db.ts`), que provê `DbLayer` + `provisionSchema` (extensões + todas as tabelas).
 
 ## PR bom
 

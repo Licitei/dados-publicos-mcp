@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { diario } from "../../kernel/db/schemas/diario";
 import { diarioCnpj } from "../../kernel/db/schemas/diario-cnpj";
 import { Embedder } from "../../kernel/embed/embedder";
@@ -15,15 +14,6 @@ import {
   type DiarioFlat,
 } from "./catalog";
 import { loadDiarios } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [...tableDdl(diario), ...tableDdl(diarioCnpj)],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -51,7 +41,6 @@ const diarioView = sql`
 `;
 
 const makeQueridoDiario = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
   const embedder = yield* Embedder;
 

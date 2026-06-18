@@ -2,12 +2,12 @@ import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   QueridoDiario,
   QueridoDiarioLive,
 } from "../../src/sources/querido-diario/store";
 import { EmbedderStub } from "./support/embedder-stub";
+import { TestDbLive } from "./support/test-db";
 
 const concat = (...parts: Uint8Array[]) => {
   const total = parts.reduce((n, p) => n + p.length, 0);
@@ -156,9 +156,9 @@ const HttpStub = FetchHttpClient.layer.pipe(
 
 const TestLayer = Layer.mergeAll(
   QueridoDiarioLive.pipe(
-    Layer.provide(Layer.mergeAll(DbLayer, EmbedderStub, HttpStub))
+    Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub))
   ),
-  DbLayer,
+  TestDbLive,
   EmbedderStub,
   HttpStub
 );

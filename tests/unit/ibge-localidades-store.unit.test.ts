@@ -2,11 +2,12 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import {
   IbgeLocalidades,
   IbgeLocalidadesLive,
 } from "../../src/sources/ibge-localidades/store";
+import { TestDbLive } from "./support/test-db";
 
 const uf = (sigla: string, id: number, nome: string) => ({
   id,
@@ -68,8 +69,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  IbgeLocalidadesLive.pipe(Layer.provide(DbLayer)),
-  DbLayer,
+  IbgeLocalidadesLive.pipe(Layer.provide(TestDbLive)),
+  TestDbLive,
   HttpStub
 );
 

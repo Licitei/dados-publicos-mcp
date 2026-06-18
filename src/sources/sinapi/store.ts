@@ -1,19 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { sinapiInsumo } from "../../kernel/db/schemas/sinapi-insumo";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultReferencia, indexReferencia } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(sinapiInsumo),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const insumoView = sql`
   mes_referencia as "mesReferencia", codigo, descricao, unidade, origem,
@@ -26,7 +16,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeSinapi = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const precoPorCodigo = (codigo: string, uf: string | undefined) =>

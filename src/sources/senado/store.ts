@@ -1,21 +1,11 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { ceapsDespesa } from "../../kernel/db/schemas/ceaps-despesa";
 import { senador } from "../../kernel/db/schemas/senador";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultAno } from "./catalog";
 import { indexCeapsAno, indexSenadores } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [...tableDdl(senador), ...tableDdl(ceapsDespesa)],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const ceapsViewColumns = {
   ano: true,
@@ -45,7 +35,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeSenado = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const buscarSenador = (nome: string, limit: number) =>

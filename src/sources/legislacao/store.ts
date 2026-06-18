@@ -1,20 +1,12 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { and, cosineDistance, eq, sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { node } from "../../kernel/db/schemas/legislacao";
 import { Embedder } from "../../kernel/embed/embedder";
 import { LegislacaoError, buildTree, normas, type Norma } from "./catalog";
 import { fetchLines, passage, summarize } from "./indexer";
 
 export type NodeRow = typeof node.$inferInsert;
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(tableDdl(node), (statement) => db.execute(statement), {
-    discard: true,
-  });
-});
 
 export const replaceNorma = (normaId: string, rows: readonly NodeRow[]) =>
   Effect.gen(function* () {
@@ -37,8 +29,6 @@ const defaultLimit = 10;
 const makeLegislacao = Effect.gen(function* () {
   const db = yield* Db;
   const embedder = yield* Embedder;
-
-  yield* createSchema;
 
   const getNode = (path: string) =>
     db.query.node

@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { dominio } from "../../kernel/db/schemas/dominio";
 import { empresa } from "../../kernel/db/schemas/empresa";
 import { estabelecimento } from "../../kernel/db/schemas/estabelecimento";
@@ -18,21 +17,6 @@ import {
   situacaoCodigo,
 } from "./catalog";
 import { indexReceitaCnpj } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [
-      ...tableDdl(empresa),
-      ...tableDdl(estabelecimento),
-      ...tableDdl(socio),
-      ...tableDdl(simples),
-      ...tableDdl(dominio),
-    ],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -73,7 +57,6 @@ const estabFiltroColumns = {
 } as const;
 
 const makeReceitaCnpj = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const consultarCnpj = (cnpj: string) =>

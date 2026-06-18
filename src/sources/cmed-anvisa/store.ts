@@ -1,19 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { medicamentoCmed } from "../../kernel/db/schemas/medicamento-cmed";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { indexCmed } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(medicamentoCmed),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const medicamentoView = sql`
   substancia, cnpj, doc_normalizado as "docNormalizado", laboratorio,
@@ -28,7 +18,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeCmed = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const bm25Medicamento = (q: string, limit: number) =>

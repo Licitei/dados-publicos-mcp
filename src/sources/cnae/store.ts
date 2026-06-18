@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { cnae } from "../../kernel/db/schemas/cnae";
 import { Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
@@ -15,13 +14,6 @@ import {
 import { fetchSubclasses } from "./indexer";
 
 type CnaeRow = typeof cnae.$inferInsert;
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(tableDdl(cnae), (statement) => db.execute(statement), {
-    discard: true,
-  });
-});
 
 export const replaceAll = (rows: readonly CnaeRow[]) =>
   Effect.gen(function* () {
@@ -70,7 +62,6 @@ const whereForLevel = (nivel: CnaeNivel, value: string) =>
   );
 
 const makeCnae = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
   const embedder = yield* Embedder;
 

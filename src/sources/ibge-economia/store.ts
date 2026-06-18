@@ -1,20 +1,10 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { municipioEconomia } from "../../kernel/db/schemas/municipio-economia";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultAno } from "./catalog";
 import { indexAno } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(municipioEconomia),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const economiaView = sql`
   cod_ibge as "codIbge", nome, uf, ano, populacao,
@@ -32,7 +22,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeIbgeEconomia = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const economiaPorCodigo = (codIbgeInput: string) =>

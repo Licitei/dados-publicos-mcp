@@ -1,7 +1,6 @@
 import { Clock, Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { bem } from "../../kernel/db/schemas/bem";
 import { candidato } from "../../kernel/db/schemas/candidato";
 import { despesa } from "../../kernel/db/schemas/despesa";
@@ -10,21 +9,6 @@ import { receitaOriginario } from "../../kernel/db/schemas/receita-originario";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { ehDocumento, TseError } from "./catalog";
 import { indexBens, indexCandidatos, indexPrestacao } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [
-      ...tableDdl(candidato),
-      ...tableDdl(bem),
-      ...tableDdl(receita),
-      ...tableDdl(despesa),
-      ...tableDdl(receitaOriginario),
-    ],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const doacaoView = sql`
   r.cpf_cnpj_doador as "cpfCnpjDoador", r.nome_doador as "nomeDoador",
@@ -81,7 +65,6 @@ const candidatoView = sql`
 `;
 
 const makeTse = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const bm25Candidatos = (q: string, limit: number, anoWhere: SQL) =>

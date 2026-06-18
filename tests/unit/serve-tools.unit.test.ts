@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import { foldExit } from "../../src/serve/fold";
 import { indexRegistry } from "../../src/serve/index-registry";
 import { tools } from "../../src/serve/registry";
@@ -30,6 +29,7 @@ import { TransparenciaDespesasLive } from "../../src/sources/transparencia-despe
 import { TransferegovLive } from "../../src/sources/transferegov/store";
 import { TseEleitoralLive } from "../../src/sources/tse-eleitoral/store";
 import { EmbedderStub } from "./support/embedder-stub";
+import { TestDbLive } from "./support/test-db";
 
 const uf = (sigla: string, id: number, nome: string) => ({
   id,
@@ -68,7 +68,7 @@ const HttpStub = FetchHttpClient.layer.pipe(
   Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
 );
 
-const Infra = Layer.mergeAll(DbLayer, EmbedderStub, HttpStub);
+const Infra = Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub);
 
 const TestLayer = Layer.mergeAll(
   LegislacaoLive,

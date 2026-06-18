@@ -1,7 +1,7 @@
 import { Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../../src/kernel/db/client";
 import { EmbedderStub } from "../../unit/support/embedder-stub";
+import { TestDbLive } from "../../unit/support/test-db";
 import { CamaraDeputadosLive } from "../../../src/sources/camara-deputados/store";
 import { CapagLive } from "../../../src/sources/capag/store";
 import { CatmatCatserLive } from "../../../src/sources/catmat-catser/store";
@@ -35,7 +35,7 @@ const HttpStub = FetchHttpClient.layer.pipe(
   Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchStub))
 );
 
-const Infra = Layer.mergeAll(DbLayer, EmbedderStub, HttpStub);
+const Infra = Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub);
 
 export const offlineSources = Layer.mergeAll(
   LegislacaoLive,

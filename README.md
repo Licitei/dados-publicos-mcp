@@ -54,22 +54,26 @@ Requisitos: Bun 1.1+.
 
 ## Uso
 
-Preparar o banco local:
+O Alchemy trata a sua máquina como infraestrutura local: ele provisiona o banco
+PGlite (dataDir + extensões + DDL). O runtime só abre e consulta o que já foi
+provisionado.
+
+Preparar o banco local (extensões + tabelas):
 
 ```bash
 bun run infra:deploy
+```
+
+Indexar fontes leves (já provisiona o schema automaticamente via Alchemy):
+
+```bash
+bun run index
 ```
 
 Rodar o servidor MCP por stdio:
 
 ```bash
 bun run start
-```
-
-Indexar fontes leves:
-
-```bash
-bun run index
 ```
 
 Indexar uma fonte específica:
@@ -129,6 +133,7 @@ Use `status_indices` para ver o que já está indexado localmente.
 ## Arquitetura curta
 
 - Runtime: Bun + TypeScript + Effect.
+- Infra local: Alchemy (Effect-native) provisiona dataDir, extensões e DDL; o runtime só abre/consulta.
 - Banco: PGlite local com Drizzle.
 - Busca: BM25, pgvector, trigram e ltree.
 - Transporte: MCP stdio.
