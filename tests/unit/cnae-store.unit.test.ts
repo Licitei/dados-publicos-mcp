@@ -2,9 +2,10 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import { Cnae, CnaeLive } from "../../src/sources/cnae/store";
 import { EmbedderStub } from "./support/embedder-stub";
+import { TestDbLive } from "./support/test-db";
 
 const secaoJ = { id: "J", descricao: "Informacao e Comunicacao" };
 const secaoA = {
@@ -76,8 +77,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  CnaeLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, EmbedderStub, HttpStub))),
-  DbLayer,
+  CnaeLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub))),
+  TestDbLive,
   EmbedderStub,
   HttpStub
 );

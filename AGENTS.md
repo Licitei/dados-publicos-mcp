@@ -25,7 +25,8 @@ the low-level MCP SDK `Server`, and one CLI. Every file you touch follows the v2
 ```
 src/
   kernel/              shared infrastructure (the toolbox)
-    db/                ONE PGlite db: client.ts, persistence.ts, ddl.ts, relations.ts, schemas/*
+    db/                ONE PGlite db: client.ts, persistence.ts, data-dir.ts, ddl.ts,
+                       schema-registry.ts, provision.ts, relations.ts, schemas/*
     embed/             local embeddings (@huggingface/transformers, multilingual-e5-small)
     http/              the gold-standard HTTP client (getJson + Schema decode + classified retry)
     csv/ zip/ xlsx/ text/   parsing kernels reused across sources
@@ -60,12 +61,24 @@ bun run check                                 # THE GATE — make it green befor
 **no CI** — `check` is the only gate; `prepublishOnly` re-runs it. The integration suite is separate
 (`bun run test:integration`, `vitest.integration.config.ts`).
 
-The canonical local setup is `bun run infra:deploy` — it provisions the single PGlite database (the
-four extensions + every table's DDL) via the `Mcp.LocalDatabase` Alchemy resource (`infra/`, outside
-the v2-strict tier). It is idempotent: a redeploy is a **no-op** when the table DDL is unchanged (the
-resource sha256-hashes the rendered `tableDdl` of every table and skips the DDL unless the hash
-drifts or the dataDir was removed off disk), so it is safe to run on every checkout. `bun run infra:destroy` tears the stack down.
-Prefer it over ad-hoc `index` runs for first-time setup; `index <fonte>` then fills the indices.
+**Alchemy owns the local infrastructure.** The user's machine is treated as infra: the dataDir, the
+four PGlite extensions, and every table's DDL are provisioned through Effect-native Alchemy resources
+in `infra/` (outside the v2-strict tier, but the same Effect idiom — `FileSystem`/`Path`/`Config`, no
+node `fs`-sync, no `process.env`). The single source of the schema is `src/kernel/db/schema-registry.ts`
+(`dbSources` → `allDbTables` / `tableGroupsBySource` / `schemaDdlText`); `src/kernel/db/provision.ts`
+(`provisionSchema`) creates the extensions + every table.
+
+- `bun run infra:deploy` provisions the database (extensions + DDL) via the `Mcp.LocalDatabase`
+  resource. Idempotent: a redeploy is a **no-op** while the schema sha256 (`schemaHash()` over
+  `schemaDdlText`) is unchanged and the dataDir still exists on disk. `bun run infra:destroy` tears the
+  `DadosPublicosLocal` stack down (it does **not** wipe the dataDir).
+- `bun run index [<fonte>]` is **Alchemy-backed too**: it deploys `Mcp.LocalIndex` resources
+  (`deployIndex`/`deployAll` in `infra/local-index.run.ts`, stack `DadosPublicosIndex`). Each index
+  runs `provisionSchema` then the source's index pipeline in the **same** runtime connection, so a
+  fresh checkout can `index` directly without a separate `infra:deploy`. A re-index is a no-op unless
+  the scope (`scopeHash`) or schema (`schemaHash`) changed.
+
+The runtime never provisions: `serve` only **opens** the already-provisioned dataDir and queries it.
 
 ## The static checks (`bun run lint:errors`)
 
@@ -122,7 +135,10 @@ module); declared data + combinators over imperative glue.
 There is a single local Postgres-in-process (PGlite) opened once per process in
 `src/kernel/db/client.ts`. It runs over a unix socket via `@electric-sql/pglite-socket`, exposed to
 Effect as a genuine `@effect/sql-pg` `PgClient`, with Drizzle (`drizzle-orm/effect-postgres`,
-`relations` from `db/relations.ts`) on top. Four extensions are enabled on boot:
+`relations` from `db/relations.ts`) on top. `client.ts` loads the four extension **modules** into
+PGlite (`PGlite.create({ extensions: { vector, pg_textsearch, ltree, pg_trgm } })`) but no longer runs
+any `create extension` / DDL — opening the db is pure. The `create extension` statements are run by
+`provisionSchema` (kernel) on behalf of Alchemy / the index path, not on boot. Four extensions:
 
 | extension | role |
 |---|---|
@@ -131,19 +147,23 @@ Effect as a genuine `@effect/sql-pg` `PgClient`, with Drizzle (`drizzle-orm/effe
 | `ltree` | hierarchical paths (e.g. legislation `art1.par2.inc3`) + GiST index |
 | `pg_trgm` | fuzzy/typo-tolerant name matching |
 
-**Persistence**: `DbConfig` is a `Context.Reference<{ dataDir?: string }>`. `src/kernel/db/persistence.ts`
-(`DbPersistenceLive`) resolves the data dir from `Config` and provides it: it reads
-`DADOS_PUBLICOS_MCP_DATA_DIR`, else a platform default (`$XDG_DATA_HOME` or `$HOME/.local/share` on
-linux/mac, `LOCALAPPDATA`/`APPDATA`/`%USERPROFILE%\AppData\Local` on win32), always under
-`dados-publicos-mcp/`, and `makeDirectory(..., { recursive: true })`. Provided beneath `DbLayer` in
-`runtime.ts`, this makes indexes **persist across runs**. When `DbConfig` is left at its default `{}`
-(as tests do, providing `DbLayer` directly) PGlite opens **ephemeral**.
+**Persistence**: `DbConfig` is a `Context.Reference<{ dataDir?: string }>`. The dataDir resolution
+lives once in `src/kernel/db/data-dir.ts`: `dataDirPath` (pure — `Config` env reads via `Path`, no
+`fs`) reads `DADOS_PUBLICOS_MCP_DATA_DIR`, else a platform default (`$XDG_DATA_HOME` or
+`$HOME/.local/share` on linux/mac, `LOCALAPPDATA`/`APPDATA`/`%USERPROFILE%\AppData\Local` on win32),
+always under `dados-publicos-mcp/`; `ensureDataDir` adds the `makeDirectory(..., { recursive: true })`.
+`src/kernel/db/persistence.ts` (`DbPersistenceLive`, provided beneath `DbLayer` in `runtime.ts`) uses
+**`dataDirPath` only** — the runtime resolves but never creates the dir (PGlite opens it; Alchemy's
+`ensureDataDir` owns the mkdir). This makes indexes **persist across runs**. When `DbConfig` is left at
+its default `{}` PGlite opens **ephemeral** (tests use `TestDbLive` = `DbLayer` + `provisionSchema`).
 
-Per-source DDL lives next to the slice — each source's table schemas are in
-`src/kernel/db/schemas/<table>.ts` (Drizzle `pgTable` with the BM25 / HNSW / GiST / trgm indices
-declared inline), and `db/ddl.ts` derives the `create table`/`create index` statements a source runs
-to (re)create its own schema. Rebuilds are in-place inside a transaction (`delete` + `insert`), never
-by dropping the database.
+Table schemas live in `src/kernel/db/schemas/<table>.ts` (Drizzle `pgTable` with the BM25 / HNSW /
+GiST / trgm indices declared inline). `db/ddl.ts` renders each table's `create table`/`create index`
+text (`tableDdlText`) and SQL (`tableDdl`); `db/schema-registry.ts` is the single registry mapping
+each source to its tables and deriving `allDbTables`, `tableGroupsBySource` (used by `status_indices`)
+and `schemaDdlText` (hashed for the Alchemy diff). **Stores no longer create their own schema** —
+provisioning is centralized in `provision.ts` and run by Alchemy / the index path. Rebuilds are
+in-place inside a transaction (`delete` + `insert`), never by dropping the database.
 
 ## Search — BM25 ⊕ pgvector RRF (⊕ trgm, ⊕ ltree)
 
@@ -165,19 +185,23 @@ article/section resolution in legislation (`lquery` matches like `root.*.artN`, 
 Use the **`effect-v4-source-authoring`** skill; the worked example is `src/sources/legislacao/`. A
 slice is three files plus its table schema(s):
 
-1. **`db/schemas/<table>.ts`** (+ entry in `db/relations.ts`): the Drizzle `pgTable`, with BM25 /
-   HNSW / GiST / trgm indices declared inline as needed.
+1. **`db/schemas/<table>.ts`** (+ entry in `db/relations.ts` **and** in `db/schema-registry.ts`'s
+   `dbSources`): the Drizzle `pgTable`, with BM25 / HNSW / GiST / trgm indices declared inline as
+   needed. Registering the table in `schema-registry.ts` is what makes it provisioned, hashed, and
+   counted by `status_indices` — there is no separate table list to keep in sync.
 2. **`sources/<x>/catalog.ts`**: declared static data (the source's URLs / norms / modalidades /
    error catalog as a `Schema.TaggedErrorClass`) and pure tree/shape builders.
 3. **`sources/<x>/indexer.ts`**: fetch via the kernel http client, parse via a kernel
    (`csv`/`zip`/`xlsx`/`text`), map to rows, embed passages. Bounded fan-out, classified retry.
 4. **`sources/<x>/store.ts`**: the `Context.Service` (`make` gen function returning the read/index
-   methods: `index`, `search`, getters) + exported `Layer.effect`. Owns `createSchema`, in-place
-   `replace*` transactions, and the RRF/trgm/ltree queries.
+   methods: `index`, `search`, getters) + exported `Layer.effect`. The store **assumes its tables
+   already exist** (it does not create schema); it owns the in-place `replace*` transactions and the
+   RRF/trgm/ltree queries.
 
-Then wire it: add the `XLive` layer to `AppLayer` in `runtime.ts`, the service tools in
-`src/serve/tools/<x>.ts`, register them in `src/serve/registry.ts`, add the `FonteKey` literal +
-`indexRegistry` entry (and `status.ts` layout) in `src/serve/`.
+Then wire it: register the table in `db/schema-registry.ts`, add the `XLive` layer to `AppLayer` in
+`runtime.ts`, the service tools in `src/serve/tools/<x>.ts`, register them in `src/serve/registry.ts`,
+and add the `FonteKey` literal + `indexRegistry` entry in `src/serve/`. (`status.ts` derives its layout
+from the registry — nothing to add there.)
 
 ## The serve tool layer
 
@@ -212,12 +236,14 @@ is the one introspection tool.
 ## The CLI & runtime
 
 `src/index.ts` is `effect/unstable/cli` (`Command`/`Flag`/`Argument`), run via `BunRuntime.runMain`
-with `@effect/platform-bun`'s `BunServices.layer` satisfying the CLI `Environment`
-(FileSystem/Path/Terminal/Stdio/...). The **root command with no subcommand** is `serve()` (stdio MCP
-server). The **`index` subcommand** takes an optional `<fonte>` and `--all`/`--include-heavy`/
-`--ufs`/`--anos`/`--mes` flags; it resolves the source via `FonteKey` and runs that source's index
-effect against the shared `runtime` (so it shares the same persistent DB). An unknown fonte or an
-index failure `Effect.fail`s a tagged error → non-zero exit; all output goes through `Console`.
+with `@effect/platform-bun`'s `BunServices.layer`. The **root command with no subcommand** is `serve()`
+(stdio MCP server). The **`index` subcommand** takes an optional `<fonte>` and `--include-heavy`/
+`--ufs`/`--anos`/`--mes` flags; it resolves the source via `FonteKey` and **deploys it through
+Alchemy** — `deployIndex`/`deployAll` (`infra/local-index.run.ts`) run the programmatic `deploy` from
+`alchemy/Deploy` (providing `Cli`/`AlchemyContext`/`State`/`FileSystem`/`Path`) over `Mcp.LocalIndex`
+resources. Each `LocalIndex` reconcile runs `provisionSchema` then the source's index effect against
+the shared `runtime`, so schema and index land in one persistent connection. An unknown fonte
+`Effect.fail`s a tagged error → non-zero exit; all output goes through `Console`.
 
 `src/runtime.ts` is a single `ManagedRuntime` over `AppLayer` = the 21 source `XLive` layers
 `provideMerge` `Infra` (`DbLayer` over the persistence layer ⊕ `EmbedderLive` ⊕
@@ -227,10 +253,14 @@ index failure `Effect.fail`s a tagged error → non-zero exit; all output goes t
 
 `@effect/vitest` only (no `bun test`, no `__tests__/`). `tests/unit/*.unit.test.ts` and
 `tests/integration/*.integration.test.ts`: `it.effect` runs the Effect with a `TestContext`; stub I/O
-via injected layers (e.g. `FetchHttpClient.Fetch`); drive retry/timeout with `TestClock`. Tests
-provide `DbLayer` directly with the default `DbConfig` `{}` → **ephemeral** PGlite (the persistence
-layer only lives in the real runtime). No public network in either runner; bind local servers to
-`127.0.0.1:0`; cross-platform temp via `mkdtemp(join(tmpdir(), …))`.
+via injected layers (e.g. `FetchHttpClient.Fetch`); drive retry/timeout with `TestClock`. Because
+stores no longer self-provision, tests provide **`TestDbLive`** (`tests/unit/support/test-db.ts` =
+`DbLayer` + a one-time `provisionSchema` over **ephemeral** PGlite) wherever they used the raw
+`DbLayer`; a single `TestDbLive` reference is memoized across the layer graph, so the same db + one
+provisioning is shared. No public network in either runner; bind local servers to `127.0.0.1:0`;
+cross-platform temp via `mkdtemp(join(tmpdir(), …))`. The Alchemy resources are covered by
+`tests/integration/{local-database,local-index,index-bundle}.integration.test.ts` via the
+`alchemy/Test/Vitest` harness.
 
 ## Pointers
 

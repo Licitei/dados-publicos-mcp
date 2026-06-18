@@ -2,12 +2,13 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import {
   CatmatCatser,
   CatmatCatserLive,
 } from "../../src/sources/catmat-catser/store";
 import { EmbedderStub } from "./support/embedder-stub";
+import { TestDbLive } from "./support/test-db";
 
 const material = (
   codigoItem: number,
@@ -146,9 +147,9 @@ const HttpStub = FetchHttpClient.layer.pipe(
 
 const TestLayer = Layer.mergeAll(
   CatmatCatserLive.pipe(
-    Layer.provide(Layer.mergeAll(DbLayer, EmbedderStub, HttpStub))
+    Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub))
   ),
-  DbLayer,
+  TestDbLive,
   EmbedderStub,
   HttpStub
 );

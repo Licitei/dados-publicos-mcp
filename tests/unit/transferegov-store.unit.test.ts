@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   Transferegov,
   TransferegovLive,
 } from "../../src/sources/transferegov/store";
+import { TestDbLive } from "./support/test-db";
 
 const crcTable = Array.from({ length: 256 }, (_, n) =>
   Array.from({ length: 8 }).reduce<number>(
@@ -111,8 +111,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  TransferegovLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  TransferegovLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

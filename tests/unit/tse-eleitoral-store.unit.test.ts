@@ -2,11 +2,11 @@ import { deflateRawSync } from "node:zlib";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   TseEleitoral,
   TseEleitoralLive,
 } from "../../src/sources/tse-eleitoral/store";
+import { TestDbLive } from "./support/test-db";
 
 const concat = (...parts: Uint8Array[]) => {
   const total = parts.reduce((n, p) => n + p.length, 0);
@@ -138,8 +138,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  TseEleitoralLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  TseEleitoralLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

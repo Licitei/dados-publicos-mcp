@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
 import { catserService } from "../../kernel/db/schemas/catser-service";
 import { Embedder } from "../../kernel/embed/embedder";
@@ -11,15 +10,6 @@ import { indexMateriais, indexServicos } from "./indexer";
 
 const rrfK = 60;
 const candidates = 50;
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [...tableDdl(catmatMaterial), ...tableDdl(catserService)],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -70,7 +60,6 @@ const materialLeafColumns = { codigoItem: true, descricaoItem: true } as const;
 const servicoLeafColumns = { codigoServico: true, nomeServico: true } as const;
 
 const makeCatmatCatser = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
   const embedder = yield* Embedder;
 

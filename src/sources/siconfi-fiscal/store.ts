@@ -1,20 +1,10 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { siconfiFato } from "../../kernel/db/schemas/siconfi-fato";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultAno, uniaoEnte } from "./catalog";
 import { indexEnte } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(siconfiFato),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const fatoView = sql`
   id_ente as "idEnte", exercicio, demonstrativo, anexo, rotulo, coluna,
@@ -27,7 +17,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeSiconfiFiscal = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const fiscalPorEnte = (

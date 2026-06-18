@@ -2,8 +2,9 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import { Sicaf, SicafLive } from "../../src/sources/sicaf-fornecedores/store";
+import { TestDbLive } from "./support/test-db";
 
 const pj = (
   cnpj: string,
@@ -63,8 +64,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  SicafLive.pipe(Layer.provide(DbLayer)),
-  DbLayer,
+  SicafLive.pipe(Layer.provide(TestDbLive)),
+  TestDbLive,
   HttpStub
 );
 

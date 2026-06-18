@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import { CmedAnvisa, CmedAnvisaLive } from "../../src/sources/cmed-anvisa/store";
+import { TestDbLive } from "./support/test-db";
 
 const crcTable = Array.from({ length: 256 }, (_, n) =>
   Array.from({ length: 8 }).reduce<number>(
@@ -180,8 +180,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  CmedAnvisaLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  CmedAnvisaLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

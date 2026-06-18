@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   IbgeEconomia,
   IbgeEconomiaLive,
 } from "../../src/sources/ibge-economia/store";
+import { TestDbLive } from "./support/test-db";
 
 const serie = (id: string, nome: string, valor: string) => ({
   localidade: { id, nome, nivel: { id: "N6", nome: "Município" } },
@@ -64,8 +64,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  IbgeEconomiaLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  IbgeEconomiaLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

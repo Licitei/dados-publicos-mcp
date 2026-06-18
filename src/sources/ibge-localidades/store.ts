@@ -1,7 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { municipio } from "../../kernel/db/schemas/municipio";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
@@ -11,13 +10,6 @@ import {
   type MunicipioFlat,
 } from "./catalog";
 import { fetchMunicipios } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(tableDdl(municipio), (statement) => db.execute(statement), {
-    discard: true,
-  });
-});
 
 export const replaceAll = (rows: readonly MunicipioFlat[]) =>
   Effect.gen(function* () {
@@ -36,7 +28,6 @@ export const replaceAll = (rows: readonly MunicipioFlat[]) =>
 const defaultLimit = 10;
 
 const makeIbgeLocalidades = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const validateUf = (sigla: string) =>

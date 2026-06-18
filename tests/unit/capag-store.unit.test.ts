@@ -3,8 +3,9 @@ import { Effect, Layer } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { sql } from "drizzle-orm";
 import { FetchHttpClient } from "effect/unstable/http";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import { Capag, CapagLive } from "../../src/sources/capag/store";
+import { TestDbLive } from "./support/test-db";
 
 const crcTable = Array.from({ length: 256 }, (_, n) =>
   Array.from({ length: 8 }).reduce<number>(
@@ -303,8 +304,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  CapagLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  CapagLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

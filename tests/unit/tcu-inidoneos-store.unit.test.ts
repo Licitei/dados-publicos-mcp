@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   TcuInidoneos,
   TcuInidoneosLive,
 } from "../../src/sources/tcu-inidoneos/store";
+import { TestDbLive } from "./support/test-db";
 
 const licitantesCsv = [
   '"NOME"|"CPF_CNPJ"|"PROCESSO"|"DELIBERACAO"|"DATA TRANSITO JULGADO"|"DATA FINAL"|"DATA ACORDAO"|"UF"|"MUNICIPIO"',
@@ -43,8 +43,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  TcuInidoneosLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  TcuInidoneosLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

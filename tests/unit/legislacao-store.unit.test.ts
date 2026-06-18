@@ -1,21 +1,21 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { sql } from "drizzle-orm";
-import { Db, DbLayer } from "../../src/kernel/db/client";
+import { Db } from "../../src/kernel/db/client";
 import { Embedder } from "../../src/kernel/embed/embedder";
 import { buildTree } from "../../src/sources/legislacao/catalog";
 import {
   Legislacao,
   LegislacaoLive,
-  createSchema,
   replaceNorma,
   type NodeRow,
 } from "../../src/sources/legislacao/store";
 import { EmbedderStub } from "./support/embedder-stub";
+import { TestDbLive } from "./support/test-db";
 
 const TestLayer = Layer.mergeAll(
-  LegislacaoLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, EmbedderStub))),
-  DbLayer,
+  LegislacaoLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub))),
+  TestDbLive,
   EmbedderStub
 );
 
@@ -72,7 +72,6 @@ const seedNorma = (id: string, titulo: string, fixture: readonly string[]) =>
   });
 
 const seed = Effect.gen(function* () {
-  yield* createSchema;
   return yield* seedNorma(normaId, "Lei 14.133/2021", lines);
 });
 

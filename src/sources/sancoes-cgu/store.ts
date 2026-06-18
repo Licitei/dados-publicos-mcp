@@ -1,17 +1,9 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { sancao } from "../../kernel/db/schemas/sancao";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { indexSnapshots } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(tableDdl(sancao), (statement) => db.execute(statement), {
-    discard: true,
-  });
-});
 
 const viewColumns = {
   lista: true,
@@ -50,7 +42,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makeSancoesCgu = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const verificar = (documentoInput: string) =>

@@ -1,14 +1,28 @@
+import { createHash } from "node:crypto";
 import { Exit } from "effect";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
+import { isResolved } from "alchemy/Diff";
 import {
   type FonteKey,
   type IndexEntry,
   type Scope,
 } from "../src/serve/index-registry";
+import { schemaHash } from "./local-database";
 import { McpProviders } from "./providers";
+
+const scopeHash = (scope: Scope | undefined) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        ufs: scope?.ufs ?? null,
+        anos: scope?.anos ?? null,
+        mes: scope?.mes ?? null,
+      })
+    )
+    .digest("hex");
 
 export type LocalIndexProps = {
   fonte: FonteKey;
@@ -18,6 +32,8 @@ export type LocalIndexProps = {
 export type LocalIndexAttributes = {
   fonte: FonteKey;
   rows: number;
+  scopeHash: string;
+  schemaHash: string;
 };
 
 export type LocalIndex = Resource<
@@ -64,7 +80,12 @@ const provision = (config: LocalIndexConfig, props: LocalIndexProps) =>
     Effect.flatMap((exit) =>
       Exit.match(exit, {
         onSuccess: (summary) =>
-          Effect.succeed({ fonte: props.fonte, rows: toRows(summary) }),
+          Effect.succeed({
+            fonte: props.fonte,
+            rows: toRows(summary),
+            scopeHash: scopeHash(props.scope),
+            schemaHash: schemaHash(),
+          }),
         onFailure: (cause) => Effect.failCause(cause),
       })
     )
@@ -76,6 +97,14 @@ export const LocalIndexProvider = (config: LocalIndexConfig) =>
     Effect.gen(function* () {
       return {
         list: () => Effect.succeed([]),
+        diff: Effect.fn(function* ({ news, output }) {
+          if (!isResolved(news)) return undefined;
+          if (!output) return undefined;
+          return output.scopeHash !== scopeHash(news.scope) ||
+            output.schemaHash !== schemaHash()
+            ? { action: "update" }
+            : undefined;
+        }),
         reconcile: Effect.fn(function* ({ news, output, session }) {
           yield* session.note(
             output

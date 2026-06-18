@@ -1,11 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { DbLayer } from "../../src/kernel/db/client";
 import {
   PainelPrecos,
   PainelPrecosLive,
 } from "../../src/sources/painel-precos/store";
+import { TestDbLive } from "./support/test-db";
 
 const record = (
   idItemCompra: number,
@@ -54,8 +54,8 @@ const HttpStub = FetchHttpClient.layer.pipe(
 );
 
 const TestLayer = Layer.mergeAll(
-  PainelPrecosLive.pipe(Layer.provide(Layer.mergeAll(DbLayer, HttpStub))),
-  DbLayer,
+  PainelPrecosLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TestDbLive,
   HttpStub
 );
 

@@ -1,56 +1,24 @@
-import { existsSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import { FileSystem } from "effect/FileSystem";
 import { Resource } from "alchemy/Resource";
 import * as Provider from "alchemy/Provider";
 import { isResolved } from "alchemy/Diff";
 import { Db, DbConfig, DbLayer } from "../src/kernel/db/client";
-import { tableDdl } from "../src/kernel/db/ddl";
-import { allTables } from "./tables";
+import { dataDirPath, ensureDataDir } from "../src/kernel/db/data-dir";
+import { provisionSchema } from "../src/kernel/db/provision";
+import {
+  allDbTables,
+  dbExtensions,
+  schemaDdlText,
+} from "../src/kernel/db/schema-registry";
 import { McpProviders } from "./providers";
 
-export const extensions: readonly string[] = [
-  "vector",
-  "pg_textsearch",
-  "ltree",
-  "pg_trgm",
-];
-
-const appDirName = "dados-publicos-mcp";
-
-const defaultBaseDir = () => {
-  const home = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
-  return join(home, appDirName);
-};
-
-const dataDirPath = (explicit?: string) =>
-  explicit ?? process.env.DADOS_PUBLICOS_MCP_DATA_DIR ?? defaultBaseDir();
-
-const resolveDataDir = (explicit?: string) => {
-  const dir = dataDirPath(explicit);
-  mkdirSync(dir, { recursive: true });
-  return dir;
-};
-
-const renderStatement = (statement: { queryChunks: ReadonlyArray<unknown> }) =>
-  statement.queryChunks
-    .map((chunk) => {
-      const value = (chunk as { value?: unknown }).value;
-      return Array.isArray(value) ? value.join("") : "";
-    })
-    .join("");
-
-export const schemaDdl = () =>
-  [
-    ...extensions,
-    ...allTables.flatMap((table) => tableDdl(table)).map(renderStatement),
-  ].join("\n");
+export const schemaDdl = () => schemaDdlText;
 
 export const schemaHash = () =>
-  createHash("sha256").update(schemaDdl()).digest("hex");
+  createHash("sha256").update(schemaDdlText).digest("hex");
 
 export type LocalDatabaseProps = {
   dataDir?: string;
@@ -73,32 +41,32 @@ export type LocalDatabase = Resource<
 
 export const LocalDatabase = Resource<LocalDatabase>("Mcp.LocalDatabase");
 
-const provision = (props: LocalDatabaseProps) => {
-  const dataDir = resolveDataDir(props.dataDir);
-  const hash = schemaHash();
-  return Effect.gen(function* () {
-    const db = yield* Db;
-    yield* Effect.forEach(
-      allTables,
-      (table) =>
-        Effect.forEach(tableDdl(table), (statement) => db.execute(statement), {
-          discard: true,
-        }),
-      { discard: true }
-    );
-    return {
-      dataDir,
-      tables: allTables.length,
-      extensions,
-      schemaHash: hash,
-    };
-  }).pipe(
-    Effect.provide(
-      DbLayer.pipe(Layer.provide(Layer.succeed(DbConfig, { dataDir })))
-    ),
-    Effect.scoped
+const ensureDir = (dir: string) =>
+  FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeDirectory(dir, { recursive: true })),
+    Effect.as(dir)
   );
-};
+
+const resolveDir = (override: string | undefined) =>
+  override === undefined ? ensureDataDir : ensureDir(override);
+
+const provision = (props: LocalDatabaseProps) =>
+  resolveDir(props.dataDir).pipe(
+    Effect.flatMap((dataDir) =>
+      provisionSchema.pipe(
+        Effect.as({
+          dataDir,
+          tables: allDbTables.length,
+          extensions: [...dbExtensions],
+          schemaHash: schemaHash(),
+        }),
+        Effect.provide(
+          DbLayer.pipe(Layer.provide(Layer.succeed(DbConfig, { dataDir })))
+        ),
+        Effect.scoped
+      )
+    )
+  );
 
 export const LocalDatabaseProvider = () =>
   Provider.effect(
@@ -109,7 +77,10 @@ export const LocalDatabaseProvider = () =>
         diff: Effect.fn(function* ({ news, output }) {
           if (!isResolved(news)) return undefined;
           if (!output) return undefined;
-          const provisioned = existsSync(dataDirPath(news.dataDir));
+          const fs = yield* FileSystem;
+          const dir =
+            news.dataDir === undefined ? yield* dataDirPath : news.dataDir;
+          const provisioned = yield* fs.exists(dir);
           return !provisioned || output.schemaHash !== schemaHash()
             ? { action: "update" }
             : undefined;

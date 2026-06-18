@@ -1,22 +1,12 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
 import { precoPraticado } from "../../kernel/db/schemas/preco-praticado";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { indexItens } from "./indexer";
 
 const seedLimit = 300;
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    tableDdl(precoPraticado),
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const amostraView = sql`
   id_compra as "idCompra", codigo_item_catalogo as "codigoItemCatalogo",
@@ -33,7 +23,6 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     : Math.min(Math.trunc(value), max);
 
 const makePainelPrecos = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
 
   const ufClause = (uf: string | undefined) =>

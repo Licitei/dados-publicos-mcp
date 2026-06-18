@@ -1,7 +1,6 @@
 import { Clock, Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
-import { tableDdl } from "../../kernel/db/ddl";
 import { ata } from "../../kernel/db/schemas/ata";
 import { contratacao } from "../../kernel/db/schemas/contratacao";
 import { contrato } from "../../kernel/db/schemas/contrato";
@@ -14,15 +13,6 @@ import {
   ymd,
 } from "./catalog";
 import { indexAtas, indexContratacoes, indexContratos } from "./indexer";
-
-export const createSchema = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* Effect.forEach(
-    [...tableDdl(contratacao), ...tableDdl(contrato), ...tableDdl(ata)],
-    (statement) => db.execute(statement),
-    { discard: true }
-  );
-});
 
 const clamp = (value: number | undefined, fallback: number, max: number) =>
   value === undefined || value < 1
@@ -125,7 +115,6 @@ const contratacaoColumns = {
 } as const;
 
 const makePncp = Effect.gen(function* () {
-  yield* createSchema;
   const db = yield* Db;
   const embedder = yield* Embedder;
 

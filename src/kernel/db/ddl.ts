@@ -26,20 +26,20 @@ const withDdl = (params: Record<string, unknown> | undefined) =>
 const usingDdl = (method: string | undefined) =>
   method && method !== "btree" ? ` using ${method}` : "";
 
-export const tableDdl = (table: PgTable) => {
+export const tableDdlText = (table: PgTable): readonly string[] => {
   const config = getTableConfig(table);
   const columns = config.columns.map(columnDdl).join(", ");
-  const createTable = sql.raw(
-    `create table if not exists "${config.name}" (${columns})`
-  );
-  const createIndexes = config.indexes.map((entry) =>
-    sql.raw(
+  const createTable = `create table if not exists "${config.name}" (${columns})`;
+  const createIndexes = config.indexes.map(
+    (entry) =>
       `create index if not exists "${entry.config.name}" on "${config.name}"${usingDdl(
         entry.config.method
       )} (${entry.config.columns.map(indexColumnDdl).join(", ")})${withDdl(
         entry.config.with
       )}`
-    )
   );
   return [createTable, ...createIndexes];
 };
+
+export const tableDdl = (table: PgTable): readonly SQL[] =>
+  tableDdlText(table).map((statement) => sql.raw(statement));
