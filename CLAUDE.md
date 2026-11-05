@@ -17,7 +17,7 @@ work around it. Run `bun run format` before the gate.
 
 Effect v4 · Bun · tabular data in one DuckDB file (`Duck`, bm25 fts) · typo fallback via fff fuzzy (`Fuzzy`) ·
 laws/precedents as git-cloned Markdown searched by fff (`Search`, `CorpusGit`) · Alchemy versions every local index
-(`infra/`). See `docs/adr/0003-duckdb-fff.md`.
+(`infra/`). No embeddings, no SQL server, no DuckLake (it can't hold an fts index).
 
 ## Style the lint cannot see
 

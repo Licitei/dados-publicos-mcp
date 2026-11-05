@@ -2,7 +2,7 @@
 
 Local-first MCP server that indexes Brazilian public data (procurement, suppliers, public spending, law and case law) on the user's machine and serves it over stdio. Fully **Effect v4 native** — errors are values; the style is **declarative** (data + combinators, not glue functions). Code is **English**; only user-facing strings are pt-BR.
 
-Tabular sources live in **one DuckDB file** (bm25 text search + SQL analytics), typo-tolerant lookups fall back to **fff fuzzy**, and the law/case-law corpora (`minutei-ai/leis`, `minutei-ai/precedentes`) are Markdown clones searched directly by **fff**. See [ADR-0003](docs/adr/0003-duckdb-fff.md).
+Tabular sources live in **one DuckDB file** (bm25 text search + SQL analytics), typo-tolerant lookups fall back to **fff fuzzy**, and the law/case-law corpora (`minutei-ai/leis`, `minutei-ai/precedentes`) are Markdown clones searched directly by **fff**.
 
 ## Language
 
@@ -40,7 +40,7 @@ _Avoid_: response wrapper, metadata.
 
 ## Architecture conventions
 
-Declarative style and folder layout (folder = module = seam; the anti-`utils` rule; naming) live in **[ADR-0002](docs/adr/0002-declarative-architecture-and-folders.md)**. The storage/search stack lives in **[ADR-0003](docs/adr/0003-duckdb-fff.md)**.
+Declarative style: declared data + combinators over glue functions. Folders are named for a capability (`duck`, `search`, `csv`, `http`); no `utils`/`helpers`/`common`. Layout and import directions are enforced by the lint.
 
 ## Example dialogue
 

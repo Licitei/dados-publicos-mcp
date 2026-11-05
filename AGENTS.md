@@ -82,5 +82,5 @@ The DuckDB `fts` extension downloads once into the shared data dir.
 
 ## Pointers
 
-`docs/adr/0002-declarative-architecture-and-folders.md`, `docs/adr/0003-duckdb-fff.md`, `CONTEXT.md` (vocabulary).
+`CONTEXT.md` (vocabulary). No `utils/`/`helpers/`/`common/` folders: a folder is named for its capability (`duck`, `search`, `csv`, `http`).
 Published artifacts: `src/` + `README.md` + `LICENSE` (AGPL-3.0-only).
