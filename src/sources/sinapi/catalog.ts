@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
 export const caixaBase =
@@ -9,19 +12,31 @@ export const browserUserAgent =
 
 export const ufColumnStart = 5;
 
-export const zipUrl = (ano: number, mes: number) =>
-  `${caixaBase}/SINAPI-${ano}-${String(mes).padStart(2, "0")}-formato-xlsx.zip`;
+const zipUrlImpl = (ano: number, mes: number) =>
+  `${caixaBase}/SINAPI-${ano}-${Str.padStart(2, "0")(String(mes))}-formato-xlsx.zip`;
 
-export const mesReferenciaOf = (ano: number, mes: number) =>
-  `${ano}-${String(mes).padStart(2, "0")}`;
+export const zipUrl: {
+  (mes: number): (ano: number) => string;
+  (ano: number, mes: number): string;
+} = dual(2, zipUrlImpl);
+
+const mesReferenciaOfImpl = (ano: number, mes: number) =>
+  `${ano}-${Str.padStart(2, "0")(String(mes))}`;
+
+export const mesReferenciaOf: {
+  (mes: number): (ano: number) => string;
+  (ano: number, mes: number): string;
+} = dual(2, mesReferenciaOfImpl);
 
 const norm = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  pipe(
+    value,
+    Str.normalize("NFD"),
+    Str.replace(/\p{Diacritic}/gu, ""),
+    Str.toLowerCase,
+    Str.replace(/\s+/g, " "),
+    Str.trim
+  );
 
 export const referenciaMatcher = (name: string) =>
   /referencia/.test(norm(name)) && /\.xlsx$/i.test(name);
@@ -29,9 +44,9 @@ export const referenciaMatcher = (name: string) =>
 export const isdSheetMatcher = (name: string) => norm(name) === "isd";
 
 const preco = (value: string) => {
-  const cleaned = value.replace(/\*/g, "").trim();
-  const normalized = cleaned.includes(",")
-    ? cleaned.replace(/\./g, "").replace(",", ".")
+  const cleaned = pipe(value, Str.replace(/\*/g, ""), Str.trim);
+  const normalized = Str.includes(",")(cleaned)
+    ? pipe(cleaned, Str.replace(/\./g, ""), Str.replace(",", "."))
     : cleaned;
   const parsed = Number(normalized);
   return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
@@ -45,66 +60,89 @@ export const SinapiInsumoFlat = Schema.Struct({
   origem: Schema.NullOr(Schema.String),
   classificacao: Schema.NullOr(Schema.String),
   uf: Schema.String,
-  precoMediano: Schema.Number,
+  precoMediano: Schema.Finite,
   busca: Schema.String,
 });
 export type SinapiInsumoFlat = (typeof SinapiInsumoFlat)["Type"];
 
 const orNull = (value: string) => {
-  const trimmed = value.trim();
+  const trimmed = Str.trim(value);
   return trimmed === "" ? null : trimmed;
 };
 
-const findHeaderIndex = (rows: readonly (readonly string[])[]) =>
-  rows.findIndex((row) => norm(row[0] ?? "") === "classificacao");
+const cell = (row: readonly string[], index: number) =>
+  Option.getOrElse(Arr.get(row, index), () => "");
 
-export const mapInsumos = (
+const flattenRow =
+  (
+    mesReferencia: string,
+    ufColumns: readonly { readonly uf: string; readonly index: number }[]
+  ) =>
+  (row: readonly string[]) => {
+    const codigo = orNull(cell(row, 1));
+    const descricao = orNull(cell(row, 2));
+    return codigo === null && descricao === null
+      ? []
+      : Arr.flatMap(ufColumns, (column) => {
+          const valor = preco(cell(row, column.index));
+          return valor === null
+            ? []
+            : [
+                {
+                  mesReferencia,
+                  codigo,
+                  descricao,
+                  unidade: orNull(cell(row, 3)),
+                  origem: orNull(cell(row, 4)),
+                  classificacao: orNull(cell(row, 0)),
+                  uf: column.uf,
+                  precoMediano: valor,
+                  busca: normalize(descricao ?? ""),
+                } satisfies SinapiInsumoFlat,
+              ];
+        });
+  };
+
+const mapInsumosImpl = (
   rows: readonly (readonly string[])[],
   mesReferencia: string
-): readonly SinapiInsumoFlat[] => {
-  const headerIndex = findHeaderIndex(rows);
-  return headerIndex === -1
-    ? []
-    : (() => {
-        const header = rows[headerIndex];
-        const ufColumns = header
-          .slice(ufColumnStart)
-          .map((label, offset) => ({
-            uf: label.trim().toUpperCase(),
+): readonly SinapiInsumoFlat[] =>
+  Option.match(
+    Arr.findFirstIndex(rows, (row) => norm(cell(row, 0)) === "classificacao"),
+    {
+      onNone: () => [],
+      onSome: (headerIndex) => {
+        const header = Option.getOrElse(Arr.get(rows, headerIndex), () => []);
+        const ufColumns = pipe(
+          Arr.drop(header, ufColumnStart),
+          Arr.map((label, offset) => ({
+            uf: pipe(label, Str.trim, Str.toUpperCase),
             index: ufColumnStart + offset,
-          }))
-          .filter((column) => /^[A-Z]{2}$/.test(column.uf));
-        return rows.slice(headerIndex + 1).flatMap((row) => {
-          const codigo = orNull(row[1] ?? "");
-          const descricao = orNull(row[2] ?? "");
-          return codigo === null && descricao === null
-            ? []
-            : ufColumns.flatMap((column) => {
-                const valor = preco(row[column.index] ?? "");
-                return valor === null
-                  ? []
-                  : [
-                      {
-                        mesReferencia,
-                        codigo,
-                        descricao,
-                        unidade: orNull(row[3] ?? ""),
-                        origem: orNull(row[4] ?? ""),
-                        classificacao: orNull(row[0] ?? ""),
-                        uf: column.uf,
-                        precoMediano: valor,
-                        busca: normalize(descricao ?? ""),
-                      } satisfies SinapiInsumoFlat,
-                    ];
-              });
-        });
-      })();
-};
+          })),
+          Arr.filter((column) => /^[A-Z]{2}$/.test(column.uf))
+        );
+        return Arr.flatMap(
+          Arr.drop(rows, headerIndex + 1),
+          flattenRow(mesReferencia, ufColumns)
+        );
+      },
+    }
+  );
+
+export const mapInsumos: {
+  (
+    mesReferencia: string
+  ): (rows: readonly (readonly string[])[]) => readonly SinapiInsumoFlat[];
+  (
+    rows: readonly (readonly string[])[],
+    mesReferencia: string
+  ): readonly SinapiInsumoFlat[];
+} = dual(2, mapInsumosImpl);
 
 export const SinapiErrorCode = Schema.Literals(["sinapi.RELATORIO_MISSING"]);
 export type SinapiErrorCode = (typeof SinapiErrorCode)["Type"];
 
-export class SinapiError extends Schema.TaggedErrorClass<SinapiError>()(
+export class SinapiError extends Schema.TaggedError<SinapiError, { readonly brand: unique symbol }>()(
   "SinapiError",
   {
     code: SinapiErrorCode,

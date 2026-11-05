@@ -1,9 +1,11 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import { cosineDistance, sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { diario } from "../../kernel/db/schemas/diario";
 import { diarioCnpj } from "../../kernel/db/schemas/diario-cnpj";
-import { Embedder } from "../../kernel/embed/embedder";
+import { EmbedError, Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
   defaultScope,
@@ -25,13 +27,8 @@ const candidates = 50;
 const chunkSize = 2_000;
 const excerptLimit = 600;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
 const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
+  pipe(items, Arr.chunksOf(chunkSize));
 
 const diarioView = sql`
   d.id, d.territory_id as "territoryId", d.uf, d.municipio, d.ano,
@@ -52,11 +49,18 @@ const makeQueridoDiario = Effect.gen(function* () {
         .insert(diario)
         .values([...batch])
         .returning({ id: diario.id });
-      const cnpjRows = batch.flatMap((row, position) =>
-        extractCnpjs(row.conteudo).map((cnpj) => ({
-          diarioId: inserted[position].id,
-          cnpj,
-        }))
+      const cnpjRows = Arr.flatMap(batch, (row, position) =>
+        pipe(
+          Arr.get(inserted, position),
+          Option.match({
+            onNone: () => [],
+            onSome: ({ id }) =>
+              Arr.map(extractCnpjs(row.conteudo), (cnpj) => ({
+                diarioId: id,
+                cnpj,
+              })),
+          })
+        )
       );
       yield* Effect.forEach(
         chunks(cnpjRows),
@@ -70,9 +74,9 @@ const makeQueridoDiario = Effect.gen(function* () {
     Effect.gen(function* () {
       const embeddings = yield* Match.value(flat.length).pipe(
         Match.when(0, () => Effect.succeed<number[][]>([])),
-        Match.orElse(() => embedder.embed("passage", flat.map(passageDiario)))
+        Match.orElse(() => embedder.embed("passage", Arr.map(flat, passageDiario)))
       );
-      const rows = flat.map((row, position) => ({
+      const rows = Arr.map(flat, (row, position) => ({
         ...row,
         embedding: embeddings[position],
       }));
@@ -81,7 +85,7 @@ const makeQueridoDiario = Effect.gen(function* () {
       });
       return {
         diarios: rows.length,
-        cnpjs: counts.reduce((acc, count) => acc + count, 0),
+        cnpjs: Arr.reduce(counts, 0, (acc, count) => acc + count),
       };
     });
 
@@ -94,12 +98,13 @@ const makeQueridoDiario = Effect.gen(function* () {
         ({ uf, ano }) => Effect.flatMap(loadDiarios(uf, ano), indexDiarios),
         { concurrency: 1 }
       );
-      return counts.reduce(
+      return Arr.reduce(
+        counts,
+        { diarios: 0, cnpjs: 0 },
         (acc, count) => ({
           diarios: acc.diarios + count.diarios,
           cnpjs: acc.cnpjs + count.cnpjs,
-        }),
-        { diarios: 0, cnpjs: 0 }
+        })
       );
     });
 
@@ -112,13 +117,19 @@ const makeQueridoDiario = Effect.gen(function* () {
       yield* Match.value(q.length).pipe(
         Match.when(0, () =>
           Effect.fail(
-            new QueridoDiarioError({ code: "querido-diario.MISSING_TERMO" })
+            QueridoDiarioError.make({ code: "querido-diario.MISSING_TERMO" })
           )
         ),
         Match.orElse(() => Effect.void)
       );
       const limit = clamp(options?.limit, 20, 100);
-      const [queryVector] = yield* embedder.embed("query", [termo]);
+      const queryVector = yield* embedder.embed("query", [termo]).pipe(
+        Effect.flatMap((vectors) =>
+          Effect.fromOption(Arr.head(vectors), () =>
+            EmbedError.make({ code: "embed.RUN" })
+          )
+        )
+      );
       const territoryWhere = Match.value(options?.territoryId).pipe(
         Match.when(Match.string, (value) => sql`where d.territory_id = ${value}`),
         Match.orElse(() => sql``)
@@ -155,7 +166,7 @@ const makeQueridoDiario = Effect.gen(function* () {
         ${territoryWhere}
         order by score desc, d.id
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const diariosPorMunicipio = (
@@ -193,7 +204,7 @@ const makeQueridoDiario = Effect.gen(function* () {
         columns: { diarioId: true, cnpj: true },
         limit,
       });
-      const ids = [...new Set(matches.map((row) => row.diarioId))];
+      const ids = Arr.dedupe(Arr.map(matches, (row) => row.diarioId));
       const diarios = yield* db.query.diario.findMany({
         where: { id: { in: ids } },
         columns: {
@@ -209,10 +220,10 @@ const makeQueridoDiario = Effect.gen(function* () {
           conteudo: true,
         },
       });
-      const byId = new Map(diarios.map((row) => [row.id, row]));
-      return matches.flatMap((match) => {
+      const byId = new Map(Arr.map(diarios, (row) => [row.id, row] as const));
+      return Arr.flatMap(matches, (match) => {
         const found = byId.get(match.diarioId);
-        return found
+        return found !== undefined
           ? [
               {
                 cnpj: match.cnpj,
@@ -241,6 +252,6 @@ const makeQueridoDiario = Effect.gen(function* () {
 export class QueridoDiario extends Context.Service<
   QueridoDiario,
   Effect.Success<typeof makeQueridoDiario>
->()("dados-publicos-mcp/QueridoDiario") {}
+>()("dados-publicos-mcp/sources/querido-diario/store/QueridoDiario") {}
 
 export const QueridoDiarioLive = Layer.effect(QueridoDiario)(makeQueridoDiario);

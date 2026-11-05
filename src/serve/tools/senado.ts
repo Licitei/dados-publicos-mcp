@@ -1,11 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { SenadoFederal } from "../../sources/senado/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarSenadorInput = Schema.Struct({
   nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const buscarSenador = defineTool({
@@ -21,7 +21,7 @@ const buscarSenador = defineTool({
 
 const FornecedorInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const fornecedorCeapsSenado = defineTool({
@@ -32,7 +32,7 @@ const fornecedorCeapsSenado = defineTool({
   run: (args) =>
     SenadoFederal.pipe(
       Effect.flatMap((service) =>
-        service.buscarFornecedorCeaps(args.termo, { limit: args.limite })
+        service.buscarFornecedorCeaps(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

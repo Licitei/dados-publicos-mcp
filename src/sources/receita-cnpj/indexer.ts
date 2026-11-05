@@ -1,5 +1,7 @@
 import { Clock, Effect, Match } from "effect";
-import { HttpClientError } from "effect/unstable/http";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { Db } from "../../kernel/db/client";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { dominio } from "../../kernel/db/schemas/dominio";
@@ -7,7 +9,7 @@ import { empresa } from "../../kernel/db/schemas/empresa";
 import { estabelecimento } from "../../kernel/db/schemas/estabelecimento";
 import { simples } from "../../kernel/db/schemas/simples";
 import { socio } from "../../kernel/db/schemas/socio";
-import { httpResponse, HttpError } from "../../kernel/http/client";
+import { Http, HttpError } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   csvOptions,
@@ -41,14 +43,6 @@ import {
 
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
-
 const concat = (a: Uint8Array, b: Uint8Array) => {
   const out = new Uint8Array(a.length + b.length);
   out.set(a, 0);
@@ -57,18 +51,18 @@ const concat = (a: Uint8Array, b: Uint8Array) => {
 };
 
 const withHeader = (cols: readonly string[], bytes: Uint8Array) =>
-  concat(new TextEncoder().encode(`${cols.join(";")}\r\n`), bytes);
+  concat(new TextEncoder().encode(`${pipe(cols, Arr.join(";"))}\r\n`), bytes);
 
 const insertEmpresas = (rows: readonly EmpresaFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(empresa).values([...batch])),
     { concurrency: 1, discard: true }
   );
 
 const insertEstabelecimentos = (rows: readonly EstabelecimentoFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) =>
       Effect.flatMap(Db, (db) => db.insert(estabelecimento).values([...batch])),
     { concurrency: 1, discard: true }
@@ -76,14 +70,14 @@ const insertEstabelecimentos = (rows: readonly EstabelecimentoFlat[]) =>
 
 const insertSocios = (rows: readonly SocioFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(socio).values([...batch])),
     { concurrency: 1, discard: true }
   );
 
 const insertSimples = (rows: readonly SimplesFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(simples).values([...batch])),
     { concurrency: 1, discard: true }
   );
@@ -92,25 +86,20 @@ type DominioFlat = ReturnType<typeof mapDominios>[number];
 
 const insertDominios = (rows: readonly DominioFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(dominio).values([...batch])),
     { concurrency: 1, discard: true }
   );
 
 const downloadZip = (url: string) =>
-  httpResponse(url, {
-    headers: { authorization: rfbAuthHeader, accept: "application/zip" },
-  }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, {
+      headers: { authorization: rfbAuthHeader, accept: "application/zip" },
+    })
   );
 
 const tolerateMissing = <R>(
-  effect: Effect.Effect<
-    Uint8Array,
-    HttpError | HttpClientError.HttpClientError,
-    R
-  >
+  effect: Effect.Effect<Uint8Array, HttpError, R>
 ) =>
   effect.pipe(
     Effect.catchTag("HttpError", (error) =>
@@ -119,7 +108,7 @@ const tolerateMissing = <R>(
           Match.value(missingStatus.has(status.status ?? -1)).pipe(
             Match.when(true, () =>
               Effect.fail(
-                new ReceitaCnpjError({ code: "receita.SNAPSHOT_MISSING" })
+                ReceitaCnpjError.make({ code: "receita.SNAPSHOT_MISSING" })
               )
             ),
             Match.orElse(() => Effect.fail(error))
@@ -137,10 +126,13 @@ const probeMonth = (mes: string) =>
 
 const resolveMonth = (millis: number) =>
   Effect.firstSuccessOf(
-    range(monthLookback).map((back) => probeMonth(yyyymm(millis, back)))
+    pipe(
+      Arr.range(0, monthLookback - 1),
+      Arr.map((back) => probeMonth(yyyymm(millis, back)))
+    )
   );
 
-const acceptCsv = (name: string) => !name.endsWith("/");
+const acceptCsv = (name: string) => !pipe(name, Str.endsWith("/"));
 
 const parseEntries = (cols: readonly string[], bytes: Uint8Array) =>
   parseCsvRecords(withHeader(cols, bytes), csvOptions);
@@ -153,21 +145,29 @@ const downloadFile = (mes: string, file: string) =>
 
 const indexEmpresas = (mes: string, parts: readonly number[]) =>
   Effect.forEach(
-    partFiles("Empresas").filter((_, i) => parts.includes(i)),
+    pipe(
+      partFiles("Empresas"),
+      Arr.filter((_, i) => parts.includes(i))
+    ),
     (file) =>
       Effect.map(downloadFile(mes, file), (entries) =>
-        entries.flatMap((entry) =>
-          mapEmpresas(parseEntries(EMPRESAS_COLUNAS, entry.data))
+        pipe(
+          entries,
+          Arr.flatMap((entry) =>
+            mapEmpresas(parseEntries(EMPRESAS_COLUNAS, entry.data))
+          )
         )
       ),
     { concurrency: 1 }
   ).pipe(
-    Effect.map((batches) => batches.flat()),
+    Effect.map((batches) => Arr.flatten(batches)),
     Effect.tap((rows) => insertEmpresas(rows)),
     Effect.map((rows) =>
-      rows.reduce(
-        (acc, row) => acc.set(row.cnpjBasico, row.porte),
-        new Map<string, string>()
+      pipe(
+        rows,
+        Arr.reduce(new Map<string, string>(), (acc, row) =>
+          acc.set(row.cnpjBasico, row.porte)
+        )
       )
     )
   );
@@ -178,20 +178,25 @@ const indexEstabelecimentos = (
   porteByBasico: ReadonlyMap<string, string>
 ) =>
   Effect.forEach(
-    partFiles("Estabelecimentos").filter((_, i) => parts.includes(i)),
+    pipe(
+      partFiles("Estabelecimentos"),
+      Arr.filter((_, i) => parts.includes(i))
+    ),
     (file) =>
       Effect.flatMap(downloadFile(mes, file), (entries) =>
         insertEstabelecimentos(
-          entries
-            .flatMap((entry) =>
+          pipe(
+            entries,
+            Arr.flatMap((entry) =>
               mapEstabelecimentos(
                 parseEntries(ESTABELECIMENTOS_COLUNAS, entry.data)
               )
-            )
-            .map((row) => ({
+            ),
+            Arr.map((row) => ({
               ...row,
               porte: porteByBasico.get(row.cnpjBasico) ?? null,
             }))
+          )
         )
       ),
     { concurrency: 1, discard: true }
@@ -199,12 +204,18 @@ const indexEstabelecimentos = (
 
 const indexSocios = (mes: string, parts: readonly number[]) =>
   Effect.forEach(
-    partFiles("Socios").filter((_, i) => parts.includes(i)),
+    pipe(
+      partFiles("Socios"),
+      Arr.filter((_, i) => parts.includes(i))
+    ),
     (file) =>
       Effect.flatMap(downloadFile(mes, file), (entries) =>
         insertSocios(
-          entries.flatMap((entry) =>
-            mapSocios(parseEntries(SOCIOS_COLUNAS, entry.data))
+          pipe(
+            entries,
+            Arr.flatMap((entry) =>
+              mapSocios(parseEntries(SOCIOS_COLUNAS, entry.data))
+            )
           )
         )
       ),
@@ -214,8 +225,11 @@ const indexSocios = (mes: string, parts: readonly number[]) =>
 const indexSimples = (mes: string) =>
   Effect.flatMap(downloadFile(mes, SIMPLES_FILE), (entries) =>
     insertSimples(
-      entries.flatMap((entry) =>
-        mapSimplesRows(parseEntries(SIMPLES_COLUNAS, entry.data))
+      pipe(
+        entries,
+        Arr.flatMap((entry) =>
+          mapSimplesRows(parseEntries(SIMPLES_COLUNAS, entry.data))
+        )
       )
     )
   );
@@ -223,8 +237,11 @@ const indexSimples = (mes: string) =>
 const indexDominio = (mes: string, tabela: DominioTabela, file: string) =>
   Effect.flatMap(downloadFile(mes, file), (entries) =>
     insertDominios(
-      entries.flatMap((entry) =>
-        mapDominios(tabela, parseEntries(DOMINIO_COLUNAS, entry.data))
+      pipe(
+        entries,
+        Arr.flatMap((entry) =>
+          mapDominios(parseEntries(DOMINIO_COLUNAS, entry.data), tabela)
+        )
       )
     )
   );

@@ -1,6 +1,6 @@
 ---
 name: effect-v4-source-authoring
-description: Use when adding or migrating a data Source into the v2 Effect-native slice (src/sources/<x>/ or src/kernel/**). The end-to-end gold-standard recipe — Schema.TaggedErrorClass taxonomy, Context.Service + Layer.effect, kernel http, bounded fan-out, classified retry, Match over switch — so the new slice passes the v2-strict static checks on the first try.
+description: Use when adding or migrating a data Source into the v2 Effect-native slice (src/sources/<x>/ or src/kernel/**). The end-to-end gold-standard recipe — Schema.TaggedError taxonomy, Context.Service + Layer.effect, kernel http, bounded fan-out, classified retry, Match over switch — so the new slice passes the v2-strict static checks on the first try.
 ---
 
 # Authoring a v2 Effect-native Source
@@ -17,7 +17,7 @@ One closed code set per domain, one tagged class, one `get message()` switch in 
 const XErrorCode = Schema.Literals(["x.NOT_FOUND", "x.PARSE"]);
 export type XErrorCode = (typeof XErrorCode)["Type"];
 
-export class XError extends Schema.TaggedErrorClass<XError>()("XError", {
+export class XError extends Schema.TaggedError<XError>()("XError", {
   code: XErrorCode,
   url: Schema.optional(Schema.String),
 }) {
@@ -32,7 +32,7 @@ export class XError extends Schema.TaggedErrorClass<XError>()("XError", {
 }
 ```
 
-- `extends Schema.TaggedErrorClass<Self>()("Name", {...})` — never `extends Error`, never `Data.TaggedError` (the `error-class-must-use-TaggedErrorClass` check rejects them; this supersedes ADR-0001/0002's `Data.TaggedError` wording).
+- `extends Schema.TaggedError<Self>()("Name", {...})` — never `extends Error`, never `Data.TaggedError` (the `error-class-must-use-TaggedError` check rejects them; this supersedes ADR-0001/0002's `Data.TaggedError` wording).
 - Build the error inline at the failure site: `Effect.fail(new XError({ code: "x.NOT_FOUND", url }))`. No `toXError` / `mapXError` / `wrapError` helpers (`no-error-helper-functions`).
 - `switch` is legal **only** inside `get message()` (`switch-only-in-get-message`). Branch everywhere else with `Match`.
 - Preserve source structure when it exists: extract the discriminant into a typed field (as the gold standard pulls `status` from `StatusCodeError`), not just `cause: String(x)`. `String(cause)` is the honest fallback only at genuinely opaque native boundaries (PGlite, transformers.js).
@@ -61,7 +61,7 @@ export const XLayer = Layer.effect(X)(makeX);
 
 ## Crossing boundaries
 
-- **HTTP**: use the kernel — `httpResponse(url, opts)` for bytes/HTML, `getJson(url, Schema)` for JSON. Decoding JSON **must** go through a Schema so parse faults become a typed `http.PARSE`; never `response.json()` / `JSON.parse` raw (the deferred `no-raw-json-ingestion` idiom — enforce it by hand until a JSON Source lands).
+- **HTTP**: use the kernel `Http` service — `const http = yield* Http`, then `http.bytes(url, opts)` / `http.text(url, opts)` for bytes/HTML, `http.json(url, Schema, opts)` for JSON. Never import `HttpClient` outside `src/kernel/http` (`apiStabilityLeak`). Decoding JSON **must** go through a Schema so parse faults become a typed `http.PARSE`; never `response.json()` / `JSON.parse` raw (the deferred `no-raw-json-ingestion` idiom — enforce it by hand until a JSON Source lands).
 - **Fan-out** to public gov.br hosts: always bounded — `Effect.forEach(items, f, { concurrency: 2 })`. `concurrency: "unbounded"` is banned (`no-unbounded-concurrency`); a rate-budgetless host will IP-ban a 47-wide burst.
 - **Retry**: classify it — an options object with a `while:` predicate branching on `this.code`, or a single named `Schedule` policy. A blind `Effect.retry(schedule)` is rejected (`retry-must-classify-errors`). Retry transient codes only; deterministic parse/4xx-input errors must not retry.
 - **Resources** (DB handles, model extractors): `Effect.acquireRelease` inside the `make`, never statement `try/finally`.

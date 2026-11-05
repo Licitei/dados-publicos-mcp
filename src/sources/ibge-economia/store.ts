@@ -1,5 +1,7 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { Db } from "../../kernel/db/client";
 import { municipioEconomia } from "../../kernel/db/schemas/municipio-economia";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
@@ -31,7 +33,7 @@ const makeIbgeEconomia = Effect.gen(function* () {
       where cod_ibge = ${onlyDigits(codIbgeInput)}
       order by ano desc
       limit 1
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarMunicipio = (nome: string, limit: number) =>
     db.execute(sql`
@@ -40,7 +42,7 @@ const makeIbgeEconomia = Effect.gen(function* () {
       where word_similarity(${normalize(nome)}, busca) >= 0.2
       order by score desc, ano desc, cod_ibge
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const rankingPib = (options: {
     readonly uf?: string;
@@ -50,7 +52,7 @@ const makeIbgeEconomia = Effect.gen(function* () {
     Effect.gen(function* () {
       const limit = clamp(options.limit, 20, 100);
       const ufWhere: SQL = Match.value(options.uf).pipe(
-        Match.when(Match.string, (uf) => sql`and uf = ${uf.toUpperCase()}`),
+        Match.when(Match.string, (uf) => sql`and uf = ${pipe(uf, Str.toUpperCase)}`),
         Match.orElse(() => sql``)
       );
       const anoWhere: SQL = Match.value(options.ano).pipe(
@@ -63,7 +65,7 @@ const makeIbgeEconomia = Effect.gen(function* () {
         where pib_mil_reais is not null ${ufWhere} ${anoWhere}
         order by pib_mil_reais desc, cod_ibge
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const index = Effect.gen(function* () {
@@ -71,8 +73,8 @@ const makeIbgeEconomia = Effect.gen(function* () {
     const inserted = yield* indexAno(defaultAno);
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${municipioEconomia}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: Number(rows[0]?.count ?? 0) };
   });
 
   return {
@@ -92,6 +94,6 @@ const makeIbgeEconomia = Effect.gen(function* () {
 export class IbgeEconomia extends Context.Service<
   IbgeEconomia,
   Effect.Success<typeof makeIbgeEconomia>
->()("dados-publicos-mcp/IbgeEconomia") {}
+>()("dados-publicos-mcp/sources/ibge-economia/store/IbgeEconomia") {}
 
 export const IbgeEconomiaLive = Layer.effect(IbgeEconomia)(makeIbgeEconomia);

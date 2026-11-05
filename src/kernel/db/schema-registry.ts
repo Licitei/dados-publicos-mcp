@@ -1,4 +1,7 @@
 import type { PgTable } from "drizzle-orm/pg-core";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Rec from "effect/Record";
 import { tableDdlText } from "./ddl";
 import { ata } from "./schemas/ata";
 import { bem } from "./schemas/bem";
@@ -85,16 +88,27 @@ export const dbSources: ReadonlyArray<DbSource> = [
   { key: "sinapi", tables: { sinapiInsumo } },
 ];
 
-export const allDbTables: readonly PgTable[] = dbSources.flatMap((source) =>
-  Object.values(source.tables)
+export const allDbTables: readonly PgTable[] = pipe(
+  dbSources,
+  Arr.flatMap((source) => Rec.values(source.tables))
 );
 
-export const tableGroupsBySource: Record<string, Record<string, PgTable>> =
-  Object.fromEntries(
-    dbSources.map((source) => [source.key, source.tables] as const)
-  );
+export const tableGroupsBySource: Record<string, Record<string, PgTable>> = pipe(
+  dbSources,
+  Arr.map((source): readonly [string, Record<string, PgTable>] => [
+    source.key,
+    source.tables,
+  ]),
+  Rec.fromEntries
+);
 
-export const schemaDdlText = [
-  ...dbExtensions.map((name) => `create extension if not exists "${name}"`),
-  ...allDbTables.flatMap((table) => tableDdlText(table)),
-].join("\n");
+export const schemaDdlText = pipe(
+  [
+    ...pipe(
+      dbExtensions,
+      Arr.map((name) => `create extension if not exists "${name}"`)
+    ),
+    ...pipe(allDbTables, Arr.flatMap(tableDdlText)),
+  ],
+  Arr.join("\n")
+);

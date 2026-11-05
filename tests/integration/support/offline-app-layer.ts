@@ -1,6 +1,6 @@
-import { Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import { EmbedderStub } from "../../unit/support/embedder-stub";
+import { Effect, Layer } from "effect";
+import { fixtureLayer } from "../../unit/support/fixture-server";
+import { TestEmbedderLive } from "../../unit/support/test-embedder";
 import { TestDbLive } from "../../unit/support/test-db";
 import { CamaraDeputadosLive } from "../../../src/sources/camara-deputados/store";
 import { CapagLive } from "../../../src/sources/capag/store";
@@ -24,18 +24,9 @@ import { TransparenciaDespesasLive } from "../../../src/sources/transparencia-de
 import { TransferegovLive } from "../../../src/sources/transferegov/store";
 import { TseEleitoralLive } from "../../../src/sources/tse-eleitoral/store";
 
-const route = async (input: string | URL | Request): Promise<Response> =>
-  new Response(`rota nao stubada: ${String(input)}`, { status: 404 });
+const HttpOffline = fixtureLayer([]);
 
-const fetchStub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
-
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchStub))
-);
-
-const Infra = Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub);
+const Infra = Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpOffline);
 
 export const offlineSources = Layer.mergeAll(
   LegislacaoLive,
@@ -60,3 +51,10 @@ export const offlineSources = Layer.mergeAll(
   TransparenciaDespesasLive,
   SinapiLive
 ).pipe(Layer.provideMerge(Infra));
+
+export const withOfflineSources = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Layer.build(offlineSources).pipe(
+    Effect.orDie,
+    Effect.flatMap((context) => Effect.provideContext(effect, context)),
+    Effect.scoped
+  );

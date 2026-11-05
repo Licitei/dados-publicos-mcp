@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { Sinapi } from "../../sources/sinapi/store";
 import { NonEmptyString, positiveIntMax, Uf } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  uf: Schema.optional(Uf),
-  limite: Schema.optional(positiveIntMax(200)),
+  uf: Schema.optionalKey(Uf),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarInsumoSinapi = defineTool({
@@ -17,14 +17,14 @@ const buscarInsumoSinapi = defineTool({
   run: (args) =>
     Sinapi.pipe(
       Effect.flatMap((service) =>
-        service.buscarInsumo(args.termo, { uf: args.uf, limit: args.limite })
+        service.buscarInsumo(args.termo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const CodigoInput = Schema.Struct({
   codigo: NonEmptyString,
-  uf: Schema.optional(Uf),
+  uf: Schema.optionalKey(Uf),
 });
 
 const precoInsumoSinapi = defineTool({

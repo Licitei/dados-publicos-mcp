@@ -1,8 +1,9 @@
-import { Clock, Effect, Match } from "effect";
-import { HttpClientError } from "effect/unstable/http";
+import { DateTime, Effect, Match } from "effect";
+import * as Arr from "effect/Array";
+import { dual } from "effect/Function";
 import { Db } from "../../kernel/db/client";
 import { sinapiInsumo } from "../../kernel/db/schemas/sinapi-insumo";
-import { httpResponse, HttpError } from "../../kernel/http/client";
+import { Http, HttpError } from "../../kernel/http/client";
 import { readXlsxSheet } from "../../kernel/xlsx/sheet";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
@@ -18,13 +19,7 @@ import {
 
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
+const chunks = <A>(items: readonly A[]) => Arr.chunksOf(items, chunkSize);
 
 const insertRows = (rows: readonly SinapiInsumoFlat[]) =>
   Effect.forEach(
@@ -34,33 +29,30 @@ const insertRows = (rows: readonly SinapiInsumoFlat[]) =>
     { concurrency: 1, discard: true }
   );
 
-const refAgo = (millis: number, n: number) => {
-  const date = new Date(millis);
-  const shifted = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - n, 1)
-  );
-  return { ano: shifted.getUTCFullYear(), mes: shifted.getUTCMonth() + 1 };
+const refAgo = (now: DateTime.Utc, n: number) => {
+  const shifted = DateTime.subtract(DateTime.startOf(now, "month"), { months: n });
+  return {
+    ano: DateTime.getPartUtc(shifted, "year"),
+    mes: DateTime.getPartUtc(shifted, "month"),
+  };
 };
 
-export const defaultReferencia = Effect.map(Clock.currentTimeMillis, (millis) =>
-  refAgo(millis, 1)
+export const defaultReferencia = Effect.map(DateTime.now, (now) =>
+  refAgo(now, 1)
 );
 
 const downloadZip = (url: string) =>
-  httpResponse(url, {
+  Effect.flatMap(Http, (http) => http.bytes(url, {
     headers: {
       "user-agent": browserUserAgent,
       accept: "application/zip",
     },
-  }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
-  );
+  }));
 
 const tolerateMissing = <R>(
   effect: Effect.Effect<
     Uint8Array,
-    HttpError | HttpClientError.HttpClientError,
+    HttpError,
     R
   >,
   referencia: string
@@ -70,7 +62,7 @@ const tolerateMissing = <R>(
       Match.value(error).pipe(
         Match.when({ code: "http.STATUS" }, () =>
           Effect.fail(
-            new SinapiError({ code: "sinapi.RELATORIO_MISSING", referencia })
+            SinapiError.make({ code: "sinapi.RELATORIO_MISSING", referencia })
           )
         ),
         Match.orElse(() => Effect.fail(error))
@@ -78,7 +70,7 @@ const tolerateMissing = <R>(
     )
   );
 
-export const indexReferencia = (ano: number, mes: number) =>
+const indexReferenciaImpl = (ano: number, mes: number) =>
   Effect.gen(function* () {
     const referencia = mesReferenciaOf(ano, mes);
     const rows = yield* tolerateMissing(
@@ -96,10 +88,19 @@ export const indexReferencia = (ano: number, mes: number) =>
           )
         )
       ),
-      Effect.catchTag("SinapiError", () => Effect.succeed([])),
-      Effect.catchTag("XlsxError", () => Effect.succeed([])),
-      Effect.catchTag("ZipError", () => Effect.succeed([]))
+      Effect.catchTags({
+        SinapiError: () => Effect.succeed([]),
+        XlsxError: () => Effect.succeed([]),
+        ZipError: () => Effect.succeed([]),
+      })
     );
     yield* insertRows(rows);
     return rows.length;
   });
+
+export const indexReferencia: {
+  (
+    mes: number
+  ): (ano: number) => ReturnType<typeof indexReferenciaImpl>;
+  (ano: number, mes: number): ReturnType<typeof indexReferenciaImpl>;
+} = dual(2, indexReferenciaImpl);

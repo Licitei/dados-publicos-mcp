@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { Transferegov } from "../../sources/transferegov/store";
 import { NonEmptyString, positiveIntMax, Uf } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  uf: Schema.optional(Uf),
-  limite: Schema.optional(positiveIntMax(200)),
+  uf: Schema.optionalKey(Uf),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarConvenio = defineTool({
@@ -17,7 +17,7 @@ const buscarConvenio = defineTool({
   run: (args) =>
     Transferegov.pipe(
       Effect.flatMap((service) =>
-        service.buscarConvenio(args.termo, { uf: args.uf, limit: args.limite })
+        service.buscarConvenio(args.termo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
       )
     ),
 });
@@ -39,7 +39,7 @@ const conveniosDoProponente = defineTool({
 
 const MunicipioInput = Schema.Struct({
   codigo: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const conveniosDoMunicipio = defineTool({

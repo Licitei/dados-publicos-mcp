@@ -1,11 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { IbgeLocalidades } from "../../sources/ibge-localidades/store";
 import { NonEmptyString, Uf } from "../checks";
 import { defineTool } from "../tool";
 
 const ResolverMunicipioInput = Schema.Struct({
   nome: NonEmptyString,
-  uf: Schema.optional(Uf),
+  uf: Schema.optionalKey(Uf),
 });
 
 const resolverMunicipio = defineTool({
@@ -16,7 +16,7 @@ const resolverMunicipio = defineTool({
   run: (args) =>
     IbgeLocalidades.pipe(
       Effect.flatMap((service) =>
-        service.resolveMunicipio(args.nome, { uf: args.uf })
+        service.resolveMunicipio(args.nome, Struct.pick(args, ["uf"]))
       )
     ),
 });

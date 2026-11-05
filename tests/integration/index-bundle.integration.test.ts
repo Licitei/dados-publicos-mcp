@@ -1,70 +1,74 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import * as Test from "alchemy/Test/Vitest";
-import * as Effect from "effect/Effect";
+import { Layer } from "effect";
+import * as Test from "@alchemy.run/test/Vitest";
 import { describe, expect } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import { IndexBundle, providers } from "../../infra/index-bundle";
+import { BunServices } from "@effect/platform-bun";
+import { deploy, destroy } from "./support/stack";
 
-const { test } = Test.make({ providers: providers() });
+const withPlatform = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Layer.build(BunServices.layer).pipe(
+    Effect.flatMap((context) => Effect.provideContext(effect, context)),
+    Effect.scoped
+  );
+
+const { test } = Test.make({ providers });
+
+const workspace = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const src = yield* fs.makeTempDirectoryScoped({ prefix: "index-bundle-src-" });
+  const out = yield* fs.makeTempDirectoryScoped({ prefix: "index-bundle-out-" });
+  return { fs, src, dest: path.join(out, "bundle"), file: path.join(src, "data.bin"), path };
+});
 
 describe("IndexBundle", () => {
-  test.provider(
-    "copia o dataDir para o destino e remove no destroy",
-    (stack) =>
+  test.provider("copia o dataDir para o destino e remove no destroy", (stack) =>
+    withPlatform(
       Effect.gen(function* () {
-        const src = mkdtempSync(join(tmpdir(), "index-bundle-src-"));
-        const dest = join(
-          mkdtempSync(join(tmpdir(), "index-bundle-out-")),
-          "bundle"
-        );
-        writeFileSync(join(src, "data.bin"), "indice-prebuilt");
+        const { fs, path, src, dest, file } = yield* workspace;
+        yield* fs.writeFileString(file, "indice-prebuilt");
 
-        const created = yield* IndexBundle("bundle", { src, dest }).pipe(
-          stack.deploy
-        );
+        const created = yield* deploy(stack, IndexBundle("bundle", { src, dest }));
 
         expect(created.dest).toEqual(dest);
         expect(created.files).toEqual(1);
         expect(created.bytes).toBeGreaterThan(0);
-        expect(existsSync(join(dest, "data.bin"))).toBe(true);
-        expect(readFileSync(join(dest, "data.bin"), "utf8")).toEqual(
-          "indice-prebuilt"
-        );
+        const copied = path.join(dest, "data.bin");
+        const present = yield* fs.exists(copied);
+        const content = yield* fs.readFileString(copied);
+        expect(present).toBe(true);
+        expect(content).toEqual("indice-prebuilt");
 
-        yield* stack.destroy();
+        yield* destroy(stack);
 
-        expect(existsSync(dest)).toBe(false);
+        const remaining = yield* fs.exists(dest);
+        expect(remaining).toBe(false);
       })
+    )
   );
 
   test.provider("re-empacota refletindo o conteudo atual do src", (stack) =>
-    Effect.gen(function* () {
-      const src = mkdtempSync(join(tmpdir(), "index-bundle-src-"));
-      const dest = join(
-        mkdtempSync(join(tmpdir(), "index-bundle-out-")),
-        "bundle"
-      );
+    withPlatform(
+      Effect.gen(function* () {
+        const { fs, path, src, dest, file } = yield* workspace;
+        const bundled = path.join(dest, "data.bin");
 
-      writeFileSync(join(src, "data.bin"), "v1");
-      yield* IndexBundle("bundle", { src, dest }).pipe(stack.deploy);
-      expect(readFileSync(join(dest, "data.bin"), "utf8")).toEqual("v1");
+        yield* fs.writeFileString(file, "v1");
+        yield* deploy(stack, IndexBundle("bundle", { src, dest }));
+        const first = yield* fs.readFileString(bundled);
+        expect(first).toEqual("v1");
 
-      writeFileSync(join(src, "data.bin"), "v2-mais-dados");
-      const updated = yield* IndexBundle("bundle", { src, dest }).pipe(
-        stack.deploy
-      );
-      expect(readFileSync(join(dest, "data.bin"), "utf8")).toEqual(
-        "v2-mais-dados"
-      );
-      expect(updated.bytes).toBeGreaterThan("v1".length);
+        yield* fs.writeFileString(file, "v2-mais-dados");
+        const updated = yield* deploy(stack, IndexBundle("bundle", { src, dest }));
+        const second = yield* fs.readFileString(bundled);
+        expect(second).toEqual("v2-mais-dados");
+        expect(updated.bytes).toBeGreaterThan("v1".length);
 
-      yield* stack.destroy();
-    })
+        yield* destroy(stack);
+      })
+    )
   );
 });

@@ -1,7 +1,9 @@
 import { Effect, Match, Option, Stream } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
 import { Db } from "../../kernel/db/client";
 import { siconfiFato } from "../../kernel/db/schemas/siconfi-fato";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import {
   dcaUrl,
   mapFatos,
@@ -15,17 +17,9 @@ import {
 const chunkSize = 2_000;
 const maxPages = 5_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
-
 const insertRows = (rows: readonly SiconfiFatoFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(siconfiFato).values([...batch])),
     { concurrency: 1, discard: true }
   );
@@ -41,9 +35,11 @@ const urlFor = {
 const fetchPage =
   (idEnte: string, ano: number, demonstrativo: Demonstrativo) =>
   (state: PageState) =>
-    getJson(urlFor[demonstrativo](idEnte, ano, state.offset), SiconfiPayload, {
-      headers: { accept: "application/json" },
-    }).pipe(
+    Effect.flatMap(Http, (http) =>
+      http.json(urlFor[demonstrativo](idEnte, ano, state.offset), SiconfiPayload, {
+        headers: { accept: "application/json" },
+      })
+    ).pipe(
       Effect.map((payload) => {
         const items = payload.items ?? [];
         const stop =
@@ -73,11 +69,11 @@ const fetchDemonstrativo = (
     fetchPage(idEnte, ano, demonstrativo)
   ).pipe(
     Stream.runCollect,
-    Effect.map((chunk) => Array.from(chunk).flat()),
-    Effect.map((items) => mapFatos(idEnte, demonstrativo, items))
+    Effect.map((chunk) => Array.from(chunk)),
+    Effect.map(mapFatos(idEnte, demonstrativo))
   );
 
-export const indexEnte = (idEnte: string, ano: number) =>
+const indexEnteImpl = (idEnte: string, ano: number) =>
   Effect.all(
     {
       dca: fetchDemonstrativo(idEnte, ano, "DCA"),
@@ -86,6 +82,13 @@ export const indexEnte = (idEnte: string, ano: number) =>
     },
     { concurrency: 2 }
   ).pipe(
-    Effect.map(({ dca, rreo, rgf }) => [...dca, ...rreo, ...rgf]),
+    Effect.map(({ dca, rreo, rgf }) =>
+      pipe(dca, Arr.appendAll(rreo), Arr.appendAll(rgf))
+    ),
     Effect.flatMap((rows) => insertRows(rows).pipe(Effect.as(rows.length)))
   );
+
+export const indexEnte: {
+  (ano: number): (idEnte: string) => ReturnType<typeof indexEnteImpl>;
+  (idEnte: string, ano: number): ReturnType<typeof indexEnteImpl>;
+} = dual(2, indexEnteImpl);

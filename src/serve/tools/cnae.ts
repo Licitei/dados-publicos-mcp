@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { Cnae } from "../../sources/cnae/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
@@ -16,7 +16,7 @@ const resolverCnae = defineTool({
 
 const BuscarInput = Schema.Struct({
   termo: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(50)),
+  limite: Schema.optionalKey(positiveIntMax(50)),
 });
 
 const buscarCnae = defineTool({
@@ -27,7 +27,7 @@ const buscarCnae = defineTool({
   run: (args) =>
     Cnae.pipe(
       Effect.flatMap((service) =>
-        service.search(args.termo, { limit: args.limite })
+        service.search(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

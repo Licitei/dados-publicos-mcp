@@ -1,10 +1,11 @@
+import * as Arr from "effect/Array";
 import { Effect, Match, Option, Stream } from "effect";
 import { Db } from "../../kernel/db/client";
 import { ata } from "../../kernel/db/schemas/ata";
 import { contratacao } from "../../kernel/db/schemas/contratacao";
 import { contrato } from "../../kernel/db/schemas/contrato";
 import { Embedder } from "../../kernel/embed/embedder";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import {
   AtaPayload,
   ContratacaoPayload,
@@ -26,13 +27,7 @@ import {
 const maxPaginas = 5_000;
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
+const chunks = <A>(items: readonly A[]) => Arr.chunksOf(items, chunkSize);
 
 type PageState = { readonly pagina: number };
 
@@ -62,9 +57,9 @@ const insertContratacoes = (rows: readonly ContratacaoFlat[]) =>
         const db = yield* Db;
         const embeddings = yield* embedder.embed(
           "passage",
-          rows.map(passageContratacao)
+          Arr.map(rows, passageContratacao)
         );
-        const values = rows.map((row, position) => ({
+        const values = Arr.map(rows, (row, position) => ({
           ...row,
           embedding: embeddings[position],
         }));
@@ -86,9 +81,9 @@ const insertContratos = (rows: readonly ContratoFlat[]) =>
         const db = yield* Db;
         const embeddings = yield* embedder.embed(
           "passage",
-          rows.map(passageContrato)
+          Arr.map(rows, passageContrato)
         );
-        const values = rows.map((row, position) => ({
+        const values = Arr.map(rows, (row, position) => ({
           ...row,
           embedding: embeddings[position],
         }));
@@ -108,8 +103,8 @@ const insertAtas = (rows: readonly AtaFlat[]) =>
       Effect.gen(function* () {
         const embedder = yield* Embedder;
         const db = yield* Db;
-        const embeddings = yield* embedder.embed("passage", rows.map(passageAta));
-        const values = rows.map((row, position) => ({
+        const embeddings = yield* embedder.embed("passage", Arr.map(rows, passageAta));
+        const values = Arr.map(rows, (row, position) => ({
           ...row,
           embedding: embeddings[position],
         }));
@@ -134,8 +129,8 @@ type WindowSeed = {
 };
 
 const fetchContratacoes = (seed: ContratacaoSeed) => (state: PageState) =>
-  getJson(
-    pageUrl({
+  Effect.flatMap(Http, (http) =>
+    http.json(pageUrl({
       endpoint: endpoints.contratacoes,
       pagina: state.pagina,
       tamanhoPagina: pageSizes.max,
@@ -143,7 +138,7 @@ const fetchContratacoes = (seed: ContratacaoSeed) => (state: PageState) =>
       dataFinal: seed.dataFinal,
       codigoModalidadeContratacao: seed.codigoModalidadeContratacao,
     }),
-    ContratacaoPayload
+    ContratacaoPayload)
   ).pipe(
     Effect.flatMap((page) => {
       const stop = reachedEnd(
@@ -159,15 +154,15 @@ const fetchContratacoes = (seed: ContratacaoSeed) => (state: PageState) =>
   );
 
 const fetchContratos = (seed: WindowSeed) => (state: PageState) =>
-  getJson(
-    pageUrl({
+  Effect.flatMap(Http, (http) =>
+    http.json(pageUrl({
       endpoint: endpoints.contratos,
       pagina: state.pagina,
       tamanhoPagina: pageSizes.max,
       dataInicial: seed.dataInicial,
       dataFinal: seed.dataFinal,
     }),
-    ContratoPayload
+    ContratoPayload)
   ).pipe(
     Effect.flatMap((page) => {
       const stop = reachedEnd(
@@ -183,15 +178,15 @@ const fetchContratos = (seed: WindowSeed) => (state: PageState) =>
   );
 
 const fetchAtas = (seed: WindowSeed) => (state: PageState) =>
-  getJson(
-    pageUrl({
+  Effect.flatMap(Http, (http) =>
+    http.json(pageUrl({
       endpoint: endpoints.atas,
       pagina: state.pagina,
       tamanhoPagina: pageSizes.max,
       dataInicial: seed.dataInicial,
       dataFinal: seed.dataFinal,
     }),
-    AtaPayload
+    AtaPayload)
   ).pipe(
     Effect.flatMap((page) => {
       const stop = reachedEnd(

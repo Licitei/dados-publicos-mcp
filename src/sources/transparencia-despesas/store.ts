@@ -1,4 +1,6 @@
 import { Context, Effect, Layer, Match } from "effect";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { despesaFederal } from "../../kernel/db/schemas/despesa-federal";
@@ -32,7 +34,7 @@ const makeTransparenciaDespesas = Effect.gen(function* () {
       where cod_orgao_superior = ${onlyDigits(codOrgaoSuperior)}
       order by valor_pago desc nulls last, cod_acao
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Despesa = (q: string, limit: number, ufWhere: SQL) =>
     db.execute(sql`
@@ -63,7 +65,7 @@ const makeTransparenciaDespesas = Effect.gen(function* () {
       ) scored
       ${ufWhere}
       order by score desc
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarDespesa = (
     termo: string,
@@ -73,7 +75,7 @@ const makeTransparenciaDespesas = Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 50, 200);
       const ufWhere: SQL = Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) => sql`where uf = ${uf.toUpperCase()}`),
+        Match.when(Match.string, (uf) => sql`where uf = ${pipe(uf, Str.toUpperCase)}`),
         Match.orElse(() => sql``)
       );
       return yield* bm25Despesa(q, limit, ufWhere);
@@ -85,8 +87,8 @@ const makeTransparenciaDespesas = Effect.gen(function* () {
       const inserted = yield* indexMes(anoMes);
       const rows = yield* db.execute(
         sql`select count(*)::int as count from ${despesaFederal}`
-      );
-      return { anoMes, inserted, total: Number(rows[0].count) };
+      ).pipe(Effect.map(({ rows }) => rows));
+      return { anoMes, inserted, total: Number(rows[0]?.count ?? 0) };
     });
 
   const index = Effect.gen(function* () {
@@ -105,7 +107,7 @@ const makeTransparenciaDespesas = Effect.gen(function* () {
 export class TransparenciaDespesas extends Context.Service<
   TransparenciaDespesas,
   Effect.Success<typeof makeTransparenciaDespesas>
->()("dados-publicos-mcp/TransparenciaDespesas") {}
+>()("dados-publicos-mcp/sources/transparencia-despesas/store/TransparenciaDespesas") {}
 
 export const TransparenciaDespesasLive = Layer.effect(TransparenciaDespesas)(
   makeTransparenciaDespesas

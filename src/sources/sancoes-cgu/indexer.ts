@@ -1,9 +1,9 @@
-import { Clock, Effect, Match } from "effect";
-import { HttpClientError } from "effect/unstable/http";
+import { Clock, Effect, Match, pipe } from "effect";
+import * as Arr from "effect/Array";
 import { Db } from "../../kernel/db/client";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { sancao } from "../../kernel/db/schemas/sancao";
-import { httpResponse, HttpError } from "../../kernel/http/client";
+import { Http, HttpError } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   acceptCsv,
@@ -26,8 +26,11 @@ const range = (count: number) =>
   Array.from({ length: count }, (_, index) => index);
 
 const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
+  pipe(
+    range(Math.ceil(items.length / chunkSize)),
+    Arr.map((position) =>
+      items.slice(position * chunkSize, position * chunkSize + chunkSize)
+    )
   );
 
 const insertSancoes = (rows: readonly SancaoFlat[]) =>
@@ -38,17 +41,12 @@ const insertSancoes = (rows: readonly SancaoFlat[]) =>
   );
 
 const downloadZip = (url: string) =>
-  httpResponse(url, { headers: { accept: "application/zip" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, { headers: { accept: "application/zip" } })
   );
 
 const tolerateMissing = <R>(
-  effect: Effect.Effect<
-    Uint8Array,
-    HttpError | HttpClientError.HttpClientError,
-    R
-  >,
+  effect: Effect.Effect<Uint8Array, HttpError, R>,
   dataset: DatasetSpec
 ) =>
   effect.pipe(
@@ -58,7 +56,7 @@ const tolerateMissing = <R>(
           Match.value(missingStatus.has(status.status ?? -1)).pipe(
             Match.when(true, () =>
               Effect.fail(
-                new SancaoError({
+                SancaoError.make({
                   code: "sancoes.SNAPSHOT_MISSING",
                   dataset: dataset.key,
                 })
@@ -74,10 +72,13 @@ const tolerateMissing = <R>(
 
 const snapshotOf = (dataset: DatasetSpec, millis: number) =>
   Effect.firstSuccessOf(
-    range(lookbackDays).map((offset) =>
-      tolerateMissing(
-        downloadZip(zipUrl(dataset, yyyymmdd(millis, offset + 1))),
-        dataset
+    pipe(
+      range(lookbackDays),
+      Arr.map((offset) =>
+        tolerateMissing(
+          downloadZip(zipUrl(dataset, yyyymmdd(millis, offset + 1))),
+          dataset
+        )
       )
     )
   );
@@ -85,11 +86,13 @@ const snapshotOf = (dataset: DatasetSpec, millis: number) =>
 const rowsFromZip = (dataset: DatasetSpec, bytes: Uint8Array) =>
   unzipEntries(bytes, acceptCsv).pipe(
     Effect.map((entries) =>
-      entries
-        .filter((entry) => !isEfeitosCsv(entry.name))
-        .flatMap((entry) =>
+      pipe(
+        entries,
+        Arr.filter((entry) => !isEfeitosCsv(entry.name)),
+        Arr.flatMap((entry) =>
           mapSancoes(dataset.key, parseCsvRecords(entry.data, csvOptions))
         )
+      )
     )
   );
 
@@ -107,5 +110,10 @@ export const indexSnapshots = Effect.flatMap(
   (millis) =>
     Effect.forEach(datasets, (dataset) => indexDataset(dataset, millis), {
       concurrency: 2,
-    }).pipe(Effect.map((counts) => counts.reduce((acc, n) => acc + n, 0)))
+    }).pipe(Effect.map((counts) =>
+      pipe(
+        counts,
+        Arr.reduce(0, (acc, n) => acc + n)
+      )
+    ))
 );

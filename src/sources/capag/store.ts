@@ -1,6 +1,9 @@
-import { Clock, Context, Effect, Layer, Match } from "effect";
+import { Context, DateTime, Effect, Layer, Match } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
+import { Db, DbError } from "../../kernel/db/client";
 import { capagEstado } from "../../kernel/db/schemas/capag-estado";
 import { capagMunicipio } from "../../kernel/db/schemas/capag-municipio";
 import { siconfiEnte } from "../../kernel/db/schemas/siconfi-ente";
@@ -17,17 +20,15 @@ const clamp = (value: number | undefined, fallback: number, max: number) =>
     ? fallback
     : Math.min(Math.trunc(value), max);
 
+const trimUpper = (value: string) => pipe(value, Str.trim, Str.toUpperCase);
+
 const insertChunkSize = 2_000;
 
 const chunks = <A>(items: readonly A[]) =>
-  Array.from(
-    { length: Math.ceil(items.length / insertChunkSize) },
-    (_, position) =>
-      items.slice(position * insertChunkSize, (position + 1) * insertChunkSize)
-  );
+  pipe(items, Arr.chunksOf(insertChunkSize));
 
 const padIbge = (codigo: string) =>
-  onlyDigits(codigo).padStart(codigoIbgeLength, "0");
+  pipe(onlyDigits(codigo), Str.padStart(codigoIbgeLength, "0"));
 
 type ScoredMunicipio = MunicipioRow & { readonly score: number };
 
@@ -114,6 +115,10 @@ const makeCapag = Effect.gen(function* () {
           { concurrency: 1, discard: true }
         );
       })
+    ).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
     );
 
   const municipioByCod = (codIbge: string, ano?: number) =>
@@ -153,7 +158,7 @@ const makeCapag = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmMunicipios = (q: string, limit: number) =>
     db.execute(sql`
@@ -162,7 +167,7 @@ const makeCapag = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, cod_ibge
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const searchMunicipio = (
     nome: string,
@@ -176,7 +181,7 @@ const makeCapag = Effect.gen(function* () {
         Match.when(0, () => trgmMunicipios(q, limit)),
         Match.orElse(() => Effect.succeed(lexical))
       );
-      const codigos = ranked.map((row) => String(row.codIbge));
+      const codigos = Arr.map(ranked, (row) => String(row.codIbge));
       return yield* Match.value(codigos.length).pipe(
         Match.when(0, () => Effect.succeed<readonly ScoredMunicipio[]>([])),
         Match.orElse(() =>
@@ -184,8 +189,8 @@ const makeCapag = Effect.gen(function* () {
             .findMany({ where: { codIbge: { in: codigos } } })
             .pipe(
               Effect.map((rows) => {
-                const byCod = new Map(rows.map((row) => [row.codIbge, row]));
-                return ranked.flatMap((scored) => {
+                const byCod = new Map(Arr.map(rows, (row) => [row.codIbge, row] as const));
+                return Arr.flatMap(ranked, (scored) => {
                   const row = byCod.get(String(scored.codIbge));
                   return row === undefined
                     ? []
@@ -209,12 +214,12 @@ const makeCapag = Effect.gen(function* () {
           Effect.flatMap((row) =>
             Match.value(row).pipe(
               Match.when(Match.undefined, () =>
-                estadoByUf(ibge.trim().toUpperCase(), ano).pipe(
+                estadoByUf(trimUpper(ibge), ano).pipe(
                   Effect.flatMap((estado) =>
                     Match.value(estado).pipe(
                       Match.when(Match.undefined, () =>
                         Effect.fail(
-                          new CapagError({
+                          CapagError.make({
                             code: "capag.ENTE_NOT_FOUND",
                             termo: ibge,
                           })
@@ -239,8 +244,9 @@ const makeCapag = Effect.gen(function* () {
           Effect.flatMap((rows) => {
             const filtered = Match.value(uf).pipe(
               Match.when(Match.string, (sigla) =>
-                rows.filter(
-                  (row) => row.uf === sigla.trim().toUpperCase()
+                Arr.filter(
+                  rows,
+                  (row) => row.uf === trimUpper(sigla)
                 )
               ),
               Match.orElse(() => rows)
@@ -248,7 +254,7 @@ const makeCapag = Effect.gen(function* () {
             return Match.value(filtered[0]).pipe(
               Match.when(Match.undefined, () =>
                 Effect.fail(
-                  new CapagError({ code: "capag.ENTE_NOT_FOUND", termo: nome })
+                  CapagError.make({ code: "capag.ENTE_NOT_FOUND", termo: nome })
                 )
               ),
               Match.orElse((best) =>
@@ -265,7 +271,10 @@ const makeCapag = Effect.gen(function* () {
         )
       ),
       Match.orElse(() =>
-        Effect.fail(new CapagError({ code: "capag.MISSING_IDENTIFIER" }))
+        Effect.fail(CapagError.make({ code: "capag.MISSING_IDENTIFIER" }))
+      ),
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
       )
     );
 
@@ -291,14 +300,14 @@ const makeCapag = Effect.gen(function* () {
           Effect.flatMap((rows) => {
             const filtered = Match.value(uf).pipe(
               Match.when(Match.string, (sigla) =>
-                rows.filter((row) => row.uf === sigla.trim().toUpperCase())
+                Arr.filter(rows, (row) => row.uf === trimUpper(sigla))
               ),
               Match.orElse(() => rows)
             );
             return Match.value(filtered[0]).pipe(
               Match.when(Match.undefined, () =>
                 Effect.fail(
-                  new CapagError({ code: "capag.ENTE_NOT_FOUND", termo: nome })
+                  CapagError.make({ code: "capag.ENTE_NOT_FOUND", termo: nome })
                 )
               ),
               Match.orElse((best) =>
@@ -311,19 +320,22 @@ const makeCapag = Effect.gen(function* () {
         )
       ),
       Match.orElse(() =>
-        Effect.fail(new CapagError({ code: "capag.MISSING_IDENTIFIER" }))
+        Effect.fail(CapagError.make({ code: "capag.MISSING_IDENTIFIER" }))
+      ),
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
       )
     );
 
   const regiaoFilter = (regiao: string | undefined) =>
     Match.value(regiao).pipe(
-      Match.when(Match.string, (value) => ({ regiao: value.trim().toUpperCase() })),
+      Match.when(Match.string, (value) => ({ regiao: trimUpper(value) })),
       Match.orElse(() => ({}))
     );
 
   const esferaFilter = (esfera: string | undefined) =>
     Match.value(esfera).pipe(
-      Match.when(Match.string, (value) => ({ esfera: value.trim().toUpperCase() })),
+      Match.when(Match.string, (value) => ({ esfera: trimUpper(value) })),
       Match.orElse(() => ({}))
     );
 
@@ -335,12 +347,14 @@ const makeCapag = Effect.gen(function* () {
     readonly limit?: number;
   }) =>
     Effect.gen(function* () {
-      const notas = options.notas
-        .map((nota) => nota.trim())
-        .filter((nota) => nota !== "");
+      const notas = pipe(
+        options.notas,
+        Arr.map(Str.trim),
+        Arr.filter((nota) => nota !== "")
+      );
       const limit = clamp(options.limit, 50, 500);
       const ufFilter = Match.value(options.uf).pipe(
-        Match.when(Match.string, (uf) => ({ uf: uf.trim().toUpperCase() })),
+        Match.when(Match.string, (uf) => ({ uf: trimUpper(uf) })),
         Match.orElse(() => ({}))
       );
       const usaPonte =
@@ -361,7 +375,7 @@ const makeCapag = Effect.gen(function* () {
           db.query.siconfiEnte
             .findMany({
               where: {
-                codIbge: { in: municipios.map((m) => m.codIbge) },
+                codIbge: { in: Arr.map(municipios, (m) => m.codIbge) },
                 ...regiaoFilter(options.regiao),
                 ...esferaFilter(options.esfera),
               },
@@ -370,7 +384,7 @@ const makeCapag = Effect.gen(function* () {
             .pipe(
               Effect.map(
                 (rows): ReadonlySet<string> =>
-                  new Set(rows.map((row) => row.codIbge))
+                  new Set(Arr.map(rows, (row) => row.codIbge))
               )
             )
         )
@@ -383,7 +397,7 @@ const makeCapag = Effect.gen(function* () {
           db.query.siconfiEnte
             .findMany({
               where: {
-                uf: { in: estados.map((e) => e.uf) },
+                uf: { in: Arr.map(estados, (e) => e.uf) },
                 esfera: "E",
                 ...regiaoFilter(options.regiao),
               },
@@ -393,7 +407,7 @@ const makeCapag = Effect.gen(function* () {
               Effect.map(
                 (rows): ReadonlySet<string> =>
                   new Set(
-                    rows.flatMap((row) => (row.uf === null ? [] : [row.uf]))
+                    Arr.flatMap(rows, (row) => (row.uf === null ? [] : [row.uf]))
                   )
               )
             )
@@ -401,18 +415,18 @@ const makeCapag = Effect.gen(function* () {
       );
       const municipiosFiltrados = Match.value(usaPonte).pipe(
         Match.when(false, () => municipios),
-        Match.orElse(() => municipios.filter((m) => municipalBridge.has(m.codIbge)))
+        Match.orElse(() => Arr.filter(municipios, (m) => municipalBridge.has(m.codIbge)))
       );
       const estadosFiltrados = Match.value(usaPonte).pipe(
         Match.when(false, () => estados),
         Match.orElse(() =>
           Match.value(options.esfera).pipe(
             Match.when(Match.string, (esfera) =>
-              esfera.trim().toUpperCase() === "E"
-                ? estados.filter((e) => stateBridge.has(e.uf))
+              trimUpper(esfera) === "E"
+                ? Arr.filter(estados, (e) => stateBridge.has(e.uf))
                 : []
             ),
-            Match.orElse(() => estados.filter((e) => stateBridge.has(e.uf)))
+            Match.orElse(() => Arr.filter(estados, (e) => stateBridge.has(e.uf)))
           )
         )
       );
@@ -420,7 +434,11 @@ const makeCapag = Effect.gen(function* () {
         estados: estadosFiltrados.slice(0, limit),
         municipios: municipiosFiltrados.slice(0, limit),
       };
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const bm25Entes = (q: string, limit: number) =>
     db.execute(sql`
@@ -435,7 +453,7 @@ const makeCapag = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmEntes = (q: string, limit: number) =>
     db.execute(sql`
@@ -444,7 +462,7 @@ const makeCapag = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, cod_ibge
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarEntePorNome = (nome: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
@@ -455,7 +473,7 @@ const makeCapag = Effect.gen(function* () {
         Match.when(0, () => trgmEntes(q, limit)),
         Match.orElse(() => Effect.succeed(lexical))
       );
-      const codigos = ranked.map((row) => String(row.codIbge));
+      const codigos = Arr.map(ranked, (row) => String(row.codIbge));
       return yield* Match.value(codigos.length).pipe(
         Match.when(0, () =>
           Effect.succeed<readonly (EnteRow & { readonly score: number })[]>([])
@@ -465,8 +483,8 @@ const makeCapag = Effect.gen(function* () {
             .findMany({ where: { codIbge: { in: codigos } } })
             .pipe(
               Effect.map((rows) => {
-                const byCod = new Map(rows.map((row) => [row.codIbge, row]));
-                return ranked.flatMap((scored) => {
+                const byCod = new Map(Arr.map(rows, (row) => [row.codIbge, row] as const));
+                return Arr.flatMap(ranked, (scored) => {
                   const row = byCod.get(String(scored.codIbge));
                   return row === undefined
                     ? []
@@ -476,7 +494,11 @@ const makeCapag = Effect.gen(function* () {
             )
         )
       );
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const resolverEntePorCnpj = (cnpjInput: string) =>
     Effect.gen(function* () {
@@ -494,12 +516,16 @@ const makeCapag = Effect.gen(function* () {
       return yield* Match.value(ente).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
-            new CapagError({ code: "capag.CNPJ_NOT_FOUND", cnpj: cnpjInput })
+            CapagError.make({ code: "capag.CNPJ_NOT_FOUND", cnpj: cnpjInput })
           )
         ),
         Match.orElse((found) => Effect.succeed({ cnpj, ...found }))
       );
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const indexAno = (ceilingYear: number) =>
     Effect.gen(function* () {
@@ -512,8 +538,8 @@ const makeCapag = Effect.gen(function* () {
       };
     });
 
-  const index = Effect.flatMap(Clock.currentTimeMillis, (millis) =>
-    indexAno(new Date(millis).getUTCFullYear())
+  const index = Effect.flatMap(DateTime.now, (now) =>
+    indexAno(DateTime.getPartUtc(now, "year"))
   );
 
   return {
@@ -531,6 +557,6 @@ const makeCapag = Effect.gen(function* () {
 export class Capag extends Context.Service<
   Capag,
   Effect.Success<typeof makeCapag>
->()("dados-publicos-mcp/Capag") {}
+>()("dados-publicos-mcp/sources/capag/store/Capag") {}
 
 export const CapagLive = Layer.effect(Capag)(makeCapag);

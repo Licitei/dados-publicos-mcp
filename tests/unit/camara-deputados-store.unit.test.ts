@@ -1,126 +1,84 @@
-import { deflateRawSync } from "node:zlib";
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
+import * as Predicate from "effect/Predicate";
 import {
   CamaraDeputados,
   CamaraDeputadosLive,
 } from "../../src/sources/camara-deputados/store";
-import { EmbedderStub } from "./support/embedder-stub";
+import { TestEmbedderLive } from "./support/test-embedder";
+import { fixtureLayer, pathIncludes } from "./support/fixture-server";
+import { utf8, zip } from "./support/stored-zip";
 import { TestDbLive } from "./support/test-db";
 
-const concat = (...parts: Uint8Array[]) => {
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(total);
-  let pos = 0;
-  for (const p of parts) {
-    out.set(p, pos);
-    pos += p.length;
-  }
-  return out;
-};
+const bom = [0xef, 0xbb, 0xbf];
 
-const makeZip = (files: { name: string; data: Uint8Array }[], method = 0) => {
-  const enc = new TextEncoder();
-  const locals: Uint8Array[] = [];
-  const centrals: Uint8Array[] = [];
-  let offset = 0;
-  for (const file of files) {
-    const nameBytes = enc.encode(file.name);
-    const payload =
-      method === 8 ? new Uint8Array(deflateRawSync(file.data)) : file.data;
-    const lfh = new DataView(new ArrayBuffer(30));
-    lfh.setUint32(0, 0x04034b50, true);
-    lfh.setUint16(8, method, true);
-    lfh.setUint32(18, payload.length, true);
-    lfh.setUint32(22, file.data.length, true);
-    lfh.setUint16(26, nameBytes.length, true);
-    const local = concat(new Uint8Array(lfh.buffer), nameBytes, payload);
-    const cdh = new DataView(new ArrayBuffer(46));
-    cdh.setUint32(0, 0x02014b50, true);
-    cdh.setUint16(10, method, true);
-    cdh.setUint32(20, payload.length, true);
-    cdh.setUint32(24, file.data.length, true);
-    cdh.setUint16(28, nameBytes.length, true);
-    cdh.setUint32(42, offset, true);
-    centrals.push(concat(new Uint8Array(cdh.buffer), nameBytes));
-    locals.push(local);
-    offset += local.length;
-  }
-  const cd = concat(...centrals);
-  const eocd = new DataView(new ArrayBuffer(22));
-  eocd.setUint32(0, 0x06054b50, true);
-  eocd.setUint16(8, files.length, true);
-  eocd.setUint16(10, files.length, true);
-  eocd.setUint32(12, cd.length, true);
-  eocd.setUint32(16, offset, true);
-  return concat(...locals, cd, new Uint8Array(eocd.buffer));
-};
+const utf8Bom = (text: string) => Uint8Array.from([...bom, ...utf8(text)]);
 
-const bom = new Uint8Array([0xef, 0xbb, 0xbf]);
-
-const utf8 = (text: string) =>
-  concat(bom, new TextEncoder().encode(text));
-
-const deputadosCsv = [
+const deputadosCsv = Arr.join(
+  [
   '"id";"uri";"nome";"nomeCivil";"siglaSexo";"dataNascimento";"dataFalecimento";"ufNascimento";"municipioNascimento";"idLegislaturaInicial";"idLegislaturaFinal"',
   '"220593";"https://dadosabertos.camara.leg.br/api/v2/deputados/220593";"João da Silva";"João Pereira da Silva";"M";"1970-03-15";"";"SP";"São Paulo";"56";"57"',
   '"178957";"https://dadosabertos.camara.leg.br/api/v2/deputados/178957";"Maria Souza";"Maria Aparecida Souza";"F";"1985-06-20";"";"MG";"Belo Horizonte";"55";"57"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const cotaCsv = [
+const cotaCsv = Arr.join(
+  [
   '"nuDeputadoId";"ideCadastro";"txNomeParlamentar";"cpf";"sgUF";"sgPartido";"numSubCota";"txtDescricao";"txtFornecedor";"txtCNPJCPF";"datEmissao";"vlrDocumento";"vlrGlosa";"vlrLiquido";"numMes";"numAno";"ideDocumento";"urlDocumento"',
   '"220593";"3001";"João da Silva";"";"SP";"MDB";"3";"DIVULGAÇÃO DA ATIVIDADE PARLAMENTAR";"GRAFICA BETA LTDA";"44.555.666/0001-99";"2026-02-10";"8000,00";"0,00";"8000,00";"2";"2026";"DOC1";"http://doc/1"',
   '"178957";"3002";"Maria Souza";"";"MG";"PT";"3";"DIVULGAÇÃO DA ATIVIDADE PARLAMENTAR";"GRAFICA BETA LTDA";"44555666000199";"2026-03-12";"5000,00";"0,00";"5000,00";"3";"2026";"DOC2";"http://doc/2"',
   '"220593";"3004";"João da Silva";"";"SP";"MDB";"5";"MANUTENÇÃO DE ESCRITÓRIO";"GRAFICA BETA LTDA";"44555666000199";"2026-05-01";"2000,00";"0,00";"2000,00";"5";"2026";"DOC4";"http://doc/4"',
   '"220593";"3003";"João da Silva";"";"SP";"MDB";"1";"COMBUSTÍVEIS E LUBRIFICANTES";"POSTO GAMA COMBUSTIVEIS";"77.888.999/0001-11";"2026-04-01";"600,00";"0,00";"600,00";"4";"2026";"DOC3";"http://doc/3"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const proposicoesCsv = [
+const proposicoesCsv = Arr.join(
+  [
   '"id";"uri";"siglaTipo";"numero";"ano";"ementa";"ementaDetalhada";"keywords";"dataApresentacao";"ultimoStatus_descricaoSituacao";"ultimoStatus_dataHora";"ultimoStatus_siglaOrgao"',
   '"2400001";"https://dadosabertos.camara.leg.br/api/v2/proposicoes/2400001";"PL";"1001";"2026";"Dispõe sobre a proteção de dados pessoais e a privacidade dos cidadãos";"Estabelece regras para tratamento de dados pessoais";"privacidade, dados pessoais, proteção";"2026-02-01";"Aguardando Parecer";"2026-02-05T10:00";"CCJC"',
   '"2400002";"https://dadosabertos.camara.leg.br/api/v2/proposicoes/2400002";"PEC";"2002";"2026";"Altera o regime tributário das pequenas empresas e o Simples Nacional";"Reforma tributária para microempresas";"tributos, simples nacional, empresas";"2026-03-01";"Em Tramitação";"2026-03-10T11:00";"PLEN"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const autoresCsv = [
+const autoresCsv = Arr.join(
+  [
   '"idProposicao";"uriProposicao";"idDeputadoAutor";"uriAutor";"nomeAutor";"proponente"',
   '"2400001";"https://dadosabertos.camara.leg.br/api/v2/proposicoes/2400001";"220593";"https://dadosabertos.camara.leg.br/api/v2/deputados/220593";"João da Silva";"1"',
   '"2400002";"https://dadosabertos.camara.leg.br/api/v2/proposicoes/2400002";"178957";"https://dadosabertos.camara.leg.br/api/v2/deputados/178957";"Maria Souza";"1"',
-].join("\r\n");
-
-const ceapZip = makeZip(
-  [{ name: "Ano-2026.csv", data: utf8(cotaCsv) }],
-  8
+  ],
+  "\r\n"
 );
 
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const url = String(input);
-  return url.includes("deputados/csv/deputados.csv")
-    ? new Response(utf8(deputadosCsv))
-    : url.includes("Ano-2026.csv.zip")
-      ? new Response(ceapZip)
-      : url.includes("proposicoesAutores-2026.csv")
-        ? new Response(utf8(autoresCsv))
-        : url.includes("proposicoes-2026.csv")
-          ? new Response(utf8(proposicoesCsv))
-          : new Response("rota desconhecida", { status: 404 });
-};
+const ceapZip = zip([{ name: "Ano-2026.csv", bytes: utf8Bom(cotaCsv) }], {
+  method: "deflate",
+});
 
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
-
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
+const HttpFixture = Layer.unwrap(
+  ceapZip.pipe(
+    Effect.map((ceapBody) =>
+      fixtureLayer([
+  { match: pathIncludes("deputados/csv/deputados.csv"), respond: { body: utf8Bom(deputadosCsv) } },
+  { match: pathIncludes("Ano-2026.csv.zip"), respond: { body: ceapBody } },
+  { match: pathIncludes("proposicoesAutores-2026.csv"), respond: { body: utf8Bom(autoresCsv) } },
+  { match: pathIncludes("proposicoes-2026.csv"), respond: { body: utf8Bom(proposicoesCsv) } },
+])
+    )
+  )
 );
 
 const TestLayer = Layer.mergeAll(
   CamaraDeputadosLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub))
+    Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpFixture))
   ),
   TestDbLive,
-  EmbedderStub,
-  HttpStub
+  TestEmbedderLive,
+  HttpFixture
 );
 
 const seeded = Effect.gen(function* () {
@@ -129,7 +87,7 @@ const seeded = Effect.gen(function* () {
   return camara;
 });
 
-describe("camara-deputados store + csv/zip ingest", () => {
+layer(TestLayer, { timeout: Duration.seconds(60) })("camara-deputados store + csv/zip ingest", (it) => {
   it.effect(
     "indexAnos loads deputados once + cota/proposicao/autor per ano and counts",
     () =>
@@ -142,8 +100,7 @@ describe("camara-deputados store + csv/zip ingest", () => {
           proposicoes: 2,
           proposicoesAutores: 2,
         });
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -152,17 +109,16 @@ describe("camara-deputados store + csv/zip ingest", () => {
       Effect.gen(function* () {
         const camara = yield* seeded;
         const porNome = yield* camara.buscarDeputado({ nome: "joao silva" });
-        expect(porNome.map((r) => r.id)).toContain("220593");
-        expect(Number(porNome[0].score)).toBeGreaterThan(0);
+        expect(Arr.map(porNome, (r) => r.id)).toContain("220593");
+        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) > 0)).toBe(true);
         const typo = yield* camara.buscarDeputado({ nome: "joao silvz" });
-        expect(typo.map((r) => r.id)).toContain("220593");
+        expect(Arr.map(typo, (r) => r.id)).toContain("220593");
         const porId = yield* camara.buscarDeputado({ id: "178957" });
         expect(porId).toHaveLength(1);
-        expect(porId[0].nome).toBe("Maria Souza");
+        expect(Option.map(Arr.head(porId), (r) => r.nome)).toEqual(Option.some("Maria Souza"));
         const porUf = yield* camara.buscarDeputado({ uf: "sp" });
-        expect(porUf.map((r) => r.id)).toEqual(["220593"]);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        expect(Arr.map(porUf, (r) => r.id)).toEqual(["220593"]);
+      }),
   );
 
   it.effect(
@@ -174,14 +130,14 @@ describe("camara-deputados store + csv/zip ingest", () => {
           fornecedor: "grafica",
         });
         expect(porNome).toHaveLength(3);
-        expect(porNome.every((r) => r.cnpjCpfNorm === "44555666000199")).toBe(
+        expect(Arr.every(porNome, (r) => r.cnpjCpfNorm === "44555666000199")).toBe(
           true
         );
-        expect(Number(porNome[0].score)).toBeLessThan(0);
-        expect(porNome[0].nomeDeputado).not.toBeNull();
+        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) < 0)).toBe(true);
+        expect(Option.exists(Arr.head(porNome), (r) => r.nomeDeputado !== null)).toBe(true);
         const typo = yield* camara.gastosPorFornecedor({ fornecedor: "grafia" });
-        expect(typo.map((r) => r.cnpjCpfNorm)).toContain("44555666000199");
-        expect(Number(typo[0].score)).toBeGreaterThan(0);
+        expect(Arr.map(typo, (r) => r.cnpjCpfNorm)).toContain("44555666000199");
+        expect(Option.exists(Arr.head(typo), (r) => Number(r.score) > 0)).toBe(true);
         const porDoc = yield* camara.gastosPorFornecedor({
           cnpjCpf: "44.555.666/0001-99",
         });
@@ -201,8 +157,7 @@ describe("camara-deputados store + csv/zip ingest", () => {
         );
         expect(semFiltro._tag).toBe("CamaraError");
         expect(semFiltro.message).toContain("fornecedor");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -218,10 +173,9 @@ describe("camara-deputados store + csv/zip ingest", () => {
         expect(reverse.totalDocumentos).toBe(3);
         expect(reverse.totalLiquido).toBeCloseTo(15000, 1);
         expect(reverse.deputados).toHaveLength(2);
-        const byDep = reverse.deputados.map((d) => Number(d.deputadoId)).sort();
+        const byDep = Arr.sort(Arr.map(reverse.deputados, (d) => Number(d.deputadoId)), Order.Number);
         expect(byDep).toEqual([178957, 220593]);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -232,8 +186,8 @@ describe("camara-deputados store + csv/zip ingest", () => {
         const lexical = yield* camara.buscarProposicao({
           termo: "proteção de dados pessoais",
         });
-        expect(lexical[0].id).toBe("2400001");
-        expect(Number(lexical[0].score)).toBeGreaterThan(0);
+        expect(Option.map(Arr.head(lexical), (r) => r.id)).toEqual(Option.some("2400001"));
+        expect(Option.exists(Arr.head(lexical), (r) => Number(r.score) > 0)).toBe(true);
         const semLexical = yield* camara.buscarProposicao({
           termo: "zzzz termo sem correspondencia lexical",
         });
@@ -242,7 +196,7 @@ describe("camara-deputados store + csv/zip ingest", () => {
           termo: "tributário",
           tipo: "pec",
         });
-        expect(porTipo.map((r) => r.id)).toEqual(["2400002"]);
+        expect(Arr.map(porTipo, (r) => r.id)).toEqual(["2400002"]);
         const porAno = yield* camara.buscarProposicao({
           termo: "dados",
           ano: 2020,
@@ -252,11 +206,18 @@ describe("camara-deputados store + csv/zip ingest", () => {
           termo: "dados pessoais",
           incluirAutores: true,
         });
-        const alvo = comAutores.find((r) => r.id === "2400001");
-        expect(alvo).toBeDefined();
-        const autores = (alvo?.autores ?? []) as Record<string, unknown>[];
-        expect(autores.map((a) => a.nomeAutor)).toContain("João da Silva");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        const alvo = Arr.findFirst(comAutores, (r) => r.id === "2400001");
+        expect(Option.isSome(alvo)).toBe(true);
+        const autores = Option.match(alvo, {
+          onNone: () => [],
+          onSome: (r): readonly unknown[] => {
+            const found = r["autores"];
+            return Arr.isArray(found) ? found : [];
+          },
+        });
+        expect(
+          Arr.map(autores, (a) => (Predicate.hasProperty(a, "nomeAutor") ? a.nomeAutor : undefined))
+        ).toContain("João da Silva");
+      }),
   );
 });

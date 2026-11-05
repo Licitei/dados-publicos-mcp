@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Match } from "effect";
+import * as Arr from "effect/Array";
 import { sql } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { ceapsDespesa } from "../../kernel/db/schemas/ceaps-despesa";
@@ -45,7 +46,7 @@ const makeSenado = Effect.gen(function* () {
       where word_similarity(${normalize(nome)}, busca) >= 0.2
       order by score desc, nome
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Fornecedor = (q: string, limit: number) =>
     db.execute(sql`
@@ -66,7 +67,7 @@ const makeSenado = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmFornecedor = (q: string, limit: number) =>
     db.execute(sql`
@@ -75,7 +76,7 @@ const makeSenado = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, id
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarFornecedorCeaps = (
     termo: string,
@@ -99,10 +100,7 @@ const makeSenado = Effect.gen(function* () {
         columns: ceapsViewColumns,
         orderBy: (d, { desc }) => desc(d.data),
       });
-      const total = despesas.reduce(
-        (sum, row) => sum + (row.valorReembolsado ?? 0),
-        0
-      );
+      const total = Arr.reduce(despesas, 0, (sum, row) => sum + (row.valorReembolsado ?? 0));
       return {
         documento: documentoInput,
         docNormalizado,
@@ -140,6 +138,6 @@ const makeSenado = Effect.gen(function* () {
 export class SenadoFederal extends Context.Service<
   SenadoFederal,
   Effect.Success<typeof makeSenado>
->()("dados-publicos-mcp/SenadoFederal") {}
+>()("dados-publicos-mcp/sources/senado/store/SenadoFederal") {}
 
 export const SenadoFederalLive = Layer.effect(SenadoFederal)(makeSenado);

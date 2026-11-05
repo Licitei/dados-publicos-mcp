@@ -1,146 +1,114 @@
-import { deflateRawSync } from "node:zlib";
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Str from "effect/String";
+import * as Order from "effect/Order";
 import {
   TseEleitoral,
   TseEleitoralLive,
 } from "../../src/sources/tse-eleitoral/store";
+import { fixtureLayer, pathIncludes } from "./support/fixture-server";
+import { zip } from "./support/stored-zip";
 import { TestDbLive } from "./support/test-db";
 
-const concat = (...parts: Uint8Array[]) => {
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(total);
-  let pos = 0;
-  for (const p of parts) {
-    out.set(p, pos);
-    pos += p.length;
-  }
-  return out;
-};
+const latin1 = (text: string) =>
+  Uint8Array.from(Arr.map(Arr.fromIterable(text), (char) => Str.codePointAt(0)(char).pipe(Option.getOrElse(() => 63))));
 
-const makeZip = (files: { name: string; data: Uint8Array }[], method = 0) => {
-  const enc = new TextEncoder();
-  const locals: Uint8Array[] = [];
-  const centrals: Uint8Array[] = [];
-  let offset = 0;
-  for (const file of files) {
-    const nameBytes = enc.encode(file.name);
-    const payload =
-      method === 8 ? new Uint8Array(deflateRawSync(file.data)) : file.data;
-    const lfh = new DataView(new ArrayBuffer(30));
-    lfh.setUint32(0, 0x04034b50, true);
-    lfh.setUint16(8, method, true);
-    lfh.setUint32(18, payload.length, true);
-    lfh.setUint32(22, file.data.length, true);
-    lfh.setUint16(26, nameBytes.length, true);
-    const local = concat(new Uint8Array(lfh.buffer), nameBytes, payload);
-    const cdh = new DataView(new ArrayBuffer(46));
-    cdh.setUint32(0, 0x02014b50, true);
-    cdh.setUint16(10, method, true);
-    cdh.setUint32(20, payload.length, true);
-    cdh.setUint32(24, file.data.length, true);
-    cdh.setUint16(28, nameBytes.length, true);
-    cdh.setUint32(42, offset, true);
-    centrals.push(concat(new Uint8Array(cdh.buffer), nameBytes));
-    locals.push(local);
-    offset += local.length;
-  }
-  const cd = concat(...centrals);
-  const eocd = new DataView(new ArrayBuffer(22));
-  eocd.setUint32(0, 0x06054b50, true);
-  eocd.setUint16(8, files.length, true);
-  eocd.setUint16(10, files.length, true);
-  eocd.setUint32(12, cd.length, true);
-  eocd.setUint32(16, offset, true);
-  return concat(...locals, cd, new Uint8Array(eocd.buffer));
-};
-
-const latin1 = (text: string) => new Uint8Array(Buffer.from(text, "latin1"));
-
-const candidatosCsv = [
+const candidatosCsv = Arr.join(
+  [
   '"SQ_CANDIDATO";"NR_CPF_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"ANO_ELEICAO";"SG_UF";"CD_CARGO";"DS_CARGO";"NR_PARTIDO";"SG_PARTIDO";"DS_SIT_TOT_TURNO";"DT_NASCIMENTO";"DS_OCUPACAO"',
   '"SP001";"11122233344";"JOÃO DA SILVA";"JOÃO DO POVO";"2024";"SP";"11";"PREFEITO";"15";"MDB";"ELEITO";"15/03/1970";"EMPRESÁRIO"',
   '"SP002";"55566677788";"MARIA SOUZA";"MARIA DA SAÚDE";"2024";"SP";"13";"VEREADOR";"13";"PT";"#NULO#";"20/06/1985";"MÉDICA"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const candidatosUfCsv = [
+const candidatosUfCsv = Arr.join(
+  [
   '"SQ_CANDIDATO";"NR_CPF_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"ANO_ELEICAO"',
   '"SP999";"00000000000";"NAO INDEXAR";"FANTASMA";"2024"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const bensCsv = [
+const bensCsv = Arr.join(
+  [
   '"SQ_CANDIDATO";"ANO_ELEICAO";"SG_UF";"NR_ORDEM_BEM_CANDIDATO";"CD_TIPO_BEM_CANDIDATO";"DS_TIPO_BEM_CANDIDATO";"DS_BEM_CANDIDATO";"VR_BEM_CANDIDATO"',
   '"SP001";"2024";"SP";"1";"12";"Casa";"Imóvel residencial";"500000,00"',
   '"SP001";"2024";"SP";"2";"21";"Veículo";"Carro; modelo X";"80000,50"',
   '"SP002";"2024";"SP";"1";"12";"Apartamento";"Apto centro";"300000,00"',
-].join("\r\n");
-
-const candidatosZip = makeZip([
-  { name: "consulta_cand_2024_BRASIL.csv", data: latin1(candidatosCsv) },
-  { name: "consulta_cand_2024_SP.csv", data: latin1(candidatosUfCsv) },
-]);
-const bensZip = makeZip(
-  [{ name: "bem_candidato_2024_BRASIL.csv", data: latin1(bensCsv) }],
-  8
+  ],
+  "\r\n"
 );
 
-const receitasCsv = [
+const candidatosZip = zip([
+  { name: "consulta_cand_2024_BRASIL.csv", bytes: latin1(candidatosCsv) },
+  { name: "consulta_cand_2024_SP.csv", bytes: latin1(candidatosUfCsv) },
+], { method: "deflate" });
+const bensZip = zip(
+  [{ name: "bem_candidato_2024_BRASIL.csv", bytes: latin1(bensCsv) }],
+  { method: "deflate" }
+);
+
+const receitasCsv = Arr.join(
+  [
   '"SQ_RECEITA";"SQ_CANDIDATO";"NR_CPF_CANDIDATO";"ANO_ELEICAO";"NR_CPF_CNPJ_DOADOR";"NM_DOADOR";"NM_DOADOR_RFB";"CD_CNAE_DOADOR";"DS_CNAE_DOADOR";"SG_UF_DOADOR";"VR_RECEITA";"DT_RECEITA";"DS_ORIGEM_RECEITA";"DS_NATUREZA_RECEITA";"NR_RECIBO_DOACAO"',
   '"R1";"SP001";"11122233344";"2024";"11222333000181";"EMPRESA ALPHA LTDA";"";"6201500";"Software";"SP";"50000,00";"10/08/2024";"Origem";"Pessoa juridica";"REC1"',
   '"R2";"SP002";"55566677788";"2024";"99988877766";"JOSE PEREIRA";"";"";"";"MG";"2000,00";"11/08/2024";"Origem";"Pessoa fisica";"REC2"',
   '"R3";"SP002";"55566677788";"2024";"11222333000181";"EMPRESA ALPHA LTDA";"";"6201500";"Software";"SP";"30000,00";"12/08/2024";"Origem";"Pessoa juridica";"REC3"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const originarioCsv = [
+const originarioCsv = Arr.join(
+  [
   '"SQ_RECEITA";"ANO_ELEICAO";"NR_CPF_CNPJ_DOADOR_ORIGINARIO";"NM_DOADOR_ORIGINARIO";"NM_DOADOR_ORIGINARIO_RFB";"DS_TP_DOADOR_ORIGINARIO";"CD_CNAE_DOADOR_ORIGINARIO";"VR_RECEITA";"DT_RECEITA"',
   '"R1";"2024";"12345678901";"FULANO ORIGINARIO";"";"Pessoa Fisica";"";"50000,00";"10/08/2024"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const despesasCsv = [
+const despesasCsv = Arr.join(
+  [
   '"SQ_DESPESA";"SQ_CANDIDATO";"NR_CPF_CANDIDATO";"ANO_ELEICAO";"NR_CPF_CNPJ_FORNECEDOR";"NM_FORNECEDOR";"NM_FORNECEDOR_RFB";"CD_CNAE_FORNECEDOR";"DS_CNAE_FORNECEDOR";"SG_UF_FORNECEDOR";"VR_DESPESA_CONTRATADA";"DT_DESPESA";"DS_DESPESA";"NR_DOCUMENTO"',
   '"D1";"SP001";"11122233344";"2024";"44555666000199";"GRAFICA BETA LTDA";"";"1813001";"Impressao";"SP";"8000,00";"15/08/2024";"Material grafico";"NF1"',
   '"D2";"SP002";"55566677788";"2024";"44555666000199";"GRAFICA BETA LTDA";"";"1813001";"Impressao";"SP";"5000,00";"16/08/2024";"Panfletos";"NF2"',
-].join("\r\n");
+  ],
+  "\r\n"
+);
 
-const prestacaoZip = makeZip(
-  [
-    { name: "receitas_candidatos_2024_BRASIL.csv", data: latin1(receitasCsv) },
+const prestacaoZip = zip([
+    { name: "receitas_candidatos_2024_BRASIL.csv", bytes: latin1(receitasCsv) },
     {
       name: "receitas_candidatos_doador_originario_2024_BRASIL.csv",
-      data: latin1(originarioCsv),
+      bytes: latin1(originarioCsv),
     },
     {
       name: "despesas_contratadas_2024_BRASIL.csv",
-      data: latin1(despesasCsv),
+      bytes: latin1(despesasCsv),
     },
-  ],
-  8
-);
+  ], { method: "deflate" });
 
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const url = String(input);
-  return url.includes("consulta_cand_2024.zip")
-    ? new Response(candidatosZip)
-    : url.includes("bem_candidato_2024.zip")
-      ? new Response(bensZip)
-      : url.includes("prestacao_de_contas_eleitorais_candidatos_2024.zip")
-        ? new Response(prestacaoZip)
-        : new Response("rota desconhecida", { status: 404 });
-};
-
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
-
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
+const HttpFixture = Layer.unwrap(
+  Effect.all({ candidatosZip, bensZip, prestacaoZip }, { concurrency: 2 }).pipe(
+    Effect.map(({ candidatosZip, bensZip, prestacaoZip }) =>
+      fixtureLayer([
+  { match: pathIncludes("consulta_cand_2024.zip"), respond: { body: candidatosZip } },
+  { match: pathIncludes("bem_candidato_2024.zip"), respond: { body: bensZip } },
+  {
+    match: pathIncludes("prestacao_de_contas_eleitorais_candidatos_2024.zip"),
+    respond: { body: prestacaoZip },
+  },
+])
+    )
+  )
 );
 
 const TestLayer = Layer.mergeAll(
-  TseEleitoralLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  TseEleitoralLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpFixture))),
   TestDbLive,
-  HttpStub
+  HttpFixture
 );
 
 const seeded = Effect.gen(function* () {
@@ -149,7 +117,7 @@ const seeded = Effect.gen(function* () {
   return tse;
 });
 
-describe("tse-eleitoral store + zip/csv ingest", () => {
+layer(TestLayer, { timeout: Duration.seconds(60) })("tse-eleitoral store + zip/csv ingest", (it) => {
   it.effect(
     "indexAnos parses only the BRASIL csv from each zip and counts rows",
     () =>
@@ -163,8 +131,7 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
           despesas: 2,
           originarios: 1,
         });
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -173,18 +140,17 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
       Effect.gen(function* () {
         const tse = yield* seeded;
         const hit = yield* tse.buscarCandidato("joao da silva");
-        expect(hit.map((r) => r.sqCandidato)).toContain("SP001");
-        expect(hit[0].nome).toBe("JOÃO DA SILVA");
-        expect(Number(hit[0].score)).toBeLessThan(0);
+        expect(Arr.map(hit, (r) => r.sqCandidato)).toContain("SP001");
+        expect(Option.map(Arr.head(hit), (r) => r.nome)).toEqual(Option.some("JOÃO DA SILVA"));
+        expect(Option.exists(Arr.head(hit), (r) => Number(r.score) < 0)).toBe(true);
         const typo = yield* tse.buscarCandidato("silvz");
-        expect(typo.map((r) => r.sqCandidato)).toContain("SP001");
-        expect(Number(typo[0].score)).toBeGreaterThan(0);
+        expect(Arr.map(typo, (r) => r.sqCandidato)).toContain("SP001");
+        expect(Option.exists(Arr.head(typo), (r) => Number(r.score) > 0)).toBe(true);
         const ano = yield* tse.buscarCandidato("joao", { ano: 2024 });
-        expect(ano.map((r) => r.sqCandidato)).toContain("SP001");
+        expect(Arr.map(ano, (r) => r.sqCandidato)).toContain("SP001");
         const outro = yield* tse.buscarCandidato("joao", { ano: 2020 });
         expect(outro).toHaveLength(0);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -195,18 +161,17 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
         const porCpf = yield* tse.dueDiligenceCandidato({
           cpf: "111.222.333-44",
         });
-        expect(porCpf.candidaturas.map((c) => c.sqCandidato)).toEqual(["SP001"]);
+        expect(Arr.map(porCpf.candidaturas, (c) => c.sqCandidato)).toEqual(["SP001"]);
         expect(porCpf.bens).toHaveLength(2);
         expect(porCpf.totalBensDeclarado).toBeCloseTo(580000.5, 1);
-        expect(porCpf.bens[0].descricao).toBe("Imóvel residencial");
+        expect(Option.map(Arr.head(porCpf.bens), (b) => b.descricao)).toEqual(Option.some("Imóvel residencial"));
         const porSq = yield* tse.dueDiligenceCandidato({ sqCandidato: "SP002" });
         expect(porSq.candidaturas).toHaveLength(1);
         expect(porSq.bens).toHaveLength(1);
         const erro = yield* Effect.flip(tse.dueDiligenceCandidato({}));
         expect(erro._tag).toBe("TseError");
         expect(erro.message).toContain("cpf ou sqCandidato");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -216,25 +181,24 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
         const tse = yield* seeded;
         const porDoc = yield* tse.buscarDoacoes("11.222.333/0001-81");
         expect(porDoc).toHaveLength(2);
-        expect(porDoc.every((r) => r.nomeDoador === "EMPRESA ALPHA LTDA")).toBe(
+        expect(Arr.every(porDoc, (r) => r.nomeDoador === "EMPRESA ALPHA LTDA")).toBe(
           true
         );
-        expect(Number(porDoc[0].valor)).toBe(50000);
-        expect(porDoc.map((r) => r.nomeCandidato).sort()).toEqual([
+        expect(Option.map(Arr.head(porDoc), (r) => Number(r.valor))).toEqual(Option.some(50000));
+        expect(Arr.sort(Arr.map(porDoc, (r) => String(r.nomeCandidato)), Order.String)).toEqual([
           "JOÃO DA SILVA",
           "MARIA SOUZA",
         ]);
         const porNome = yield* tse.buscarDoacoes("alpha");
-        expect(porNome.map((r) => r.cpfCnpjDoador)).toContain("11222333000181");
-        expect(Number(porNome[0].score)).toBeLessThan(0);
-        expect(porNome[0].nomeCandidato).not.toBeNull();
+        expect(Arr.map(porNome, (r) => r.cpfCnpjDoador)).toContain("11222333000181");
+        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) < 0)).toBe(true);
+        expect(Option.exists(Arr.head(porNome), (r) => r.nomeCandidato !== null)).toBe(true);
         const typo = yield* tse.buscarDoacoes("alpa");
-        expect(typo.map((r) => r.cpfCnpjDoador)).toContain("11222333000181");
-        expect(Number(typo[0].score)).toBeGreaterThan(0);
+        expect(Arr.map(typo, (r) => r.cpfCnpjDoador)).toContain("11222333000181");
+        expect(Option.exists(Arr.head(typo), (r) => Number(r.score) > 0)).toBe(true);
         const semAno = yield* tse.buscarDoacoes("alpha", { ano: 2020 });
         expect(semAno).toHaveLength(0);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -244,16 +208,15 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
         const tse = yield* seeded;
         const porNome = yield* tse.buscarFornecedorCampanha("grafica");
         expect(porNome).toHaveLength(2);
-        expect(porNome.map((r) => r.cpfCnpjForn)).toContain("44555666000199");
-        expect(Number(porNome[0].score)).toBeLessThan(0);
+        expect(Arr.map(porNome, (r) => r.cpfCnpjForn)).toContain("44555666000199");
+        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) < 0)).toBe(true);
         const porDoc = yield* tse.buscarFornecedorCampanha("44555666000199");
         expect(porDoc).toHaveLength(2);
         const semAno = yield* tse.buscarFornecedorCampanha("grafica", {
           ano: 2020,
         });
         expect(semAno).toHaveLength(0);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -263,11 +226,11 @@ describe("tse-eleitoral store + zip/csv ingest", () => {
         const tse = yield* seeded;
         const chain = yield* tse.rastrearDoadorOriginario("123.456.789-01");
         expect(chain).toHaveLength(1);
-        expect(chain[0].nomeOrig).toBe("FULANO ORIGINARIO");
-        expect(chain[0].repassadorNome).toBe("EMPRESA ALPHA LTDA");
-        expect(chain[0].nomeCandidato).toBe("JOÃO DA SILVA");
-        expect(Number(chain[0].valorOriginario)).toBe(50000);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        const link = Arr.head(chain);
+        expect(Option.map(link, (c) => c.nomeOrig)).toEqual(Option.some("FULANO ORIGINARIO"));
+        expect(Option.map(link, (c) => c.repassadorNome)).toEqual(Option.some("EMPRESA ALPHA LTDA"));
+        expect(Option.map(link, (c) => c.nomeCandidato)).toEqual(Option.some("JOÃO DA SILVA"));
+        expect(Option.map(link, (c) => Number(c.valorOriginario))).toEqual(Option.some(50000));
+      }),
   );
 });

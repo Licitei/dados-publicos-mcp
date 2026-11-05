@@ -1,4 +1,8 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const senadoresUrl =
@@ -50,12 +54,12 @@ export const SenadorFlat = Schema.Struct({
 export type SenadorFlat = (typeof SenadorFlat)["Type"];
 
 const orNull = (value: string | undefined) =>
-  value === undefined || value.trim() === "" ? null : value.trim();
+  value === undefined || Str.trim(value) === "" ? null : Str.trim(value);
 
 export const mapSenadores = (
   payload: SenadoresPayload
 ): readonly SenadorFlat[] =>
-  payload.ListaParlamentarEmExercicio.Parlamentares.Parlamentar.map((row) => {
+  Arr.map(payload.ListaParlamentarEmExercicio.Parlamentares.Parlamentar, (row) => {
     const id = row.IdentificacaoParlamentar;
     return {
       codigo: orNull(id.CodigoParlamentar),
@@ -66,9 +70,11 @@ export const mapSenadores = (
       uf: orNull(id.UfParlamentar),
       email: orNull(id.EmailParlamentar),
       busca: normalize(
-        [id.NomeParlamentar, id.NomeCompletoParlamentar, id.SiglaPartidoParlamentar]
-          .filter((part) => part !== undefined)
-          .join(" ")
+        pipe(
+          [id.NomeParlamentar, id.NomeCompletoParlamentar, id.SiglaPartidoParlamentar],
+          Arr.filter((part) => part !== undefined),
+          Arr.join(" ")
+        )
       ),
     } satisfies SenadorFlat;
   });
@@ -79,45 +85,58 @@ export const dropFirstLine = (bytes: Uint8Array) => {
 };
 
 const headerKey = (header: string) =>
-  header
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  pipe(
+    header,
+    Str.normalize("NFD"),
+    Str.replace(/\p{Diacritic}/gu, ""),
+    Str.toLowerCase,
+    Str.replace(/\s+/g, " "),
+    Str.trim
+  );
 
 const indexByKey = (record: Record<string, string>) =>
   new Map(
-    Object.entries(record).map(([key, value]) => [headerKey(key), value])
+    pipe(
+      Rec.toEntries(record),
+      Arr.map(([key, value]) => [headerKey(key), value] as const)
+    )
   );
 
 const pick = (byKey: Map<string, string>, candidate: string) =>
-  (byKey.get(headerKey(candidate)) ?? "").trim();
+  Str.trim(byKey.get(headerKey(candidate)) ?? "");
 
 const numeroBr = (value: string) => {
-  const trimmed = value.trim();
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
+  const trimmed = Str.trim(value);
+  const normalized = Str.includes(",")(trimmed)
+    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
     : trimmed;
   const parsed = Number(normalized);
   return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
 };
 
 const inteiroOrNull = (value: string) => {
-  const parsed = Number(value.trim());
-  return value.trim() === "" || !Number.isInteger(parsed) ? null : parsed;
+  const parsed = Number(Str.trim(value));
+  return Str.trim(value) === "" || !Number.isInteger(parsed) ? null : parsed;
 };
 
-const dataBr = (value: string) => {
-  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  return match
-    ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`
-    : null;
-};
+const dataBr = (value: string) =>
+  pipe(
+    value,
+    Str.trim,
+    Str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/),
+    Option.flatMap((match) =>
+      Option.all([Arr.get(match, 1), Arr.get(match, 2), Arr.get(match, 3)])
+    ),
+    Option.map(
+      ([dia, mes, ano]) =>
+        `${ano}-${Str.padStart(2, "0")(mes)}-${Str.padStart(2, "0")(dia)}`
+    ),
+    Option.getOrNull
+  );
 
 export const CeapsFlat = Schema.Struct({
-  ano: Schema.NullOr(Schema.Number),
-  mes: Schema.NullOr(Schema.Number),
+  ano: Schema.NullOr(Schema.Finite),
+  mes: Schema.NullOr(Schema.Finite),
   senador: Schema.NullOr(Schema.String),
   tipoDespesa: Schema.NullOr(Schema.String),
   cnpjCpf: Schema.NullOr(Schema.String),
@@ -126,7 +145,7 @@ export const CeapsFlat = Schema.Struct({
   documento: Schema.NullOr(Schema.String),
   data: Schema.NullOr(Schema.String),
   detalhamento: Schema.NullOr(Schema.String),
-  valorReembolsado: Schema.NullOr(Schema.Number),
+  valorReembolsado: Schema.NullOr(Schema.Finite),
   codDocumento: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
@@ -137,8 +156,9 @@ const orNullStr = (value: string) => (value === "" ? null : value);
 export const mapCeaps = (
   records: readonly Record<string, string>[]
 ): readonly CeapsFlat[] =>
-  records
-    .map((record) => {
+  pipe(
+    records,
+    Arr.map((record) => {
       const byKey = indexByKey(record);
       const cnpjCpf = pick(byKey, "CNPJ_CPF");
       const fornecedor = pick(byKey, "FORNECEDOR");
@@ -157,19 +177,20 @@ export const mapCeaps = (
         detalhamento: orNullStr(detalhamento),
         valorReembolsado: numeroBr(pick(byKey, "VALOR_REEMBOLSADO")),
         codDocumento: orNullStr(pick(byKey, "COD_DOCUMENTO")),
-        busca: normalize([fornecedor, detalhamento, tipoDespesa].join(" ")),
+        busca: normalize(Arr.join([fornecedor, detalhamento, tipoDespesa], " ")),
       } satisfies CeapsFlat;
-    })
-    .filter((row) => Boolean(row.fornecedor || row.docNormalizado));
+    }),
+    Arr.filter((row) => (row.fornecedor ?? "") !== "" || row.docNormalizado !== "")
+  );
 
 export const SenadoErrorCode = Schema.Literals(["senado.CEAPS_MISSING"]);
 export type SenadoErrorCode = (typeof SenadoErrorCode)["Type"];
 
-export class SenadoError extends Schema.TaggedErrorClass<SenadoError>()(
+export class SenadoError extends Schema.TaggedError<SenadoError, { readonly brand: unique symbol }>()(
   "SenadoError",
   {
     code: SenadoErrorCode,
-    ano: Schema.optional(Schema.Number),
+    ano: Schema.optional(Schema.Finite),
   }
 ) {
   override get message() {

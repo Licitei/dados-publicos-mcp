@@ -1,8 +1,11 @@
 import { Context, Effect, Layer, Match } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { cosineDistance, sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
+import { Db, DbError } from "../../kernel/db/client";
 import { cnae } from "../../kernel/db/schemas/cnae";
-import { Embedder } from "../../kernel/embed/embedder";
+import { EmbedError, Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
   CnaeError,
@@ -27,7 +30,11 @@ export const replaceAll = (rows: readonly CnaeRow[]) =>
         );
       })
     );
-  });
+  }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
 const defaultLimit = 10;
 const maxLimit = 50;
@@ -35,11 +42,11 @@ const rrfK = 60;
 const candidates = 50;
 
 const detectLevel = (codigo: string) => {
-  const trimmed = codigo.trim();
+  const trimmed = pipe(codigo, Str.trim);
   return Match.value(trimmed).pipe(
     Match.when(
       (value) => /^[A-Za-z]$/.test(value),
-      (value) => ({ nivel: secaoNivel, value: value.toUpperCase() })
+      (value) => ({ nivel: secaoNivel, value: pipe(value, Str.toUpperCase) })
     ),
     Match.orElse((value) => {
       const digits = onlyDigits(value);
@@ -74,7 +81,7 @@ const makeCnae = Effect.gen(function* () {
       return yield* Match.value(found).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
-            new CnaeError({ code: "cnae.NOT_FOUND", codigo, normalizado })
+            CnaeError.make({ code: "cnae.NOT_FOUND", codigo, normalizado })
           )
         ),
         Match.orElse((row) =>
@@ -87,7 +94,11 @@ const makeCnae = Effect.gen(function* () {
           })
         )
       );
-    });
+    }).pipe(
+        Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+          Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+        )
+      );
 
   const search = (termo: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
@@ -96,7 +107,13 @@ const makeCnae = Effect.gen(function* () {
         Math.max(options?.limit ?? defaultLimit, 1),
         maxLimit
       );
-      const [queryVector] = yield* embedder.embed("query", [termo]);
+      const queryVector = yield* embedder.embed("query", [termo]).pipe(
+        Effect.flatMap((vectors) =>
+          Effect.fromOption(Arr.head(vectors), () =>
+            EmbedError.make({ code: "embed.RUN" })
+          )
+        )
+      );
       return yield* db.execute(sql`
         with bm as (
           select id, rk from (
@@ -129,15 +146,19 @@ const makeCnae = Effect.gen(function* () {
         join ${cnae} c on c.id = coalesce(bm.id, vec.id)
         order by score desc, c.id
         limit ${sql.raw(String(limit))}
-      `);
-    });
+      `).pipe(Effect.map(({ rows }) => rows));
+    }).pipe(
+        Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+          Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+        )
+      );
 
   const listByLevel = (codigo: string) =>
     Effect.gen(function* () {
       const detected = detectLevel(codigo);
       return yield* Match.value(detected).pipe(
         Match.when(Match.undefined, () =>
-          Effect.fail(new CnaeError({ code: "cnae.LEVEL_UNRECOGNIZED", codigo }))
+          Effect.fail(CnaeError.make({ code: "cnae.LEVEL_UNRECOGNIZED", codigo }))
         ),
         Match.orElse(({ nivel, value }) =>
           Effect.gen(function* () {
@@ -155,17 +176,21 @@ const makeCnae = Effect.gen(function* () {
           })
         )
       );
-    });
+    }).pipe(
+        Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+          Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+        )
+      );
 
   const index = Effect.gen(function* () {
     const flat = yield* fetchSubclasses;
     const embeddings = yield* embedder.embed(
       "passage",
-      flat.map(subclassePassage)
+      pipe(flat, Arr.map(subclassePassage))
     );
-    const rows = flat.map((row, position) => ({
+    const rows = Arr.zipWith(flat, embeddings, (row, embedding) => ({
       ...row,
-      embedding: embeddings[position],
+      embedding,
     }));
     yield* replaceAll(rows);
     return rows.length;
@@ -177,6 +202,6 @@ const makeCnae = Effect.gen(function* () {
 export class Cnae extends Context.Service<
   Cnae,
   Effect.Success<typeof makeCnae>
->()("dados-publicos-mcp/Cnae") {}
+>()("dados-publicos-mcp/sources/cnae/store/Cnae") {}
 
 export const CnaeLive = Layer.effect(Cnae)(makeCnae);

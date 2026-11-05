@@ -1,11 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { CmedAnvisa } from "../../sources/cmed-anvisa/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const buscarMedicamento = defineTool({
@@ -16,7 +16,7 @@ const buscarMedicamento = defineTool({
   run: (args) =>
     CmedAnvisa.pipe(
       Effect.flatMap((service) =>
-        service.buscarMedicamento(args.termo, { limit: args.limite })
+        service.buscarMedicamento(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

@@ -1,4 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
+import * as Str from "effect/String";
 import { buildTree } from "../../src/sources/legislacao/catalog";
 
 const norma = { id: "lei-14133-2021", titulo: "Lei 14.133/2021" };
@@ -19,46 +23,56 @@ const lines = [
 
 describe("legislacao tree parser", () => {
   const nodes = buildTree(norma, lines);
-  const byPath = new Map(nodes.map((node) => [node.path, node]));
+  const at = (path: string) => Arr.findFirst(nodes, (node) => node.path === path);
 
   it("roots the tree at the norma", () => {
-    expect(nodes[0]).toMatchObject({
+    expect(Arr.head(nodes)).toEqual(
+      Option.some(
+        expect.objectContaining({
       path: "lei_14133_2021",
       parentPath: null,
       kind: "norma",
-    });
+        })
+      )
+    );
   });
 
   it("nests título → capítulo → artigo with ltree paths", () => {
-    expect(byPath.has("lei_14133_2021.tit_ii")).toBe(true);
-    expect(byPath.has("lei_14133_2021.tit_ii.cap_i")).toBe(true);
-    const artigo = byPath.get("lei_14133_2021.tit_ii.cap_i.art17");
-    expect(artigo?.kind).toBe("artigo");
-    expect(artigo?.label).toBe("Art. 17");
-    expect(artigo?.text).toBe(
-      "O processo de licitação observará as seguintes fases:"
+    expect(Option.isSome(at("lei_14133_2021.tit_ii"))).toBe(true);
+    expect(Option.isSome(at("lei_14133_2021.tit_ii.cap_i"))).toBe(true);
+    const artigo = at("lei_14133_2021.tit_ii.cap_i.art17");
+    expect(Option.map(artigo, (n) => n.kind)).toEqual(Option.some("artigo"));
+    expect(Option.map(artigo, (n) => n.label)).toEqual(Option.some("Art. 17"));
+    expect(Option.map(artigo, (n) => n.text)).toEqual(
+      Option.some("O processo de licitação observará as seguintes fases:")
     );
   });
 
   it("attaches container titles as text", () => {
-    expect(byPath.get("lei_14133_2021.tit_ii")?.text).toBe("Das Licitações");
+    expect(Option.map(at("lei_14133_2021.tit_ii"), (n) => n.text)).toEqual(
+      Option.some("Das Licitações")
+    );
   });
 
   it("nests incisos and paragraphs under the article", () => {
-    const incisoI = byPath.get("lei_14133_2021.tit_ii.cap_i.art17.inc_i");
-    expect(incisoI?.kind).toBe("inciso");
-    expect(incisoI?.text).toBe("preparatória;");
-    expect(byPath.get("lei_14133_2021.tit_ii.cap_i.art17.p1")?.label).toBe("§ 1");
-    expect(byPath.get("lei_14133_2021.tit_ii.cap_i.art17.pu")?.kind).toBe(
-      "paragrafo"
+    const incisoI = at("lei_14133_2021.tit_ii.cap_i.art17.inc_i");
+    expect(Option.map(incisoI, (n) => n.kind)).toEqual(Option.some("inciso"));
+    expect(Option.map(incisoI, (n) => n.text)).toEqual(
+      Option.some("preparatória;")
     );
+    expect(
+      Option.map(at("lei_14133_2021.tit_ii.cap_i.art17.p1"), (n) => n.label)
+    ).toEqual(Option.some("§ 1"));
+    expect(
+      Option.map(at("lei_14133_2021.tit_ii.cap_i.art17.pu"), (n) => n.kind)
+    ).toEqual(Option.some("paragrafo"));
   });
 
   it("subtree membership follows ltree ancestry", () => {
-    const underArt17 = nodes.filter((node) =>
-      node.path.startsWith("lei_14133_2021.tit_ii.cap_i.art17.")
+    const underArt17 = Arr.filter(nodes, (node) =>
+      Str.startsWith("lei_14133_2021.tit_ii.cap_i.art17.")(node.path)
     );
-    expect(underArt17.map((n) => n.kind).sort()).toEqual([
+    expect(Arr.sort(Arr.map(underArt17, (n) => n.kind), Order.String)).toEqual([
       "inciso",
       "inciso",
       "paragrafo",
@@ -67,8 +81,10 @@ describe("legislacao tree parser", () => {
   });
 
   it("starts a fresh article subtree for Art. 18", () => {
-    const alinea = byPath.get("lei_14133_2021.tit_ii.cap_i.art18.ali_a");
-    expect(alinea?.kind).toBe("alinea");
-    expect(alinea?.text).toBe("o objeto da contratação;");
+    const alinea = at("lei_14133_2021.tit_ii.cap_i.art18.ali_a");
+    expect(Option.map(alinea, (n) => n.kind)).toEqual(Option.some("alinea"));
+    expect(Option.map(alinea, (n) => n.text)).toEqual(
+      Option.some("o objeto da contratação;")
+    );
   });
 });

@@ -1,11 +1,16 @@
-import { createHash } from "node:crypto";
+import { BunServices } from "@effect/platform-bun";
+import * as Arr from "effect/Array";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import { dual } from "effect/Function";
 import * as Layer from "effect/Layer";
-import { FileSystem } from "effect/FileSystem";
-import { Resource } from "alchemy/Resource";
-import * as Provider from "alchemy/Provider";
+import * as Option from "effect/Option";
+import * as Str from "effect/String";
 import { isResolved } from "alchemy/Diff";
-import { Db, DbConfig, DbLayer } from "../src/kernel/db/client";
+import type { PropsInput } from "alchemy/Input";
+import * as Provider from "alchemy/Provider";
+import { Resource, type ResourceClassLike } from "alchemy/Resource";
+import { DbConfig, DbLayer } from "../src/kernel/db/client";
 import { dataDirPath, ensureDataDir } from "../src/kernel/db/data-dir";
 import { provisionSchema } from "../src/kernel/db/provision";
 import {
@@ -15,10 +20,23 @@ import {
 } from "../src/kernel/db/schema-registry";
 import { McpProviders } from "./providers";
 
+export const sha256Hex = (text: string) =>
+  Effect.promise(() =>
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  ).pipe(
+    Effect.map((buffer) =>
+      Arr.join(
+        Arr.map(Arr.fromIterable(new Uint8Array(buffer)), (byte) =>
+          Str.padStart(2, "0")(byte.toString(16))
+        ),
+        ""
+      )
+    )
+  );
+
 export const schemaDdl = () => schemaDdlText;
 
-export const schemaHash = () =>
-  createHash("sha256").update(schemaDdlText).digest("hex");
+export const schemaHash = sha256Hex(schemaDdlText);
 
 export type LocalDatabaseProps = {
   dataDir?: string;
@@ -39,67 +57,85 @@ export type LocalDatabase = Resource<
   McpProviders
 >;
 
-export const LocalDatabase = Resource<LocalDatabase>("Mcp.LocalDatabase");
+const LocalDatabaseResource = Resource<LocalDatabase>("Mcp.LocalDatabase");
 
-const ensureDir = (dir: string) =>
-  FileSystem.pipe(
-    Effect.flatMap((fs) => fs.makeDirectory(dir, { recursive: true })),
-    Effect.as(dir)
-  );
+export const LocalDatabaseClass: ResourceClassLike<LocalDatabase> =
+  LocalDatabaseResource;
 
-const resolveDir = (override: string | undefined) =>
-  override === undefined ? ensureDataDir : ensureDir(override);
+export const LocalDatabase: {
+  (
+    props: PropsInput<LocalDatabaseProps>
+  ): (id: string) => Effect.Effect<LocalDatabase, never, McpProviders>;
+  (
+    id: string,
+    props: PropsInput<LocalDatabaseProps>
+  ): Effect.Effect<LocalDatabase, never, McpProviders>;
+} = dual(
+  2,
+  (id: string, props: PropsInput<LocalDatabaseProps>) =>
+    LocalDatabaseResource(id, props)
+);
 
-const provision = (props: LocalDatabaseProps) =>
-  resolveDir(props.dataDir).pipe(
-    Effect.flatMap((dataDir) =>
-      provisionSchema.pipe(
-        Effect.as({
+export const LocalDatabaseProvider = Provider.effect(
+  LocalDatabaseResource,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+
+    const resolveDir = (override: string | undefined) =>
+      Option.fromNullishOr(override).pipe(
+        Option.match({
+          onNone: () => ensureDataDir,
+          onSome: (dir) =>
+            fs.makeDirectory(dir, { recursive: true }).pipe(Effect.as(dir)),
+        })
+      );
+
+    const provision = (props: LocalDatabaseProps) =>
+      Effect.gen(function* () {
+        const dataDir = yield* resolveDir(props.dataDir);
+        const hash = yield* schemaHash;
+        const context = yield* Layer.build(
+          DbLayer.pipe(Layer.provide(Layer.succeed(DbConfig, { dataDir })))
+        );
+        yield* provisionSchema.pipe(Effect.provideContext(context));
+        return {
           dataDir,
           tables: allDbTables.length,
           extensions: [...dbExtensions],
-          schemaHash: schemaHash(),
-        }),
-        Effect.provide(
-          DbLayer.pipe(Layer.provide(Layer.succeed(DbConfig, { dataDir })))
-        ),
-        Effect.scoped
-      )
-    )
-  );
+          schemaHash: hash,
+        };
+      }).pipe(Effect.scoped);
 
-export const LocalDatabaseProvider = () =>
-  Provider.effect(
-    LocalDatabase,
-    Effect.gen(function* () {
-      return {
-        list: () => Effect.succeed([]),
-        diff: Effect.fn(function* ({ news, output }) {
-          if (!isResolved(news)) return undefined;
-          if (!output) return undefined;
-          const fs = yield* FileSystem;
-          const dir =
-            news.dataDir === undefined ? yield* dataDirPath : news.dataDir;
-          const provisioned = yield* fs.exists(dir);
-          return !provisioned || output.schemaHash !== schemaHash()
-            ? { action: "update" }
-            : undefined;
-        }),
-        reconcile: Effect.fn(function* ({ news, output, session }) {
-          yield* session.note(
-            output
-              ? "Reprovisionando o banco local (extensoes + DDL)."
-              : "Provisionando o banco local (extensoes + DDL)."
-          );
-          return yield* provision(news);
-        }),
-        delete: Effect.fn(function* () {}),
-      };
-    })
-  );
+    return {
+      list: () => Effect.succeed([]),
+      diff: Effect.fn(function* ({ news, output }) {
+        if (!isResolved(news) || output === undefined) return undefined;
+        const dir = yield* Option.fromNullishOr(news.dataDir).pipe(
+          Option.match({
+            onNone: () => dataDirPath,
+            onSome: (value) => Effect.succeed(value),
+          })
+        );
+        const provisioned = yield* fs.exists(dir);
+        const hash = yield* schemaHash;
+        return !provisioned || output.schemaHash !== hash
+          ? { action: "update" }
+          : undefined;
+      }),
+      reconcile: Effect.fn(function* ({ news, output, session }) {
+        yield* session.note(
+          output === undefined
+            ? "Provisionando o banco local (extensoes + DDL)."
+            : "Reprovisionando o banco local (extensoes + DDL)."
+        );
+        return yield* provision(news);
+      }),
+      delete: Effect.fn(function* () {}),
+    };
+  })
+).pipe(Layer.provide(BunServices.layer));
 
-export const providers = () =>
-  Layer.effect(McpProviders, Provider.collection([LocalDatabase])).pipe(
-    Layer.provide(LocalDatabaseProvider()),
-    Layer.orDie
-  );
+export const providers = Layer.effect(
+  McpProviders,
+  Provider.collection([LocalDatabaseResource])
+).pipe(Layer.provide(LocalDatabaseProvider), Layer.orDie);

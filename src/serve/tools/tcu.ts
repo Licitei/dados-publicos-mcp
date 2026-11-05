@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { TcuInidoneos } from "../../sources/tcu-inidoneos/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
@@ -18,7 +18,7 @@ const verificarInidoneoTcu = defineTool({
 
 const BuscarNomeInput = Schema.Struct({
   nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const buscarInidoneoTcu = defineTool({
@@ -29,7 +29,7 @@ const buscarInidoneoTcu = defineTool({
   run: (args) =>
     TcuInidoneos.pipe(
       Effect.flatMap((service) =>
-        service.buscarPorNome(args.nome, { limit: args.limite })
+        service.buscarPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

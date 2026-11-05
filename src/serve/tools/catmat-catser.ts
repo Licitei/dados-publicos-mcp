@@ -1,11 +1,11 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { CatmatCatser } from "../../sources/catmat-catser/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarMaterialInput = Schema.Struct({
   termo: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const buscarMaterial = defineTool({
@@ -16,14 +16,14 @@ const buscarMaterial = defineTool({
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.buscarMaterial(args.termo, { limit: args.limite })
+        service.buscarMaterial(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const BuscarServicoInput = Schema.Struct({
   termo: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const buscarServico = defineTool({
@@ -34,14 +34,14 @@ const buscarServico = defineTool({
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.buscarServico(args.termo, { limit: args.limite })
+        service.buscarServico(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const ResolverInput = Schema.Struct({
   codigo: positiveIntMax(Number.MAX_SAFE_INTEGER),
-  tipo: Schema.optional(Schema.Literals(["material", "servico"])),
+  tipo: Schema.optionalKey(Schema.Literals(["material", "servico"])),
 });
 
 const resolverCatmatCatser = defineTool({
@@ -57,7 +57,7 @@ const resolverCatmatCatser = defineTool({
 
 const NormalizarInput = Schema.Struct({
   descricao: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(100)),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const normalizarItemEdital = defineTool({
@@ -68,7 +68,7 @@ const normalizarItemEdital = defineTool({
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.normalizarItemEdital(args.descricao, { limit: args.limite })
+        service.normalizarItemEdital(args.descricao, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

@@ -1,13 +1,16 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer, Schema } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
 import { sql } from "drizzle-orm";
-import { FetchHttpClient } from "effect/unstable/http";
 import { Db } from "../../src/kernel/db/client";
 import {
   CatmatCatser,
   CatmatCatserLive,
 } from "../../src/sources/catmat-catser/store";
-import { EmbedderStub } from "./support/embedder-stub";
+import { fixtureLayer, pathIncludes } from "./support/fixture-server";
+import { TestEmbedderLive } from "./support/test-embedder";
 import { TestDbLive } from "./support/test-db";
 
 const material = (
@@ -120,39 +123,42 @@ const servicos = [
   ),
 ];
 
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const url = new URL(String(input));
-  const pagina = url.searchParams.get("pagina") ?? "1";
-  const rows = url.pathname.includes("modulo-material")
-    ? pagina === "1"
-      ? materiais
-      : []
-    : url.pathname.includes("modulo-servico")
-      ? pagina === "1"
-        ? servicos
-        : []
-      : null;
-  return rows === null
-    ? new Response("rota desconhecida", { status: 404 })
-    : Response.json({ resultado: rows, totalPaginas: 1 });
-};
+const toJson = (value: unknown) =>
+  Effect.runSync(
+    Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(value)
+  );
 
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
+const pageOf = (rows: readonly unknown[]) =>
+  toJson({ resultado: rows, totalPaginas: 1 });
 
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
-);
+const firstPage = (url: URL) => url.searchParams.get("pagina") === "1";
+
+const HttpFixture = fixtureLayer([
+  {
+    match: (url) => pathIncludes("modulo-material")(url) && firstPage(url),
+    respond: { body: pageOf(materiais) },
+  },
+  {
+    match: (url) => pathIncludes("modulo-servico")(url) && firstPage(url),
+    respond: { body: pageOf(servicos) },
+  },
+  {
+    match: pathIncludes("modulo-"),
+    respond: { body: pageOf([]) },
+  },
+]);
 
 const TestLayer = Layer.mergeAll(
   CatmatCatserLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub))
+    Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpFixture))
   ),
   TestDbLive,
-  EmbedderStub,
-  HttpStub
+  TestEmbedderLive,
+  HttpFixture
 );
+
+const pick = <A, B>(xs: readonly A[], index: number, f: (a: A) => B) =>
+  Arr.get(xs, index).pipe(Option.map(f));
 
 const seeded = Effect.gen(function* () {
   const catmat = yield* CatmatCatser;
@@ -160,7 +166,7 @@ const seeded = Effect.gen(function* () {
   return catmat;
 });
 
-describe("catmat-catser store + pagination + hybrid search", () => {
+layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagination + hybrid search", (it) => {
   it.effect(
     "index streams material + service pages and counts both tables",
     () =>
@@ -173,11 +179,10 @@ describe("catmat-catser store + pagination + hybrid search", () => {
           sql`select
             (select count(*)::int from catmat_material) as materiais,
             (select count(*)::int from catser_service) as servicos`
-        );
-        expect(Number(rows[0].materiais)).toBe(4);
-        expect(Number(rows[0].servicos)).toBe(2);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        ).pipe(Effect.map(({ rows }) => rows));
+        expect(pick(rows, 0, (r) => Number(r.materiais))).toEqual(Option.some(4));
+        expect(pick(rows, 0, (r) => Number(r.servicos))).toEqual(Option.some(2));
+      }),
   );
 
   it.effect(
@@ -186,18 +191,25 @@ describe("catmat-catser store + pagination + hybrid search", () => {
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const hits = yield* catmat.buscarMaterial("parafuso aco inox");
-        expect(Number(hits[0].codigoItem)).toBe(1003);
-        expect(Number(hits[0].score)).toBeGreaterThan(Number(hits[1].score));
+        expect(pick(hits, 0, (h) => Number(h.codigoItem))).toEqual(
+          Option.some(1003)
+        );
+        expect(
+          Option.zipWith(
+            pick(hits, 0, (h) => Number(h.score)),
+            pick(hits, 1, (h) => Number(h.score)),
+            (top, next) => top > next
+          )
+        ).toEqual(Option.some(true));
         const limited = yield* catmat.buscarMaterial("computador", { limit: 1 });
         expect(limited).toHaveLength(1);
         const todos = yield* catmat.buscarMaterial("cadeira ergonomica");
-        expect(todos.map((h) => Number(h.codigoItem))).toContain(1004);
+        expect(Arr.map(todos, (h) => Number(h.codigoItem))).toContain(1004);
         const ativos = yield* catmat.buscarMaterial("cadeira ergonomica", {
           apenasAtivos: true,
         });
-        expect(ativos.map((h) => Number(h.codigoItem))).not.toContain(1004);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        expect(Arr.map(ativos, (h) => Number(h.codigoItem))).not.toContain(1004);
+      }),
   );
 
   it.effect(
@@ -206,13 +218,14 @@ describe("catmat-catser store + pagination + hybrid search", () => {
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const lexical = yield* catmat.buscarServico("manutencao computadores");
-        expect(Number(lexical[0].codigoServico)).toBe(5002);
+        expect(pick(lexical, 0, (r) => Number(r.codigoServico))).toEqual(
+          Option.some(5002)
+        );
         const typo = yield* catmat.buscarServico("limpza");
-        expect(typo.map((r) => Number(r.codigoServico))).toContain(5001);
+        expect(Arr.map(typo, (r) => Number(r.codigoServico))).toContain(5001);
         const none = yield* catmat.buscarServico("zzzzz inexistente xpto");
         expect(none).toHaveLength(0);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -229,8 +242,7 @@ describe("catmat-catser store + pagination + hybrid search", () => {
         const error = yield* Effect.flip(catmat.resolver(999999));
         expect(error._tag).toBe("CatmatCatserError");
         expect(error.message).toContain("nao encontrado");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 
   it.effect(
@@ -241,11 +253,12 @@ describe("catmat-catser store + pagination + hybrid search", () => {
         const out = yield* catmat.normalizarItemEdital(
           "manutencao de computadores e parafusos"
         );
-        expect(out.materiais.map((m) => Number(m.codigoItem))).toContain(1003);
-        expect(out.servicos.map((s) => Number(s.codigoServico))).toContain(5002);
-        expect(out.materiais[0]).toHaveProperty("nomeGrupo");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        expect(Arr.map(out.materiais, (m) => Number(m.codigoItem))).toContain(1003);
+        expect(Arr.map(out.servicos, (s) => Number(s.codigoServico))).toContain(5002);
+        expect(Arr.head(out.materiais)).toEqual(
+          Option.some(expect.objectContaining({ nomeGrupo: expect.any(String) }))
+        );
+      }),
   );
 
   it.effect(
@@ -259,7 +272,7 @@ describe("catmat-catser store + pagination + hybrid search", () => {
           codigo: 70,
         });
         expect(grupo.total).toBe(2);
-        expect(grupo.itens.map((i) => i.codigo).sort((a, b) => a - b)).toEqual([
+        expect(Arr.sort(Arr.map(grupo.itens, (i) => i.codigo), Order.Number)).toEqual([
           1001, 1002,
         ]);
         const svcGrupo = yield* catmat.listByLevel({
@@ -268,20 +281,19 @@ describe("catmat-catser store + pagination + hybrid search", () => {
           codigo: 100,
         });
         expect(
-          svcGrupo.itens.map((i) => i.codigo).sort((a, b) => a - b)
+          Arr.sort(Arr.map(svcGrupo.itens, (i) => i.codigo), Order.Number)
         ).toEqual([5001, 5002]);
         const svcClasse = yield* catmat.listByLevel({
           tipo: "servico",
           nivel: "classe",
           codigo: 1000,
         });
-        expect(svcClasse.itens.map((i) => i.codigo)).toEqual([5001]);
+        expect(Arr.map(svcClasse.itens, (i) => i.codigo)).toEqual([5001]);
         const error = yield* Effect.flip(
           catmat.listByLevel({ tipo: "material", nivel: "xyz", codigo: 70 })
         );
         expect(error._tag).toBe("CatmatCatserError");
         expect(error.message).toContain("Nivel");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+      }),
   );
 });

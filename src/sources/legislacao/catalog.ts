@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
 export const NodeKind = Schema.Literals([
@@ -20,7 +23,7 @@ export const Node = Schema.Struct({
   label: Schema.String,
   heading: Schema.String,
   text: Schema.String,
-  position: Schema.Number,
+  position: Schema.Finite,
 });
 export type Node = (typeof Node)["Type"];
 
@@ -32,7 +35,7 @@ export const LegislacaoErrorCode = Schema.Literals([
 ]);
 export type LegislacaoErrorCode = (typeof LegislacaoErrorCode)["Type"];
 
-export class LegislacaoError extends Schema.TaggedErrorClass<LegislacaoError>()(
+export class LegislacaoError extends Schema.TaggedError<LegislacaoError, { readonly brand: unique symbol }>()(
   "LegislacaoError",
   {
     code: LegislacaoErrorCode,
@@ -370,17 +373,29 @@ export type Norma = (typeof normas)[number];
 export function findNorma(id: string) {
   const normalized = normalize(id);
 
-  return normas.find(
-    (norma) =>
-      norma.id === id ||
-      norma.id === normalized ||
-      normalize(norma.titulo).includes(normalized) ||
-      norma.apelidos.some((apelido) => normalize(apelido) === normalized)
+  return pipe(
+    normas,
+    Arr.findFirst(
+      (norma) =>
+        norma.id === id ||
+        norma.id === normalized ||
+        pipe(normalize(norma.titulo), Str.includes(normalized)) ||
+        pipe(
+          norma.apelidos,
+          Arr.some((apelido) => normalize(apelido) === normalized)
+        )
+    ),
+    Option.getOrUndefined
   );
 }
 
 export const rootSegment = (id: string) =>
-  id.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  pipe(
+    id,
+    Str.toLowerCase,
+    Str.replace(/[^a-z0-9]+/g, "_"),
+    Str.replace(/^_|_$/g, "")
+  );
 
 type Marker = {
   kind: NodeKind;
@@ -389,40 +404,63 @@ type Marker = {
   parse: (match: RegExpMatchArray) => { label: string; segment: string };
 };
 
-const roman = (value: string) => value.toLowerCase().replace(/[^ivxlcdm]/g, "");
+const group = (match: RegExpMatchArray, index: number) =>
+  pipe(
+    Arr.get(match, index),
+    Option.flatMapNullishOr((value) => value),
+    Option.getOrElse(() => "")
+  );
+
+const orDefault = (value: string, fallback: string) =>
+  value === "" ? fallback : value;
+
+const roman = (value: string) =>
+  pipe(value, Str.toLowerCase, Str.replace(/[^ivxlcdm]/g, ""));
 
 const markers: Marker[] = [
   {
     kind: "titulo",
     level: 1,
     pattern: /^t[íi]tulo\s+([ivxlcdm]+|[úu]nico)/i,
-    parse: (m) => ({ label: m[0].trim(), segment: `tit_${roman(m[1]) || "u"}` }),
+    parse: (m) => ({
+      label: Str.trim(group(m, 0)),
+      segment: `tit_${orDefault(roman(group(m, 1)), "u")}`,
+    }),
   },
   {
     kind: "capitulo",
     level: 2,
     pattern: /^cap[íi]tulo\s+([ivxlcdm]+|[úu]nico)/i,
-    parse: (m) => ({ label: m[0].trim(), segment: `cap_${roman(m[1]) || "u"}` }),
+    parse: (m) => ({
+      label: Str.trim(group(m, 0)),
+      segment: `cap_${orDefault(roman(group(m, 1)), "u")}`,
+    }),
   },
   {
     kind: "secao",
     level: 3,
     pattern: /^se[çc][ãa]o\s+([ivxlcdm]+|[úu]nica)/i,
-    parse: (m) => ({ label: m[0].trim(), segment: `sec_${roman(m[1]) || "u"}` }),
+    parse: (m) => ({
+      label: Str.trim(group(m, 0)),
+      segment: `sec_${orDefault(roman(group(m, 1)), "u")}`,
+    }),
   },
   {
     kind: "artigo",
     level: 4,
     pattern: /^art\.?\s*(\d+)/i,
-    parse: (m) => ({ label: `Art. ${m[1]}`, segment: `art${m[1]}` }),
+    parse: (m) => ({
+      label: `Art. ${group(m, 1)}`,
+      segment: `art${group(m, 1)}`,
+    }),
   },
   {
     kind: "paragrafo",
     level: 5,
     pattern: /^(?:§\s*(\d+)|par[áa]grafo\s+[úu]nico)/i,
     parse: (m) =>
-      m[1]
-        ? { label: `§ ${m[1]}`, segment: `p${m[1]}` }
+      group(m, 1) !== ""
+        ? { label: `§ ${group(m, 1)}`, segment: `p${group(m, 1)}` }
         : { label: "Parágrafo único", segment: "pu" },
   },
   {
@@ -430,8 +468,8 @@ const markers: Marker[] = [
     level: 6,
     pattern: /^([ivxlcdm]+)\s*[–-]\s+/i,
     parse: (m) => ({
-      label: `Inciso ${m[1].toUpperCase()}`,
-      segment: `inc_${roman(m[1])}`,
+      label: `Inciso ${Str.toUpperCase(group(m, 1))}`,
+      segment: `inc_${roman(group(m, 1))}`,
     }),
   },
   {
@@ -439,16 +477,23 @@ const markers: Marker[] = [
     level: 7,
     pattern: /^([a-z])\)\s+/i,
     parse: (m) => ({
-      label: `Alínea ${m[1].toLowerCase()}`,
-      segment: `ali_${m[1].toLowerCase()}`,
+      label: `Alínea ${Str.toLowerCase(group(m, 1))}`,
+      segment: `ali_${Str.toLowerCase(group(m, 1))}`,
     }),
   },
 ];
 
-export function buildTree(
+type Fold = {
+  nodes: Node[];
+  used: Set<string>;
+  stack: { path: string; level: number }[];
+  position: number;
+};
+
+const buildTreeImpl = (
   norma: { id: string; titulo: string },
   lines: readonly string[]
-): Node[] {
+): Node[] => {
   const root: Node = {
     path: rootSegment(norma.id),
     parentPath: null,
@@ -459,36 +504,48 @@ export function buildTree(
     position: 0,
   };
 
-  const seed: {
-    nodes: Node[];
-    used: Set<string>;
-    stack: { path: string; level: number }[];
-    position: number;
-  } = {
+  const rootEntry = { path: root.path, level: 0 };
+
+  const seed: Fold = {
     nodes: [root],
     used: new Set([root.path]),
-    stack: [{ path: root.path, level: 0 }],
+    stack: [rootEntry],
     position: 0,
   };
 
-  const folded = lines.reduce((acc, line) => {
-    const marker = markers.find((candidate) => candidate.pattern.test(line));
+  const appendText = (acc: Fold, line: string): Fold =>
+    pipe(
+      Arr.last(acc.nodes),
+      Option.match({
+        onNone: () => acc,
+        onSome: (last) => ({
+          ...acc,
+          nodes: [
+            ...acc.nodes.slice(0, -1),
+            {
+              ...last,
+              text: last.text !== "" ? `${last.text} ${line}` : line,
+            },
+          ],
+        }),
+      })
+    );
 
-    if (!marker) {
-      const last = acc.nodes[acc.nodes.length - 1];
-      const text = last.text ? `${last.text} ${line}` : line;
-      return {
-        ...acc,
-        nodes: [...acc.nodes.slice(0, -1), { ...last, text }],
-      };
-    }
-
-    const match = line.match(marker.pattern) ?? [line];
+  const appendNode = (
+    acc: Fold,
+    line: string,
+    marker: Marker,
+    match: RegExpMatchArray
+  ): Fold => {
     const { label, segment } = marker.parse(match);
-
-    const trimmed = acc.stack.filter((entry) => entry.level < marker.level);
-    const parent = trimmed[trimmed.length - 1];
-
+    const trimmed = pipe(
+      acc.stack,
+      Arr.filter((entry) => entry.level < marker.level)
+    );
+    const parent = pipe(
+      Arr.last(trimmed),
+      Option.getOrElse(() => rootEntry)
+    );
     const base = `${parent.path}.${segment}`;
     const position = acc.position + 1;
     const path = acc.used.has(base) ? `${base}_${position}` : base;
@@ -499,10 +556,12 @@ export function buildTree(
       kind: marker.kind,
       label,
       heading: line,
-      text: line
-        .slice(match[0]?.length ?? 0)
-        .replace(/^[º°.\s–-]+/, "")
-        .trim(),
+      text: pipe(
+        line,
+        Str.slice(group(match, 0).length),
+        Str.replace(/^[º°.\s–-]+/, ""),
+        Str.trim
+      ),
       position,
     };
 
@@ -512,7 +571,32 @@ export function buildTree(
       stack: [...trimmed, { path, level: marker.level }],
       position,
     };
-  }, seed);
+  };
 
-  return folded.nodes;
-}
+  const step = (acc: Fold, line: string): Fold =>
+    pipe(
+      markers,
+      Arr.findFirst((candidate) => candidate.pattern.test(line)),
+      Option.match({
+        onNone: () => appendText(acc, line),
+        onSome: (marker) =>
+          pipe(
+            line,
+            Str.match(marker.pattern),
+            Option.match({
+              onNone: () => appendText(acc, line),
+              onSome: (match) => appendNode(acc, line, marker, match),
+            })
+          ),
+      })
+    );
+
+  return pipe(lines, Arr.reduce(seed, step)).nodes;
+};
+
+export const buildTree: {
+  (
+    lines: readonly string[]
+  ): (norma: { id: string; titulo: string }) => Node[];
+  (norma: { id: string; titulo: string }, lines: readonly string[]): Node[];
+} = dual(2, buildTreeImpl);

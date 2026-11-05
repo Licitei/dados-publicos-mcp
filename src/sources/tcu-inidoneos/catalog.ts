@@ -1,4 +1,8 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const baseUrl =
@@ -39,27 +43,33 @@ export const fileUrl = (dataset: DatasetSpec) =>
   `${baseUrl}/${dataset.file}`;
 
 const headerKey = (header: string) =>
-  header
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  pipe(
+    header,
+    Str.normalize("NFD"),
+    Str.replace(/\p{Diacritic}/gu, ""),
+    Str.toLowerCase,
+    Str.replace(/\s+/g, " "),
+    Str.trim
+  );
 
 const indexByKey = (record: Record<string, string>) =>
   new Map(
-    Object.entries(record).map(([key, value]) => [headerKey(key), value])
+    pipe(
+      Rec.toEntries(record),
+      Arr.map(([key, value]) => [headerKey(key), value] as const)
+    )
   );
 
 const pick = (
   byKey: Map<string, string>,
   candidates: readonly string[]
-): string => {
-  const found = candidates
-    .map((candidate) => (byKey.get(headerKey(candidate)) ?? "").trim())
-    .find((value) => value !== "");
-  return found ?? "";
-};
+): string =>
+  pipe(
+    candidates,
+    Arr.map((candidate) => pipe(byKey.get(headerKey(candidate)) ?? "", Str.trim)),
+    Arr.findFirst((value) => value !== ""),
+    Option.getOrElse(() => "")
+  );
 
 const buildDate = (year: string, month: string, day: string) => {
   const y = Number(year);
@@ -71,17 +81,26 @@ const buildDate = (year: string, month: string, day: string) => {
 };
 
 const dataBr = (value: string) => {
-  const trimmed = value.trim();
-  const slashed = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  const trimmed = pipe(value, Str.trim);
   return trimmed === "" || /^0+$/.test(trimmed)
     ? null
-    : slashed
-      ? buildDate(
-          slashed[3],
-          slashed[2].padStart(2, "0"),
-          slashed[1].padStart(2, "0")
-        )
-      : null;
+    : pipe(
+        trimmed,
+        Str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/),
+        Option.flatMap((slashed) =>
+          Option.all([Arr.get(slashed, 1), Arr.get(slashed, 2), Arr.get(slashed, 3)])
+        ),
+        Option.flatMap(([day, month, year]) =>
+          Option.fromNullishOr(
+            buildDate(
+              year,
+              pipe(month, Str.padStart(2, "0")),
+              pipe(day, Str.padStart(2, "0"))
+            )
+          )
+        ),
+        Option.getOrNull
+      );
 };
 
 export const TcuInidoneoFlat = Schema.Struct({
@@ -134,17 +153,32 @@ const mapRow = (lista: DatasetKey) => (byKey: Map<string, string>) => {
 };
 
 const hasContent = (row: TcuInidoneoFlat) =>
-  Boolean(row.nome || row.documento || row.docNormalizado);
+  row.nome !== null || row.documento !== null || row.docNormalizado !== "";
 
-export const mapInidoneos = (
+const mapInidoneosImpl = (
   lista: DatasetKey,
   records: readonly Record<string, string>[]
-) => records.map((record) => mapRow(lista)(indexByKey(record))).filter(hasContent);
+) =>
+  pipe(
+    records,
+    Arr.map((record) => mapRow(lista)(indexByKey(record))),
+    Arr.filter(hasContent)
+  );
+
+export const mapInidoneos: {
+  (
+    records: readonly Record<string, string>[]
+  ): (lista: DatasetKey) => readonly TcuInidoneoFlat[];
+  (
+    lista: DatasetKey,
+    records: readonly Record<string, string>[]
+  ): readonly TcuInidoneoFlat[];
+} = dual(2, mapInidoneosImpl);
 
 export const TcuErrorCode = Schema.Literals(["tcu.DATASET_MISSING"]);
 export type TcuErrorCode = (typeof TcuErrorCode)["Type"];
 
-export class TcuError extends Schema.TaggedErrorClass<TcuError>()("TcuError", {
+export class TcuError extends Schema.TaggedError<TcuError, { readonly brand: unique symbol }>()("TcuError", {
   code: TcuErrorCode,
   dataset: Schema.optional(Schema.String),
 }) {

@@ -1,4 +1,4 @@
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Schema, Struct } from "effect";
 import { Pncp } from "../../sources/pncp/store";
 import { NonEmptyString, Uf, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
@@ -20,12 +20,12 @@ const toTipo = Match.type<(typeof Entidade)["Type"]>().pipe(
 
 const BuscarPncpInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  entidade: Schema.optional(Entidade),
-  uf: Schema.optional(Uf),
-  municipio: Schema.optional(NonEmptyString),
-  orgaoCnpj: Schema.optional(NonEmptyString),
-  modalidade: Schema.optional(positiveIntMax(Number.MAX_SAFE_INTEGER)),
-  limite: Schema.optional(positiveIntMax(200)),
+  entidade: Schema.optionalKey(Entidade),
+  uf: Schema.optionalKey(Uf),
+  municipio: Schema.optionalKey(NonEmptyString),
+  orgaoCnpj: Schema.optionalKey(NonEmptyString),
+  modalidade: Schema.optionalKey(positiveIntMax(Number.MAX_SAFE_INTEGER)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarPncpLocal = defineTool({
@@ -37,16 +37,21 @@ const buscarPncpLocal = defineTool({
     Pncp.pipe(
       Effect.flatMap((service) =>
         service.buscarPncp({
-          termo: args.termo,
-          tipo: Match.value(args.entidade).pipe(
-            Match.when(Match.undefined, () => undefined),
-            Match.orElse(toTipo)
+          ...Struct.renameKeys(
+            Struct.pick(args, [
+              "termo",
+              "uf",
+              "municipio",
+              "orgaoCnpj",
+              "modalidade",
+              "limite",
+            ]),
+            { limite: "limit" }
           ),
-          uf: args.uf,
-          municipio: args.municipio,
-          orgaoCnpj: args.orgaoCnpj,
-          modalidade: args.modalidade,
-          limit: args.limite,
+          ...Match.value(args.entidade).pipe(
+            Match.when(Match.undefined, () => ({})),
+            Match.orElse((entidade) => ({ tipo: toTipo(entidade) }))
+          ),
         })
       )
     ),
@@ -54,7 +59,7 @@ const buscarPncpLocal = defineTool({
 
 const FornecedorPorNomeInput = Schema.Struct({
   nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const fornecedorPncpPorNome = defineTool({
@@ -65,14 +70,14 @@ const fornecedorPncpPorNome = defineTool({
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.fornecedorPncpPorNome(args.nome, { limit: args.limite })
+        service.fornecedorPncpPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const ContratosDoFornecedorInput = Schema.Struct({
   ni: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const contratosDoFornecedor = defineTool({
@@ -83,19 +88,16 @@ const contratosDoFornecedor = defineTool({
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.contratosDoFornecedor({
-          niFornecedor: args.ni,
-          limit: args.limite,
-        })
+        service.contratosDoFornecedor(Struct.renameKeys(Struct.pick(args, ["ni", "limite"]), { ni: "niFornecedor", limite: "limit" }))
       )
     ),
 });
 
 const AlertasInput = Schema.Struct({
-  uf: Schema.optional(Uf),
-  modalidade: Schema.optional(positiveIntMax(Number.MAX_SAFE_INTEGER)),
-  desde: Schema.optional(NonEmptyString),
-  limite: Schema.optional(positiveIntMax(200)),
+  uf: Schema.optionalKey(Uf),
+  modalidade: Schema.optionalKey(positiveIntMax(Number.MAX_SAFE_INTEGER)),
+  desde: Schema.optionalKey(NonEmptyString),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const alertasPncp = defineTool({
@@ -106,12 +108,7 @@ const alertasPncp = defineTool({
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.alertasPncp({
-          uf: args.uf,
-          modalidade: args.modalidade,
-          dataInicial: args.desde,
-          limit: args.limite,
-        })
+        service.alertasPncp(Struct.renameKeys(Struct.pick(args, ["uf", "modalidade", "desde", "limite"]), { desde: "dataInicial", limite: "limit" }))
       )
     ),
 });

@@ -1,5 +1,7 @@
 import { Context, Effect, Layer, Match } from "effect";
 import { sql } from "drizzle-orm";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import { Db } from "../../kernel/db/client";
 import { tcuInidoneo } from "../../kernel/db/schemas/tcu-inidoneo";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
@@ -46,9 +48,12 @@ const makeTcuInidoneos = Effect.gen(function* () {
         columns: viewColumns,
         orderBy: (r, { desc }) => desc(r.dataTransitoJulgado),
       });
-      const porLista = registros.reduce<Record<string, number>>(
-        (acc, row) => ({ ...acc, [row.lista]: (acc[row.lista] ?? 0) + 1 }),
-        {}
+      const porLista = pipe(
+        registros,
+        Arr.reduce<Record<string, number>, (typeof registros)[number]>(
+          {},
+          (acc, row) => ({ ...acc, [row.lista]: (acc[row.lista] ?? 0) + 1 })
+        )
       );
       return {
         documento: documentoInput,
@@ -79,7 +84,7 @@ const makeTcuInidoneos = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmPorNome = (q: string, limit: number) =>
     db.execute(sql`
@@ -88,7 +93,7 @@ const makeTcuInidoneos = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, id
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarPorNome = (
     nome: string,
@@ -109,8 +114,8 @@ const makeTcuInidoneos = Effect.gen(function* () {
     const inserted = yield* indexAll;
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${tcuInidoneo}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: Number(rows[0]?.count ?? 0) };
   });
 
   return { index, indexAll: index, verificar, buscarPorNome };
@@ -119,6 +124,6 @@ const makeTcuInidoneos = Effect.gen(function* () {
 export class TcuInidoneos extends Context.Service<
   TcuInidoneos,
   Effect.Success<typeof makeTcuInidoneos>
->()("dados-publicos-mcp/TcuInidoneos") {}
+>()("dados-publicos-mcp/sources/tcu-inidoneos/store/TcuInidoneos") {}
 
 export const TcuInidoneosLive = Layer.effect(TcuInidoneos)(makeTcuInidoneos);

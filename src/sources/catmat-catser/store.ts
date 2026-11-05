@@ -1,9 +1,10 @@
+import * as Arr from "effect/Array";
 import { Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
 import { catserService } from "../../kernel/db/schemas/catser-service";
-import { Embedder } from "../../kernel/embed/embedder";
+import { EmbedError, Embedder } from "../../kernel/embed/embedder";
 import { normalize } from "../../kernel/text/normalize";
 import { CatmatCatserError } from "./catalog";
 import { indexMateriais, indexServicos } from "./indexer";
@@ -49,12 +50,12 @@ type Leaf = { readonly codigo: number; readonly descricao: string | null };
 const mapMaterialLeaf = (
   rows: readonly { readonly codigoItem: number; readonly descricaoItem: string | null }[]
 ): readonly Leaf[] =>
-  rows.map((r) => ({ codigo: r.codigoItem, descricao: r.descricaoItem }));
+  Arr.map(rows, (r) => ({ codigo: r.codigoItem, descricao: r.descricaoItem }));
 
 const mapServicoLeaf = (
   rows: readonly { readonly codigoServico: number; readonly nomeServico: string | null }[]
 ): readonly Leaf[] =>
-  rows.map((r) => ({ codigo: r.codigoServico, descricao: r.nomeServico }));
+  Arr.map(rows, (r) => ({ codigo: r.codigoServico, descricao: r.nomeServico }));
 
 const materialLeafColumns = { codigoItem: true, descricaoItem: true } as const;
 const servicoLeafColumns = { codigoServico: true, nomeServico: true } as const;
@@ -70,7 +71,13 @@ const makeCatmatCatser = Effect.gen(function* () {
     Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 10, 50);
-      const [queryVector] = yield* embedder.embed("query", [termo]);
+      const queryVector = yield* embedder.embed("query", [termo]).pipe(
+        Effect.flatMap((vectors) =>
+          Effect.fromOption(Arr.head(vectors), () =>
+            EmbedError.make({ code: "embed.RUN" })
+          )
+        )
+      );
       const ativoWhere = Match.value(options?.apenasAtivos).pipe(
         Match.when(true, () => sql`where status_item`),
         Match.orElse(() => sql``)
@@ -118,7 +125,7 @@ const makeCatmatCatser = Effect.gen(function* () {
           on m.codigo_item = coalesce(bm.codigo_item, vec.codigo_item)
         order by score desc, m.codigo_item
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const bm25Servicos = (q: string, limit: number, ativoWhere: SQL) =>
@@ -144,7 +151,7 @@ const makeCatmatCatser = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmServicos = (q: string, limit: number, ativoAnd: SQL) =>
     db.execute(sql`
@@ -158,7 +165,7 @@ const makeCatmatCatser = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2 ${ativoAnd}
       order by score desc, codigo_servico
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarServico = (
     termo: string,
@@ -195,12 +202,10 @@ const makeCatmatCatser = Effect.gen(function* () {
       const material = tipo === "servico" ? null : (matRow ?? null);
       const servico = tipo === "material" ? null : (svcRow ?? null);
       return material === null && servico === null
-        ? yield* Effect.fail(
-            new CatmatCatserError({
-              code: "catmat.NOT_FOUND",
-              codigo: String(codigo),
-            })
-          )
+        ? yield* CatmatCatserError.make({
+            code: "catmat.NOT_FOUND",
+            codigo: String(codigo),
+          })
         : { material, servico };
     });
 
@@ -250,7 +255,7 @@ const makeCatmatCatser = Effect.gen(function* () {
       ),
       Match.orElse(() =>
         Effect.fail(
-          new CatmatCatserError({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
+          CatmatCatserError.make({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
         )
       )
     );
@@ -309,7 +314,7 @@ const makeCatmatCatser = Effect.gen(function* () {
       ),
       Match.orElse(() =>
         Effect.fail(
-          new CatmatCatserError({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
+          CatmatCatserError.make({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
         )
       )
     );
@@ -347,13 +352,13 @@ const makeCatmatCatser = Effect.gen(function* () {
     yield* indexMateriais;
     const materiais = yield* db.execute(
       sql`select count(*)::int as count from ${catmatMaterial}`
-    );
+    ).pipe(Effect.map(({ rows }) => rows));
     const servicos = yield* db.execute(
       sql`select count(*)::int as count from ${catserService}`
-    );
+    ).pipe(Effect.map(({ rows }) => rows));
     return {
-      materiais: Number(materiais[0].count),
-      servicos: Number(servicos[0].count),
+      materiais: Number(materiais[0]?.count ?? 0),
+      servicos: Number(servicos[0]?.count ?? 0),
     };
   });
 
@@ -371,6 +376,6 @@ const makeCatmatCatser = Effect.gen(function* () {
 export class CatmatCatser extends Context.Service<
   CatmatCatser,
   Effect.Success<typeof makeCatmatCatser>
->()("dados-publicos-mcp/CatmatCatser") {}
+>()("dados-publicos-mcp/sources/catmat-catser/store/CatmatCatser") {}
 
 export const CatmatCatserLive = Layer.effect(CatmatCatser)(makeCatmatCatser);

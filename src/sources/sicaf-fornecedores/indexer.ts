@@ -1,7 +1,7 @@
 import { Effect, Match, Option, Stream } from "effect";
 import { Db } from "../../kernel/db/client";
 import { fornecedor } from "../../kernel/db/schemas/fornecedor";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import {
   ConsultarPayload,
   ativoFlags,
@@ -26,9 +26,11 @@ const insertPage = (rows: readonly FornecedorFlat[]) =>
 type PageState = { readonly pagina: number };
 
 const fetchAndStore = (ativo: boolean) => (state: PageState) =>
-  getJson(
-    pageUrl({ pagina: state.pagina, tamanhoPagina: pageSizes.max, ativo }),
-    ConsultarPayload
+  Effect.flatMap(Http, (http) =>
+    http.json(
+      pageUrl({ pagina: state.pagina, tamanhoPagina: pageSizes.max, ativo }),
+      ConsultarPayload
+    )
   ).pipe(
     Effect.flatMap((page) => {
       const stop =

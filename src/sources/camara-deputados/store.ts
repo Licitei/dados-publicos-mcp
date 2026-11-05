@@ -1,11 +1,15 @@
-import { Clock, Context, Effect, Layer, Match } from "effect";
+import { Clock, Context, DateTime, Effect, Layer, Match, Option } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { cota } from "../../kernel/db/schemas/despesa-camara";
 import { deputado } from "../../kernel/db/schemas/deputado";
 import { proposicao } from "../../kernel/db/schemas/proposicao";
 import { proposicaoAutor } from "../../kernel/db/schemas/proposicao-autor";
-import { Embedder } from "../../kernel/embed/embedder";
+import { EmbedError, Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
   CamaraError,
@@ -29,12 +33,18 @@ const rrfK = 60;
 const candidates = 50;
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
+const countOf = (rows: readonly Record<string, unknown>[]) =>
+  pipe(
+    Arr.head(rows),
+    Option.match({
+      onNone: () => 0,
+      onSome: (row) => Number(row.count),
+    })
+  );
 
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
+const firstVector = (vectors: readonly number[][]) =>
+  Effect.fromOption(Arr.head(vectors), () =>
+    EmbedError.make({ code: "embed.RUN" })
   );
 
 const deputadoColumns = {
@@ -89,7 +99,7 @@ const makeCamara = Effect.gen(function* () {
       where word_similarity(${q}, nome_norm) >= 0.2 ${idAnd} ${ufAnd}
       order by score desc, nome
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarDeputado = (input: {
     readonly nome?: string;
@@ -99,8 +109,12 @@ const makeCamara = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const limit = clamp(input.limit, 20, 200);
-      const id = input.id || undefined;
-      const uf = input.uf ? input.uf.trim().toUpperCase() : undefined;
+      const id =
+        input.id !== undefined && input.id !== "" ? input.id : undefined;
+      const uf =
+        input.uf !== undefined && input.uf !== ""
+          ? pipe(input.uf, Str.trim, Str.toUpperCase)
+          : undefined;
       return yield* Match.value(Boolean(input.nome)).pipe(
         Match.when(true, () => {
           const q = normalize(input.nome ?? "");
@@ -134,7 +148,10 @@ const makeCamara = Effect.gen(function* () {
             })
             .pipe(
               Effect.map((rows) =>
-                rows.map((row): Record<string, unknown> => ({ ...row }))
+                pipe(
+                  rows,
+                  Arr.map((row): Record<string, unknown> => ({ ...row }))
+                )
               )
             );
         })
@@ -143,19 +160,26 @@ const makeCamara = Effect.gen(function* () {
 
   const enrichDeputadoOnCota = (rows: readonly Record<string, unknown>[]) =>
     Effect.gen(function* () {
-      const ids = rows
-        .map((row) =>
+      const ids = pipe(
+        rows,
+        Arr.map((row) =>
           row.nuDeputadoId === null || row.nuDeputadoId === undefined
             ? ""
             : String(row.nuDeputadoId)
-        )
-        .filter((value) => value.length > 0);
+        ),
+        Arr.filter((value) => value.length > 0)
+      );
       const deputados = yield* db.query.deputado.findMany({
         where: { id: { in: ids } },
         columns: { id: true, nome: true, ufNascimento: true },
       });
-      const byId = new Map(deputados.map((d) => [d.id, d]));
-      return rows.map((row): Record<string, unknown> => {
+      const byId = new Map(
+        pipe(
+          deputados,
+          Arr.map((d) => [d.id, d] as const)
+        )
+      );
+      return pipe(rows, Arr.map((row): Record<string, unknown> => {
         const d = byId.get(
           row.nuDeputadoId === null || row.nuDeputadoId === undefined
             ? ""
@@ -166,7 +190,7 @@ const makeCamara = Effect.gen(function* () {
           nomeDeputado: d?.nome ?? null,
           ufDeputado: d?.ufNascimento ?? null,
         };
-      });
+      }));
     });
 
   const docCota = (doc: string, limit: number, anoAnd: SQL, categoriaAnd: SQL) =>
@@ -176,7 +200,7 @@ const makeCamara = Effect.gen(function* () {
       where cnpj_cpf_norm = ${doc} ${anoAnd} ${categoriaAnd}
       order by vlr_liquido desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Cota = (q: string, limit: number, anoWhere: SQL, categoriaWhere: SQL) =>
     db.execute(sql`
@@ -199,7 +223,7 @@ const makeCamara = Effect.gen(function* () {
       ) scored
       ${anoWhere} ${categoriaWhere}
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmCota = (q: string, limit: number, anoAnd: SQL, categoriaAnd: SQL) =>
     db.execute(sql`
@@ -208,7 +232,7 @@ const makeCamara = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2 ${anoAnd} ${categoriaAnd}
       order by score desc, vlr_liquido desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const gastosPorFornecedor = (input: {
     readonly fornecedor?: string;
@@ -281,7 +305,7 @@ const makeCamara = Effect.gen(function* () {
               })
             ),
             Match.orElse(() =>
-              Effect.fail(new CamaraError({ code: "camara.MISSING_FILTRO" }))
+              Effect.fail(CamaraError.make({ code: "camara.MISSING_FILTRO" }))
             )
           )
         )
@@ -313,7 +337,7 @@ const makeCamara = Effect.gen(function* () {
         group by nu_deputado_id
         order by "totalLiquido" desc nulls last
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
       const totals = yield* db.execute(sql`
         select
           count(*)::int as "totalDocumentos",
@@ -321,7 +345,7 @@ const makeCamara = Effect.gen(function* () {
           max(txt_fornecedor) as fornecedor
         from ${cota}
         where cnpj_cpf_norm = ${alvo} ${anoAnd}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
       const summary = totals[0] ?? {};
       return {
         cnpjCpf: alvo,
@@ -336,11 +360,13 @@ const makeCamara = Effect.gen(function* () {
 
   const enrichAutores = (rows: readonly Record<string, unknown>[]) =>
     Effect.gen(function* () {
-      const ids = rows
-        .map((row) =>
+      const ids = pipe(
+        rows,
+        Arr.map((row) =>
           typeof row.id === "string" ? row.id : String(row.id ?? "")
-        )
-        .filter((value) => value.length > 0);
+        ),
+        Arr.filter((value) => value.length > 0)
+      );
       const autores = yield* db.query.proposicaoAutor.findMany({
         where: { idProposicao: { in: ids } },
         columns: {
@@ -350,22 +376,20 @@ const makeCamara = Effect.gen(function* () {
           proponente: true,
         },
       });
-      const byProp = autores.reduce<Map<string, Record<string, unknown>[]>>(
-        (acc, autor) => {
-          const key = autor.idProposicao ?? "";
-          const list = acc.get(key) ?? [];
-          list.push(autor);
-          return acc.set(key, list);
-        },
-        new Map()
+      const byProp = Arr.groupBy(autores, (autor) => autor.idProposicao ?? "");
+      return pipe(
+        rows,
+        Arr.map((row): Record<string, unknown> => ({
+          ...row,
+          autores: pipe(
+            Rec.get(
+              byProp,
+              typeof row.id === "string" ? row.id : String(row.id ?? "")
+            ),
+            Option.getOrElse((): readonly Record<string, unknown>[] => [])
+          ),
+        }))
       );
-      return rows.map((row): Record<string, unknown> => ({
-        ...row,
-        autores:
-          byProp.get(
-            typeof row.id === "string" ? row.id : String(row.id ?? "")
-          ) ?? [],
-      }));
     });
 
   const buscarProposicao = (input: {
@@ -378,19 +402,22 @@ const makeCamara = Effect.gen(function* () {
     Effect.gen(function* () {
       const q = normalize(input.termo);
       const limit = clamp(input.limit, 20, 200);
-      const [queryVector] = yield* embedder.embed("query", [input.termo]);
+      const queryVector = yield* embedder
+        .embed("query", [input.termo])
+        .pipe(Effect.flatMap(firstVector));
       const anoFilter = Match.value(input.ano).pipe(
         Match.when(Match.number, (ano) => sql`c.ano = ${ano}`),
         Match.orElse(() => undefined)
       );
       const tipoFilter = Match.value(input.tipo).pipe(
         Match.when(Match.string, (tipo) =>
-          sql`c.sigla_tipo = ${tipo.trim().toUpperCase()}`
+          sql`c.sigla_tipo = ${pipe(tipo, Str.trim, Str.toUpperCase)}`
         ),
         Match.orElse(() => undefined)
       );
-      const filters = [anoFilter, tipoFilter].filter(
-        (value): value is SQL => value !== undefined
+      const filters = pipe(
+        [anoFilter, tipoFilter],
+        Arr.filter((value): value is SQL => value !== undefined)
       );
       const outerWhere = Match.value(filters.length).pipe(
         Match.when(0, () => sql``),
@@ -428,7 +455,7 @@ const makeCamara = Effect.gen(function* () {
         ${outerWhere}
         order by score desc, c.id
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
       return yield* Match.value(Boolean(input.incluirAutores)).pipe(
         Match.when(true, () => enrichAutores(rows)),
         Match.orElse(() => Effect.succeed(rows))
@@ -440,14 +467,14 @@ const makeCamara = Effect.gen(function* () {
       const flat = yield* loadProposicoes(ano);
       const embeddings = yield* Match.value(flat.length).pipe(
         Match.when(0, () => Effect.succeed([])),
-        Match.orElse(() => embedder.embed("passage", flat.map(passageProposicao)))
+        Match.orElse(() => embedder.embed("passage", pipe(flat, Arr.map(passageProposicao))))
       );
-      const rows = flat.map((row, position) => ({
+      const rows = Arr.zipWith(flat, embeddings, (row, embedding) => ({
         ...row,
-        embedding: embeddings[position],
+        embedding,
       }));
       yield* Effect.forEach(
-        chunks(rows),
+        pipe(rows, Arr.chunksOf(chunkSize)),
         (batch) => db.insert(proposicao).values([...batch]),
         { concurrency: 1, discard: true }
       );
@@ -473,26 +500,31 @@ const makeCamara = Effect.gen(function* () {
       );
       const deputados = yield* db.execute(
         sql`select count(*)::int as count from ${deputado}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const cotas = yield* db.execute(
         sql`select count(*)::int as count from ${cota}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const proposicoes = yield* db.execute(
         sql`select count(*)::int as count from ${proposicao}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const proposicoesAutores = yield* db.execute(
         sql`select count(*)::int as count from ${proposicaoAutor}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       return {
-        deputados: Number(deputados[0].count),
-        cotas: Number(cotas[0].count),
-        proposicoes: Number(proposicoes[0].count),
-        proposicoesAutores: Number(proposicoesAutores[0].count),
+        deputados: countOf(deputados),
+        cotas: countOf(cotas),
+        proposicoes: countOf(proposicoes),
+        proposicoesAutores: countOf(proposicoesAutores),
       };
     });
 
   const index = Effect.flatMap(Clock.currentTimeMillis, (millis) =>
-    indexAnos([Math.min(new Date(millis).getFullYear(), CEAP_ANO_MAX)])
+    indexAnos([
+      Math.min(
+        DateTime.toPartsUtc(DateTime.makeUnsafe(millis)).year,
+        CEAP_ANO_MAX
+      ),
+    ])
   );
 
   return {
@@ -509,6 +541,6 @@ const makeCamara = Effect.gen(function* () {
 export class CamaraDeputados extends Context.Service<
   CamaraDeputados,
   Effect.Success<typeof makeCamara>
->()("dados-publicos-mcp/CamaraDeputados") {}
+>()("dados-publicos-mcp/sources/camara-deputados/store/CamaraDeputados") {}
 
 export const CamaraDeputadosLive = Layer.effect(CamaraDeputados)(makeCamara);

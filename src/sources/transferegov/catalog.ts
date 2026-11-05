@@ -1,4 +1,8 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const repositorioBase =
@@ -12,38 +16,51 @@ export const csvOptions = { encoding: "utf-8", delimiter: ";" } as const;
 export const acceptCsv = (name: string) => /\.csv$/i.test(name);
 
 const headerKey = (header: string) =>
-  header
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  pipe(
+    header,
+    Str.normalize("NFD"),
+    Str.replace(/\p{Diacritic}/gu, ""),
+    Str.toLowerCase,
+    Str.replace(/\s+/g, " "),
+    Str.trim
+  );
 
 const indexByKey = (record: Record<string, string>) =>
   new Map(
-    Object.entries(record).map(([key, value]) => [headerKey(key), value])
+    pipe(
+      Rec.toEntries(record),
+      Arr.map(([key, value]) => [headerKey(key), value] as const)
+    )
   );
 
 const pick = (byKey: Map<string, string>, candidate: string) =>
-  (byKey.get(headerKey(candidate)) ?? "").trim();
+  Str.trim(byKey.get(headerKey(candidate)) ?? "");
 
 const orNull = (value: string) => (value === "" ? null : value);
 
 const numeroBr = (value: string) => {
-  const trimmed = value.trim();
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
+  const trimmed = Str.trim(value);
+  const normalized = Str.includes(",")(trimmed)
+    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
     : trimmed;
   const parsed = Number(normalized);
   return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
 };
 
-const dataBr = (value: string) => {
-  const match = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  return match
-    ? `${match[3]}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`
-    : null;
-};
+const dataBr = (value: string) =>
+  pipe(
+    value,
+    Str.trim,
+    Str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/),
+    Option.flatMap((match) =>
+      Option.all([Arr.get(match, 1), Arr.get(match, 2), Arr.get(match, 3)])
+    ),
+    Option.map(
+      ([dia, mes, ano]) =>
+        `${ano}-${Str.padStart(2, "0")(mes)}-${Str.padStart(2, "0")(dia)}`
+    ),
+    Option.getOrNull
+  );
 
 export type PropostaEnrich = {
   readonly uf: string | null;
@@ -61,7 +78,7 @@ export const mapPropostas = (
   records: readonly Record<string, string>[]
 ): Map<string, PropostaEnrich> =>
   new Map(
-    records.flatMap((record) => {
+    Arr.flatMap(records, (record) => {
       const byKey = indexByKey(record);
       const id = pick(byKey, "ID_PROPOSTA");
       return id === ""
@@ -92,8 +109,8 @@ export const ConvenioFlat = Schema.Struct({
   dataPublicacao: Schema.NullOr(Schema.String),
   vigenciaInicio: Schema.NullOr(Schema.String),
   vigenciaFim: Schema.NullOr(Schema.String),
-  valorGlobal: Schema.NullOr(Schema.Number),
-  valorRepasse: Schema.NullOr(Schema.Number),
+  valorGlobal: Schema.NullOr(Schema.Finite),
+  valorRepasse: Schema.NullOr(Schema.Finite),
   cnpjProponente: Schema.NullOr(Schema.String),
   docNormalizado: Schema.NullOr(Schema.String),
   nomeProponente: Schema.NullOr(Schema.String),
@@ -108,11 +125,11 @@ export const ConvenioFlat = Schema.Struct({
 });
 export type ConvenioFlat = (typeof ConvenioFlat)["Type"];
 
-export const mapConvenios = (
+const mapConveniosImpl = (
   records: readonly Record<string, string>[],
   propostas: Map<string, PropostaEnrich>
 ): readonly ConvenioFlat[] =>
-  records.flatMap((record) => {
+  Arr.flatMap(records, (record) => {
     const byKey = indexByKey(record);
     const nrConvenio = pick(byKey, "NR_CONVENIO");
     const idProposta = pick(byKey, "ID_PROPOSTA");
@@ -130,9 +147,10 @@ export const mapConvenios = (
             valorGlobal: numeroBr(pick(byKey, "VL_GLOBAL_CONV")),
             valorRepasse: numeroBr(pick(byKey, "VL_REPASSE_CONV")),
             cnpjProponente: enrich?.cnpjProponente ?? null,
-            docNormalizado: enrich?.cnpjProponente
-              ? onlyDigits(enrich.cnpjProponente)
-              : null,
+            docNormalizado:
+              enrich?.cnpjProponente === null || enrich?.cnpjProponente === undefined
+                ? null
+                : onlyDigits(enrich.cnpjProponente),
             nomeProponente: enrich?.nomeProponente ?? null,
             uf: enrich?.uf ?? null,
             municipio: enrich?.municipio ?? null,
@@ -142,10 +160,22 @@ export const mapConvenios = (
             objeto: enrich?.objeto ?? null,
             modalidade: enrich?.modalidade ?? null,
             busca: normalize(
-              [enrich?.objeto, enrich?.nomeProponente, enrich?.orgao]
-                .filter((part) => part !== null && part !== undefined)
-                .join(" ")
+              pipe(
+                [enrich?.objeto, enrich?.nomeProponente, enrich?.orgao],
+                Arr.filter((part) => part !== null && part !== undefined),
+                Arr.join(" ")
+              )
             ),
           } satisfies ConvenioFlat,
         ];
   });
+
+export const mapConvenios: {
+  (
+    propostas: Map<string, PropostaEnrich>
+  ): (records: readonly Record<string, string>[]) => readonly ConvenioFlat[];
+  (
+    records: readonly Record<string, string>[],
+    propostas: Map<string, PropostaEnrich>
+  ): readonly ConvenioFlat[];
+} = dual(2, mapConveniosImpl);

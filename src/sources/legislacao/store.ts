@@ -1,6 +1,9 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option, pipe } from "effect";
+import * as Arr from "effect/Array";
+import { dual } from "effect/Function";
+import * as Str from "effect/String";
 import { and, cosineDistance, eq, sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
+import { Db, DbError } from "../../kernel/db/client";
 import { node } from "../../kernel/db/schemas/legislacao";
 import { Embedder } from "../../kernel/embed/embedder";
 import { LegislacaoError, buildTree, normas, type Norma } from "./catalog";
@@ -8,7 +11,7 @@ import { fetchLines, passage, summarize } from "./indexer";
 
 export type NodeRow = typeof node.$inferInsert;
 
-export const replaceNorma = (normaId: string, rows: readonly NodeRow[]) =>
+const replaceNormaImpl = (normaId: string, rows: readonly NodeRow[]) =>
   Effect.gen(function* () {
     const db = yield* Db;
     yield* db.transaction((tx) =>
@@ -19,8 +22,22 @@ export const replaceNorma = (normaId: string, rows: readonly NodeRow[]) =>
           Match.orElse(() => tx.insert(node).values([...rows]))
         );
       })
+    ).pipe(
+      Effect.mapError((cause) =>
+        DbError.make({ code: "db.QUERY", cause: String(cause) })
+      )
     );
   });
+
+export const replaceNorma: {
+  (
+    rows: readonly NodeRow[]
+  ): (normaId: string) => ReturnType<typeof replaceNormaImpl>;
+  (
+    normaId: string,
+    rows: readonly NodeRow[]
+  ): ReturnType<typeof replaceNormaImpl>;
+} = dual(2, replaceNormaImpl);
 
 const rrfK = 60;
 const candidates = 50;
@@ -45,11 +62,14 @@ const makeLegislacao = Effect.gen(function* () {
         },
       })
       .pipe(
+        Effect.mapError((cause) =>
+          DbError.make({ code: "db.QUERY", cause: String(cause) })
+        ),
         Effect.flatMap((found) =>
           Match.value(found).pipe(
             Match.when(Match.undefined, () =>
               Effect.fail(
-                new LegislacaoError({ code: "legislacao.NODE_NOT_FOUND", path })
+                LegislacaoError.make({ code: "legislacao.NODE_NOT_FOUND", path })
               )
             ),
             Match.orElse((current) =>
@@ -71,10 +91,17 @@ const makeLegislacao = Effect.gen(function* () {
                 });
                 return {
                   node: current,
-                  breadcrumb: breadcrumb.map((row) => row.label),
+                  breadcrumb: pipe(
+                    breadcrumb,
+                    Arr.map((row) => row.label)
+                  ),
                   children,
                 };
-              })
+              }).pipe(
+                Effect.mapError((cause) =>
+                  DbError.make({ code: "db.QUERY", cause: String(cause) })
+                )
+              )
             )
           )
         )
@@ -82,7 +109,7 @@ const makeLegislacao = Effect.gen(function* () {
 
   const getArticle = (normaId: string, root: string, artigo: string | number) =>
     Effect.gen(function* () {
-      const numero = String(artigo).replace(/\D/g, "");
+      const numero = pipe(String(artigo), Str.replace(/\D/g, ""));
       const lquery = `${root}.*.art${numero}`;
       const rows = yield* db
         .select({ path: node.path })
@@ -95,17 +122,22 @@ const makeLegislacao = Effect.gen(function* () {
           )
         )
         .orderBy(sql`nlevel(${node.path})`, node.path)
-        .limit(1);
-      return yield* Match.value(rows[0]).pipe(
-        Match.when(Match.undefined, () =>
+        .limit(1)
+        .pipe(
+          Effect.mapError((cause) =>
+            DbError.make({ code: "db.QUERY", cause: String(cause) })
+          )
+        );
+      return yield* Match.value(Arr.head(rows)).pipe(
+        Match.when(Option.isNone, () =>
           Effect.fail(
-            new LegislacaoError({
+            LegislacaoError.make({
               code: "legislacao.NODE_NOT_FOUND",
               path: lquery,
             })
           )
         ),
-        Match.orElse((found) => getNode(found.path))
+        Match.orElse((found) => getNode(found.value.path))
       );
     });
 
@@ -120,11 +152,14 @@ const makeLegislacao = Effect.gen(function* () {
         orderBy: (n, { asc }) => asc(n.position),
       })
       .pipe(
+        Effect.mapError((cause) =>
+          DbError.make({ code: "db.QUERY", cause: String(cause) })
+        ),
         Effect.flatMap((rows) =>
           Match.value(rows.length).pipe(
             Match.when(0, () =>
               Effect.fail(
-                new LegislacaoError({
+                LegislacaoError.make({
                   code: "legislacao.NOT_INDEXED",
                   norma: normaId,
                 })
@@ -140,7 +175,15 @@ const makeLegislacao = Effect.gen(function* () {
     options?: { readonly normaId?: string; readonly limit?: number }
   ) =>
     Effect.gen(function* () {
-      const [embedding] = yield* embedder.embed("query", [termo]);
+      const embedding = yield* embedder.embed("query", [termo]).pipe(
+        Effect.flatMap((vectors) =>
+          Effect.fromOption(Arr.head(vectors)).pipe(
+            Effect.mapError(() =>
+              LegislacaoError.make({ code: "legislacao.PARSE", norma: termo })
+            )
+          )
+        )
+      );
       const limit = options?.limit ?? defaultLimit;
       const normaFilter = Match.value(options?.normaId).pipe(
         Match.when(Match.string, (id) => sql`where norma_id = ${id}`),
@@ -183,16 +226,24 @@ const makeLegislacao = Effect.gen(function* () {
         join ${node} n on n.path = coalesce(bm.path, vec.path)
         order by score desc, n.path
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(
+        Effect.mapBoth({
+          onFailure: (cause) =>
+            DbError.make({ code: "db.QUERY", cause: String(cause) }),
+          onSuccess: ({ rows }) => rows,
+        })
+      );
     });
 
   const index = (norma: Norma) =>
     Effect.gen(function* () {
       const lines = yield* fetchLines(norma.url);
       const nodes = buildTree(norma, lines);
-      const embeddings = yield* embedder.embed("passage", nodes.map(passage));
-      const rows = nodes.map(
-        (current, position) =>
+      const embeddings = yield* embedder.embed("passage", pipe(nodes, Arr.map(passage)));
+      const rows = pipe(
+        nodes,
+        Arr.map(
+          (current, position) =>
           ({
             path: current.path,
             normaId: norma.id,
@@ -203,8 +254,9 @@ const makeLegislacao = Effect.gen(function* () {
             text: current.text,
             summary: summarize(current),
             position: current.position,
-            embedding: embeddings[position],
+            embedding: pipe(Arr.get(embeddings, position), Option.getOrNull),
           }) satisfies NodeRow
+        )
       );
       yield* replaceNorma(norma.id, rows);
       return rows.length;
@@ -218,6 +270,6 @@ const makeLegislacao = Effect.gen(function* () {
 export class Legislacao extends Context.Service<
   Legislacao,
   Effect.Success<typeof makeLegislacao>
->()("dados-publicos-mcp/Legislacao") {}
+>()("dados-publicos-mcp/sources/legislacao/store/Legislacao") {}
 
 export const LegislacaoLive = Layer.effect(Legislacao)(makeLegislacao);

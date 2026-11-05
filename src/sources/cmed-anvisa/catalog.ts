@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const precosPage =
@@ -14,35 +17,49 @@ export const sheetMatcher = (name: string) => /planilha1/i.test(name);
 
 const conformidadeGov = /xls_conformidade_gov_\d+_\d+\.xlsx/;
 
-export const downloadUrlFromPage = (html: string) => {
-  const match = html.match(conformidadeGov);
-  return match ? `${arquivosBase}/${match[0]}/@@download/file` : null;
-};
+export const downloadUrlFromPage = (html: string) =>
+  pipe(
+    html,
+    Str.match(conformidadeGov),
+    Option.flatMap(Arr.head),
+    Option.match({
+      onNone: () => null,
+      onSome: (file) => `${arquivosBase}/${file}/@@download/file`,
+    })
+  );
 
 const headerKey = (header: string) =>
-  normalize(header).replace(/\s+/g, " ").trim();
+  pipe(normalize(header), Str.replace(/\s+/g, " "), Str.trim);
 
 const buildHeaderMap = (row: readonly string[]) =>
-  new Map(row.map((label, index) => [headerKey(label), index]));
+  new Map(
+    pipe(
+      row,
+      Arr.map((label, index) => [headerKey(label), index] as const)
+    )
+  );
 
 const findHeaderIndex = (rows: readonly (readonly string[])[]) =>
-  rows.findIndex((row) => headerKey(row[0] ?? "") === "substancia");
+  pipe(
+    rows,
+    Arr.findFirstIndex((row) => headerKey(row[0] ?? "") === "substancia")
+  );
 
 const cell = (
   row: readonly string[],
   map: Map<string, number>,
   label: string
 ) => {
-  const index = map.get(headerKey(label));
-  return index === undefined ? "" : (row[index] ?? "").trim();
+  const index = map.get(headerKey(label))
+  return index === undefined ? "" : pipe(row[index] ?? "", Str.trim);
 };
 
 const orNull = (value: string) => (value === "" ? null : value);
 
 const preco = (value: string) => {
-  const cleaned = value.replace(/\*/g, "").trim();
-  const normalized = cleaned.includes(",")
-    ? cleaned.replace(/\./g, "").replace(",", ".")
+  const cleaned = pipe(value, Str.replace(/\*/g, ""), Str.trim);
+  const normalized = pipe(cleaned, Str.includes(","))
+    ? pipe(cleaned, Str.replace(/\./g, ""), Str.replace(",", "."))
     : cleaned;
   const parsed = Number(normalized);
   return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
@@ -60,58 +77,64 @@ export const MedicamentoFlat = Schema.Struct({
   apresentacao: Schema.NullOr(Schema.String),
   classeTerapeutica: Schema.NullOr(Schema.String),
   tarja: Schema.NullOr(Schema.String),
-  pfSemImpostos: Schema.NullOr(Schema.Number),
-  pmvgSemImpostos: Schema.NullOr(Schema.Number),
+  pfSemImpostos: Schema.NullOr(Schema.Finite),
+  pmvgSemImpostos: Schema.NullOr(Schema.Finite),
   busca: Schema.String,
 });
 export type MedicamentoFlat = (typeof MedicamentoFlat)["Type"];
 
+const mapRow = (map: Map<string, number>) => (row: readonly string[]) => {
+  const substancia = cell(row, map, "SUBSTANCIA");
+  const produto = cell(row, map, "PRODUTO");
+  const apresentacao = cell(row, map, "APRESENTACAO");
+  const laboratorio = cell(row, map, "LABORATORIO");
+  const classe = cell(row, map, "CLASSE TERAPEUTICA");
+  const cnpj = cell(row, map, "CNPJ");
+  return {
+    substancia: orNull(substancia),
+    cnpj: orNull(cnpj),
+    docNormalizado: orNull(onlyDigits(cnpj)),
+    laboratorio: orNull(laboratorio),
+    ggrem: orNull(cell(row, map, "CODIGO GGREM")),
+    registro: orNull(cell(row, map, "REGISTRO")),
+    ean1: orNull(cell(row, map, "EAN 1")),
+    produto: orNull(produto),
+    apresentacao: orNull(apresentacao),
+    classeTerapeutica: orNull(classe),
+    tarja: orNull(cell(row, map, "TARJA")),
+    pfSemImpostos: preco(cell(row, map, "PF Sem Impostos")),
+    pmvgSemImpostos: preco(cell(row, map, "PMVG Sem Impostos")),
+    busca: normalize(
+      pipe([substancia, produto, apresentacao, laboratorio, classe], Arr.join(" "))
+    ),
+  } satisfies MedicamentoFlat;
+};
+
 export const mapMedicamentos = (
   rows: readonly (readonly string[])[]
-): readonly MedicamentoFlat[] => {
-  const headerIndex = findHeaderIndex(rows);
-  return headerIndex === -1
-    ? []
-    : (() => {
-        const map = buildHeaderMap(rows[headerIndex]);
-        return rows
-          .slice(headerIndex + 1)
-          .map((row) => {
-            const substancia = cell(row, map, "SUBSTANCIA");
-            const produto = cell(row, map, "PRODUTO");
-            const apresentacao = cell(row, map, "APRESENTACAO");
-            const laboratorio = cell(row, map, "LABORATORIO");
-            const classe = cell(row, map, "CLASSE TERAPEUTICA");
-            const cnpj = cell(row, map, "CNPJ");
-            return {
-              substancia: orNull(substancia),
-              cnpj: orNull(cnpj),
-              docNormalizado: orNull(onlyDigits(cnpj)),
-              laboratorio: orNull(laboratorio),
-              ggrem: orNull(cell(row, map, "CODIGO GGREM")),
-              registro: orNull(cell(row, map, "REGISTRO")),
-              ean1: orNull(cell(row, map, "EAN 1")),
-              produto: orNull(produto),
-              apresentacao: orNull(apresentacao),
-              classeTerapeutica: orNull(classe),
-              tarja: orNull(cell(row, map, "TARJA")),
-              pfSemImpostos: preco(cell(row, map, "PF Sem Impostos")),
-              pmvgSemImpostos: preco(cell(row, map, "PMVG Sem Impostos")),
-              busca: normalize(
-                [substancia, produto, apresentacao, laboratorio, classe].join(
-                  " "
-                )
-              ),
-            } satisfies MedicamentoFlat;
-          })
-          .filter((row) => Boolean(row.produto || row.substancia));
-      })();
-};
+): readonly MedicamentoFlat[] =>
+  pipe(
+    findHeaderIndex(rows),
+    Option.flatMap((headerIndex) =>
+      pipe(
+        Arr.get(rows, headerIndex),
+        Option.map((header) =>
+          pipe(
+            rows,
+            Arr.drop(headerIndex + 1),
+            Arr.map(mapRow(buildHeaderMap(header))),
+            Arr.filter((row) => row.produto !== null || row.substancia !== null)
+          )
+        )
+      )
+    ),
+    Option.getOrElse((): readonly MedicamentoFlat[] => [])
+  );
 
 export const CmedErrorCode = Schema.Literals(["cmed.FILE_NOT_LISTED"]);
 export type CmedErrorCode = (typeof CmedErrorCode)["Type"];
 
-export class CmedError extends Schema.TaggedErrorClass<CmedError>()("CmedError", {
+export class CmedError extends Schema.TaggedError<CmedError, { readonly brand: unique symbol }>()("CmedError", {
   code: CmedErrorCode,
 }) {
   override get message() {

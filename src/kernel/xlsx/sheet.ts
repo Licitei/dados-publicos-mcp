@@ -1,4 +1,7 @@
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { unzipEntries, ZipError } from "../zip/archive";
 
 const XlsxErrorCode = Schema.Literals([
@@ -9,7 +12,7 @@ const XlsxErrorCode = Schema.Literals([
 ]);
 export type XlsxErrorCode = (typeof XlsxErrorCode)["Type"];
 
-export class XlsxError extends Schema.TaggedErrorClass<XlsxError>()("XlsxError", {
+export class XlsxError extends Schema.TaggedError<XlsxError, { readonly brand: unique symbol }>()("XlsxError", {
   code: XlsxErrorCode,
   rid: Schema.optional(Schema.String),
   available: Schema.optional(Schema.Array(Schema.String)),
@@ -19,7 +22,7 @@ export class XlsxError extends Schema.TaggedErrorClass<XlsxError>()("XlsxError",
       case "xlsx.WORKBOOK_MISSING":
         return "XLSX invalido: xl/workbook.xml ausente.";
       case "xlsx.SHEET_NOT_FOUND":
-        return `XLSX: aba nao encontrada. Disponiveis: ${(this.available ?? []).join(", ")}.`;
+        return `XLSX: aba nao encontrada. Disponiveis: ${pipe(this.available ?? [], Arr.join(", "))}.`;
       case "xlsx.REL_MISSING":
         return `XLSX: relacao ${this.rid} nao mapeia para um worksheet.`;
       case "xlsx.WORKSHEET_MISSING":
@@ -30,162 +33,277 @@ export class XlsxError extends Schema.TaggedErrorClass<XlsxError>()("XlsxError",
 
 export type SheetMatcher = (name: string) => boolean;
 
+const group = (match: RegExpMatchArray, index: number) =>
+  pipe(
+    Arr.get(match, index),
+    Option.flatMap(Option.fromNullishOr),
+    Option.getOrElse(() => "")
+  );
+
+const matchesOf = (pattern: RegExp) => (input: string) =>
+  pipe(input, Str.matchAll(pattern), Arr.fromIterable);
+
+const replaceMatches =
+  (pattern: RegExp, replacer: (match: RegExpMatchArray) => string) =>
+  (input: string) => {
+    const tail = pipe(
+      matchesOf(pattern)(input),
+      Arr.reduce({ out: "", cursor: 0 }, (acc, match) => {
+        const start = match.index ?? 0;
+        return {
+          out: acc.out + pipe(input, Str.slice(acc.cursor, start)) + replacer(match),
+          cursor: start + group(match, 0).length,
+        };
+      })
+    );
+    return tail.out + pipe(input, Str.slice(tail.cursor));
+  };
+
 const decodeXmlEntities = (value: string) =>
-  value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&amp;/g, "&");
+  pipe(
+    value,
+    Str.replace(/&lt;/g, "<"),
+    Str.replace(/&gt;/g, ">"),
+    Str.replace(/&quot;/g, '"'),
+    Str.replace(/&apos;/g, "'"),
+    replaceMatches(/&#x([0-9a-fA-F]+);/g, (match) =>
+      String.fromCodePoint(parseInt(group(match, 1), 16))
+    ),
+    replaceMatches(/&#(\d+);/g, (match) =>
+      String.fromCodePoint(parseInt(group(match, 1), 10))
+    ),
+    Str.replace(/&amp;/g, "&")
+  );
 
 const escapeRegExp = (value: string) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  pipe(value, Str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
-const attr = (attrs: string, name: string) => {
-  const match = attrs.match(
-    new RegExp(`(?:^|\\s)${escapeRegExp(name)}\\s*=\\s*"([^"]*)"`)
+const attr = (attrs: string, name: string) =>
+  pipe(
+    attrs,
+    Str.match(new RegExp(`(?:^|\\s)${escapeRegExp(name)}\\s*=\\s*"([^"]*)"`)),
+    Option.flatMap((match) => Arr.get(match, 1)),
+    Option.flatMap(Option.fromNullishOr)
   );
-  return match ? match[1] : null;
-};
 
 const colLetterToIndex = (letters: string) =>
-  [...letters.toUpperCase()].reduce(
-    (acc, ch) => acc * 26 + (ch.charCodeAt(0) - 64),
-    0
+  pipe(
+    letters,
+    Str.toUpperCase,
+    Arr.fromIterable,
+    Arr.reduce(
+      0,
+      (acc, ch) =>
+        acc * 26 +
+        (pipe(
+          Str.charCodeAt(ch, 0),
+          Option.getOrElse(() => 64)
+        ) -
+          64)
+    )
   ) - 1;
 
 const textOf = (bytes: Uint8Array | undefined) =>
   bytes === undefined ? "" : new TextDecoder("utf-8").decode(bytes);
 
-const normalizeEntryName = (name: string) => name.replace(/^\/+/, "");
+const normalizeEntryName = (name: string) => pipe(name, Str.replace(/^\/+/, ""));
 
 type SheetRef = { readonly name: string; readonly rid: string };
 
 const parseWorkbookSheets = (xml: string): readonly SheetRef[] =>
-  [...xml.matchAll(/<sheet\b([^>]*)\/?>/g)].flatMap((match) => {
-    const attrs = match[1];
-    const name = attr(attrs, "name");
-    const rid = attr(attrs, "r:id") ?? attr(attrs, "id");
-    return name === null || rid === null
-      ? []
-      : [{ name: decodeXmlEntities(name), rid }];
-  });
+  pipe(
+    xml,
+    matchesOf(/<sheet\b([^>]*)\/?>/g),
+    Arr.flatMap((match) => {
+      const attrs = group(match, 1);
+      return pipe(
+        Option.all({
+          name: attr(attrs, "name"),
+          rid: Option.orElse(attr(attrs, "r:id"), () => attr(attrs, "id")),
+        }),
+        Option.map(
+          ({ name, rid }): SheetRef => ({ name: decodeXmlEntities(name), rid })
+        ),
+        Option.toArray
+      );
+    })
+  );
 
 const resolveSheetPath = (relsXml: string, rid: string) =>
-  [...relsXml.matchAll(/<Relationship\b([^>]*)\/?>/g)]
-    .flatMap((match) => {
-      const attrs = match[1];
-      const target = attr(attrs, "Target");
-      return attr(attrs, "Id") === rid && target !== null
-        ? [target.replace(/^\/?xl\//, "").replace(/^\/+/, "")]
-        : [];
+  pipe(
+    relsXml,
+    matchesOf(/<Relationship\b([^>]*)\/?>/g),
+    Arr.findFirst((match) => {
+      const attrs = group(match, 1);
+      return pipe(
+        attr(attrs, "Target"),
+        Option.filter(() => Option.exists(attr(attrs, "Id"), (id) => id === rid)),
+        Option.map((target) =>
+          pipe(target, Str.replace(/^\/?xl\//, ""), Str.replace(/^\/+/, ""))
+        )
+      );
     })
-    .at(0);
+  );
+
+const textParts = (body: string) =>
+  pipe(
+    body,
+    matchesOf(/<t\b[^>]*>([\s\S]*?)<\/t>/g),
+    Arr.map((part) => decodeXmlEntities(group(part, 1))),
+    Arr.join("")
+  );
 
 const parseSharedStrings = (xml: string): readonly string[] =>
-  [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((match) =>
-    [...match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)]
-      .map((part) => decodeXmlEntities(part[1]))
-      .join("")
+  pipe(
+    xml,
+    matchesOf(/<si\b[^>]*>([\s\S]*?)<\/si>/g),
+    Arr.map((match) => textParts(group(match, 1)))
+  );
+
+const valueOf = (body: string) =>
+  pipe(
+    body,
+    Str.match(/<v\b[^>]*>([\s\S]*?)<\/v>/),
+    Option.map((match) => group(match, 1)),
+    Option.getOrElse(() => "")
   );
 
 const decodeCellValue = (
-  type: string | null,
+  type: string,
   body: string,
   shared: readonly string[]
 ) =>
   Match.value(type).pipe(
-    Match.when("inlineStr", () =>
-      [...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)]
-        .map((part) => decodeXmlEntities(part[1]))
-        .join("")
-    ),
+    Match.when("inlineStr", () => textParts(body)),
     Match.when("s", () => {
-      const index = Number((body.match(/<v\b[^>]*>([\s\S]*?)<\/v>/) ?? ["", ""])[1]);
-      return Number.isInteger(index) ? shared[index] ?? "" : "";
+      const index = Number(valueOf(body));
+      return Number.isInteger(index)
+        ? pipe(
+            Arr.get(shared, index),
+            Option.getOrElse(() => "")
+          )
+        : "";
     }),
-    Match.orElse(() =>
-      decodeXmlEntities((body.match(/<v\b[^>]*>([\s\S]*?)<\/v>/) ?? ["", ""])[1])
-    )
+    Match.orElse(() => decodeXmlEntities(valueOf(body)))
   );
 
 const parseRow = (rowXml: string, shared: readonly string[]): readonly string[] => {
-  const cells = [...rowXml.matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(
-    (match, position) => {
-      const ref = attr(match[1], "r");
+  const cells = pipe(
+    rowXml,
+    matchesOf(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g),
+    Arr.map((match, position) => {
+      const attrs = group(match, 1);
       return {
-        index: ref ? colLetterToIndex(ref.replace(/\d+/g, "")) : position,
-        value: decodeCellValue(attr(match[1], "t"), match[2] ?? "", shared),
+        index: pipe(
+          attr(attrs, "r"),
+          Option.match({
+            onNone: () => position,
+            onSome: (ref) =>
+              colLetterToIndex(pipe(ref, Str.replace(/\d+/g, ""))),
+          })
+        ),
+        value: decodeCellValue(
+          pipe(
+            attr(attrs, "t"),
+            Option.getOrElse(() => "")
+          ),
+          group(match, 2),
+          shared
+        ),
       };
-    }
+    })
   );
-  const width = cells.reduce((max, cell) => Math.max(max, cell.index + 1), 0);
-  const byIndex = new Map(cells.map((cell) => [cell.index, cell.value]));
-  return Array.from({ length: width }, (_, index) => byIndex.get(index) ?? "");
+  const width = pipe(
+    cells,
+    Arr.reduce(0, (max, cell) => Math.max(max, cell.index + 1))
+  );
+  const byIndex = new Map(
+    pipe(
+      cells,
+      Arr.map((cell): readonly [number, string] => [cell.index, cell.value])
+    )
+  );
+  return Arr.makeBy(width, (index) =>
+    pipe(
+      Option.fromNullishOr(byIndex.get(index)),
+      Option.getOrElse(() => "")
+    )
+  );
 };
 
 const parseWorksheet = (
   xml: string,
   shared: readonly string[]
 ): readonly (readonly string[])[] =>
-  [...xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)].map((match) =>
-    parseRow(match[1], shared)
+  pipe(
+    xml,
+    matchesOf(/<row\b[^>]*>([\s\S]*?)<\/row>/g),
+    Arr.map((match) => parseRow(group(match, 1), shared))
   );
 
-export const readXlsxSheet = (
+const readXlsxSheetImpl = (
   bytes: Uint8Array,
   matchSheet: SheetMatcher
 ): Effect.Effect<readonly (readonly string[])[], XlsxError | ZipError> =>
   Effect.gen(function* () {
     const entries = yield* unzipEntries(bytes, (name) =>
-      normalizeEntryName(name).startsWith("xl/")
+      pipe(normalizeEntryName(name), Str.startsWith("xl/"))
     );
     const byName = new Map(
-      entries.map((entry) => [normalizeEntryName(entry.name), entry.data])
+      pipe(
+        entries,
+        Arr.map((entry): readonly [string, Uint8Array] => [
+          normalizeEntryName(entry.name),
+          entry.data,
+        ])
+      )
     );
     const workbook = textOf(byName.get("xl/workbook.xml"));
     yield* Match.value(workbook).pipe(
       Match.when("", () =>
-        Effect.fail(new XlsxError({ code: "xlsx.WORKBOOK_MISSING" }))
+        Effect.fail(XlsxError.make({ code: "xlsx.WORKBOOK_MISSING" }))
       ),
       Match.orElse(() => Effect.void)
     );
     const sheets = parseWorkbookSheets(workbook);
-    const target = sheets.find((sheet) => matchSheet(sheet.name));
-    return yield* Match.value(target).pipe(
-      Match.when(Match.undefined, () =>
-        Effect.fail(
-          new XlsxError({
-            code: "xlsx.SHEET_NOT_FOUND",
-            available: sheets.map((sheet) => sheet.name),
-          })
-        )
-      ),
-      Match.orElse((found) =>
-        Match.value(
-          resolveSheetPath(textOf(byName.get("xl/_rels/workbook.xml.rels")), found.rid)
-        ).pipe(
-          Match.when(Match.undefined, () =>
-            Effect.fail(new XlsxError({ code: "xlsx.REL_MISSING", rid: found.rid }))
-          ),
-          Match.orElse((path) =>
-            Match.value(textOf(byName.get(`xl/${path}`))).pipe(
-              Match.when("", () =>
-                Effect.fail(new XlsxError({ code: "xlsx.WORKSHEET_MISSING" }))
-              ),
-              Match.orElse((sheetXml) =>
-                Effect.succeed(
-                  parseWorksheet(
-                    sheetXml,
-                    parseSharedStrings(textOf(byName.get("xl/sharedStrings.xml")))
-                  )
-                )
-              )
-            )
-          )
-        )
+    const found = yield* pipe(
+      Effect.fromOption(Arr.findFirst(sheets, (sheet) => matchSheet(sheet.name))),
+      Effect.mapError(() =>
+        XlsxError.make({
+          code: "xlsx.SHEET_NOT_FOUND",
+          available: Arr.map(sheets, (sheet) => sheet.name),
+        })
       )
     );
+    const path = yield* pipe(
+      Effect.fromOption(
+        resolveSheetPath(textOf(byName.get("xl/_rels/workbook.xml.rels")), found.rid)
+      ),
+      Effect.mapError(() =>
+        XlsxError.make({ code: "xlsx.REL_MISSING", rid: found.rid })
+      )
+    );
+    const sheetXml = textOf(byName.get(`xl/${path}`));
+    yield* Match.value(sheetXml).pipe(
+      Match.when("", () =>
+        Effect.fail(XlsxError.make({ code: "xlsx.WORKSHEET_MISSING" }))
+      ),
+      Match.orElse(() => Effect.void)
+    );
+    return parseWorksheet(
+      sheetXml,
+      parseSharedStrings(textOf(byName.get("xl/sharedStrings.xml")))
+    );
   });
+
+export const readXlsxSheet: {
+  (
+    matchSheet: SheetMatcher
+  ): (
+    bytes: Uint8Array
+  ) => Effect.Effect<readonly (readonly string[])[], XlsxError | ZipError>;
+  (
+    bytes: Uint8Array,
+    matchSheet: SheetMatcher
+  ): Effect.Effect<readonly (readonly string[])[], XlsxError | ZipError>;
+} = dual(2, readXlsxSheetImpl);

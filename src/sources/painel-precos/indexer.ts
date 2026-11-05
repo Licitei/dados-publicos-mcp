@@ -1,7 +1,9 @@
 import { Effect } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import { Db } from "../../kernel/db/client";
 import { precoPraticado } from "../../kernel/db/schemas/preco-praticado";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import {
   consultarMaterialUrl,
   mapPrecos,
@@ -12,13 +14,8 @@ import {
 
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
 const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
+  pipe(items, Arr.chunksOf(chunkSize));
 
 const insertRows = (rows: readonly PrecoFlat[]) =>
   Effect.forEach(
@@ -29,9 +26,11 @@ const insertRows = (rows: readonly PrecoFlat[]) =>
   );
 
 const fetchPage = (codigo: string, pagina: number) =>
-  getJson(consultarMaterialUrl(codigo, pagina), PrecoPayload, {
-    headers: { accept: "application/json" },
-  }).pipe(
+  Effect.flatMap(Http, (http) =>
+    http.json(consultarMaterialUrl(codigo, pagina), PrecoPayload, {
+      headers: { accept: "application/json" },
+    })
+  ).pipe(
     Effect.map((payload) => ({
       resultado: payload.resultado ?? [],
       totalPaginas: payload.totalPaginas ?? 1,
@@ -43,16 +42,16 @@ const fetchItem = (codigo: string) =>
     const first = yield* fetchPage(codigo, 1);
     const pages = Math.min(first.totalPaginas, maxPaginas);
     const rest = yield* Effect.forEach(
-      range(Math.max(pages - 1, 0)).map((index) => index + 2),
+      Arr.makeBy(Math.max(pages - 1, 0), (index) => index + 2),
       (pagina) => fetchPage(codigo, pagina).pipe(Effect.map((r) => r.resultado)),
       { concurrency: 2 }
     );
-    return [first.resultado, ...rest].flat();
+    return Arr.flatten([first.resultado, ...rest]);
   });
 
 const dedup = (rows: readonly PrecoFlat[]) => {
   const seen = new Set<string>();
-  return rows.filter((row) =>
+  return Arr.filter(rows, (row) =>
     row.idItemCompra === null
       ? true
       : seen.has(row.idItemCompra)
@@ -68,7 +67,7 @@ export const indexItens = (codigos: readonly string[]) =>
       (codigo) => fetchItem(codigo).pipe(Effect.map(mapPrecos)),
       { concurrency: 2 }
     );
-    const rows = dedup(perItem.flat());
+    const rows = dedup(Arr.flatten(perItem));
     yield* insertRows(rows);
     return rows.length;
   });

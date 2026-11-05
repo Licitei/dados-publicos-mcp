@@ -1,4 +1,7 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
@@ -27,7 +30,7 @@ const makePainelPrecos = Effect.gen(function* () {
 
   const ufClause = (uf: string | undefined) =>
     Match.value(uf).pipe(
-      Match.when(Match.string, (value) => sql`and estado = ${value.toUpperCase()}`),
+      Match.when(Match.string, (value) => sql`and estado = ${pipe(value, Str.toUpperCase)}`),
       Match.orElse(() => sql``)
     );
 
@@ -45,7 +48,7 @@ const makePainelPrecos = Effect.gen(function* () {
           and preco_unitario is not null ${ufWhere}
         order by data_compra desc nulls last, preco_unitario
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const estatisticaPreco = (
@@ -64,7 +67,7 @@ const makePainelPrecos = Effect.gen(function* () {
         from ${precoPraticado}
         where codigo_item_catalogo = ${onlyDigits(codigo)}
           and preco_unitario is not null ${ufWhere}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
       return {
         codigoItemCatalogo: onlyDigits(codigo),
         n: Number(rows[0]?.n ?? 0),
@@ -101,14 +104,14 @@ const makePainelPrecos = Effect.gen(function* () {
           ) ranked
         ) scored
         order by rk
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const seedCodigos = db
     .select({ codigo: catmatMaterial.codigoItem })
     .from(catmatMaterial)
     .limit(seedLimit)
-    .pipe(Effect.map((rows) => rows.map((row) => String(row.codigo))));
+    .pipe(Effect.map((rows) => Arr.map(rows, (row) => String(row.codigo))));
 
   const index = Effect.gen(function* () {
     yield* db.delete(precoPraticado);
@@ -116,8 +119,12 @@ const makePainelPrecos = Effect.gen(function* () {
     const inserted = yield* indexItens(codigos);
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${precoPraticado}`
-    );
-    return { itens: codigos.length, inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { itens: codigos.length, inserted, total: pipe(
+        Arr.head(rows),
+        Option.map((row) => Number(row.count)),
+        Option.getOrElse(() => 0)
+      ) };
   });
 
   return {
@@ -137,6 +144,6 @@ const makePainelPrecos = Effect.gen(function* () {
 export class PainelPrecos extends Context.Service<
   PainelPrecos,
   Effect.Success<typeof makePainelPrecos>
->()("dados-publicos-mcp/PainelPrecos") {}
+>()("dados-publicos-mcp/sources/painel-precos/store/PainelPrecos") {}
 
 export const PainelPrecosLive = Layer.effect(PainelPrecos)(makePainelPrecos);

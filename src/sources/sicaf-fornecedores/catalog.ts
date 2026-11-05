@@ -1,4 +1,7 @@
 import { Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const consultarUrl =
@@ -8,11 +11,11 @@ export const pageSizes = { min: 10, max: 500 } as const;
 export const ativoFlags = [true, false] as const;
 
 const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))
 );
 const looseString = Schema.optional(Schema.NullOr(Schema.String));
 const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number, Schema.Boolean]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]))
 );
 
 export const FornecedorRaw = Schema.Struct({
@@ -32,7 +35,7 @@ export type FornecedorRaw = (typeof FornecedorRaw)["Type"];
 
 export const ConsultarPayload = Schema.Struct({
   resultado: Schema.Array(FornecedorRaw),
-  totalPaginas: Schema.Number,
+  totalPaginas: Schema.Finite,
 });
 export type ConsultarPayload = (typeof ConsultarPayload)["Type"];
 
@@ -45,7 +48,7 @@ export const FornecedorFlat = Schema.Struct({
   ufSigla: Schema.NullOr(Schema.String),
   nomeMunicipio: Schema.NullOr(Schema.String),
   nomeMunicipioNormalizado: Schema.String,
-  codigoCnae: Schema.NullOr(Schema.Number),
+  codigoCnae: Schema.NullOr(Schema.Finite),
   nomeCnae: Schema.NullOr(Schema.String),
   naturezaJuridicaNome: Schema.NullOr(Schema.String),
   porteEmpresaNome: Schema.NullOr(Schema.String),
@@ -73,7 +76,9 @@ export const pageUrl = (opts: {
 type Loose = string | number | boolean | null | undefined;
 
 const toStringOrNull = (value: Loose) =>
-  value === null || value === undefined ? null : String(value).trim() || null;
+  value === null || value === undefined
+    ? null
+    : pipe(String(value), Str.trim, (text) => (text.length > 0 ? text : null));
 
 const toIntOrNull = (value: Loose) => {
   const text = toStringOrNull(value);
@@ -85,7 +90,7 @@ const toBool = (value: Loose) =>
   typeof value === "boolean"
     ? value
     : typeof value === "string"
-      ? value.trim().toLowerCase() === "true"
+      ? pipe(value, Str.trim, Str.toLowerCase) === "true"
       : Boolean(value);
 
 const normalizeCnpjLoose = (value: Loose) => {
@@ -96,7 +101,7 @@ const normalizeCnpjLoose = (value: Loose) => {
 
 const ufUpper = (value: Loose) => {
   const text = toStringOrNull(value);
-  return text === null ? null : text.toUpperCase();
+  return text === null ? null : Str.toUpperCase(text);
 };
 
 const flattenFornecedor = (raw: FornecedorRaw) => {
@@ -120,4 +125,4 @@ const flattenFornecedor = (raw: FornecedorRaw) => {
 };
 
 export const flatten = (resultado: readonly FornecedorRaw[]) =>
-  resultado.map(flattenFornecedor);
+  pipe(resultado, Arr.map(flattenFornecedor));

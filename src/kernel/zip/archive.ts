@@ -1,10 +1,12 @@
 import { inflateRawSync } from "node:zlib";
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
 
 const ZipErrorCode = Schema.Literals(["zip.MALFORMED", "zip.INFLATE"]);
 export type ZipErrorCode = (typeof ZipErrorCode)["Type"];
 
-export class ZipError extends Schema.TaggedErrorClass<ZipError>()("ZipError", {
+export class ZipError extends Schema.TaggedError<ZipError, { readonly brand: unique symbol }>()("ZipError", {
   code: ZipErrorCode,
   entry: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.String),
@@ -33,17 +35,15 @@ type RawEntry = {
 
 const eocdSignature = 0x06054b50;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
 const findEocd = (view: DataView, size: number) => {
   const minSize = 22;
   const maxBack = Math.min(size, minSize + 0xffff);
   const limit = size - maxBack;
-  const candidate = range(size - minSize - limit + 1)
-    .map((offset) => size - minSize - offset)
-    .find((offset) => view.getUint32(offset, true) === eocdSignature);
-  return candidate ?? -1;
+  return pipe(
+    Arr.makeBy(size - minSize - limit + 1, (offset) => size - minSize - offset),
+    Arr.findFirst((offset) => view.getUint32(offset, true) === eocdSignature),
+    Option.getOrElse(() => -1)
+  );
 };
 
 const walkCentralDirectory = (
@@ -54,11 +54,15 @@ const walkCentralDirectory = (
   const total = view.getUint16(eocd + 10, true);
   const start = view.getUint32(eocd + 16, true);
   const decoder = new TextDecoder("utf-8");
-  return range(total).reduce<{
-    readonly entries: readonly RawEntry[];
-    readonly offset: number;
-  }>(
-    (acc) => {
+  return pipe(
+    Arr.makeBy(total, (index) => index),
+    Arr.reduce<
+      {
+        readonly entries: readonly RawEntry[];
+        readonly offset: number;
+      },
+      number
+    >({ entries: [], offset: start }, (acc) => {
       const offset = acc.offset;
       const nameLength = view.getUint16(offset + 28, true);
       const extraLength = view.getUint16(offset + 30, true);
@@ -72,11 +76,10 @@ const walkCentralDirectory = (
         localOffset: view.getUint32(offset + 42, true),
       };
       return {
-        entries: [...acc.entries, entry],
+        entries: Arr.append(acc.entries, entry),
         offset: offset + 46 + nameLength + extraLength + commentLength,
       };
-    },
-    { entries: [], offset: start }
+    })
   ).entries;
 };
 
@@ -90,14 +93,14 @@ const entryData = (buf: Uint8Array, view: DataView, entry: RawEntry) =>
       return entry.method === 0 ? data.slice() : inflateRawSync(data);
     },
     catch: (cause) =>
-      new ZipError({
+      ZipError.make({
         code: "zip.INFLATE",
         entry: entry.name,
         cause: String(cause),
       }),
   });
 
-export const unzipEntries = (
+const unzipEntriesImpl = (
   bytes: Uint8Array,
   accept: (name: string) => boolean
 ) =>
@@ -105,15 +108,15 @@ export const unzipEntries = (
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const eocd = findEocd(view, bytes.byteLength);
     yield* Match.value(eocd).pipe(
-      Match.when(-1, () => Effect.fail(new ZipError({ code: "zip.MALFORMED" }))),
+      Match.when(-1, () => Effect.fail(ZipError.make({ code: "zip.MALFORMED" }))),
       Match.orElse(() => Effect.void)
     );
     const directory = yield* Effect.try({
       try: () => walkCentralDirectory(bytes, view, eocd),
       catch: (cause) =>
-        new ZipError({ code: "zip.MALFORMED", cause: String(cause) }),
+        ZipError.make({ code: "zip.MALFORMED", cause: String(cause) }),
     });
-    const selected = directory.filter((entry) => accept(entry.name));
+    const selected = Arr.filter(directory, (entry) => accept(entry.name));
     return yield* Effect.forEach(
       selected,
       (entry) =>
@@ -123,3 +126,15 @@ export const unzipEntries = (
       { concurrency: 1 }
     );
   });
+
+export const unzipEntries: {
+  (
+    accept: (name: string) => boolean
+  ): (bytes: Uint8Array) => ReturnType<typeof unzipEntriesImpl>;
+  (
+    bytes: Uint8Array,
+    accept: (name: string) => boolean
+  ): ReturnType<typeof unzipEntriesImpl>;
+} = dual(2, (bytes: Uint8Array, accept: (name: string) => boolean) =>
+  unzipEntriesImpl(bytes, accept)
+);

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { Capag } from "../../sources/capag/store";
 import { NonEmptyString, intYear, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
@@ -19,10 +19,10 @@ const requireEnteIdentifier = Schema.makeFilter(
 );
 
 const CapagEnteInput = Schema.Struct({
-  cod_ibge: Schema.optional(Ibge),
-  nome: Schema.optional(NonEmptyString),
-  uf: Schema.optional(NonEmptyString),
-  ano: Schema.optional(intYear),
+  cod_ibge: Schema.optionalKey(Ibge),
+  nome: Schema.optionalKey(NonEmptyString),
+  uf: Schema.optionalKey(NonEmptyString),
+  ano: Schema.optionalKey(intYear),
 }).pipe(Schema.check(requireEnteIdentifier));
 
 const capagEnte = defineTool({
@@ -33,22 +33,17 @@ const capagEnte = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.capagEnte({
-          ibge: args.cod_ibge,
-          nome: args.nome,
-          uf: args.uf,
-          ano: args.ano,
-        })
+        service.capagEnte(Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf", "ano"]), { cod_ibge: "ibge" }))
       )
     ),
 });
 
 const EntesPorNotaInput = Schema.Struct({
   notas: Schema.Array(NonEmptyString).pipe(Schema.check(Schema.isMinLength(1))),
-  uf: Schema.optional(Schema.String),
-  regiao: Schema.optional(NonEmptyString),
-  esfera: Schema.optional(NonEmptyString),
-  limite: Schema.optional(positiveIntMax(2000)),
+  uf: Schema.optionalKey(Schema.String),
+  regiao: Schema.optionalKey(NonEmptyString),
+  esfera: Schema.optionalKey(NonEmptyString),
+  limite: Schema.optionalKey(positiveIntMax(2000)),
 });
 
 const entesPorNota = defineTool({
@@ -59,21 +54,15 @@ const entesPorNota = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.entesPorNota({
-          notas: args.notas,
-          uf: args.uf,
-          regiao: args.regiao,
-          esfera: args.esfera,
-          limit: args.limite,
-        })
+        service.entesPorNota(Struct.renameKeys(Struct.pick(args, ["notas", "uf", "regiao", "esfera", "limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const SerieInput = Schema.Struct({
-  cod_ibge: Schema.optional(Ibge),
-  nome: Schema.optional(NonEmptyString),
-  uf: Schema.optional(Schema.String),
+  cod_ibge: Schema.optionalKey(Ibge),
+  nome: Schema.optionalKey(NonEmptyString),
+  uf: Schema.optionalKey(Schema.String),
 }).pipe(Schema.check(requireEnteIdentifier));
 
 const capagSerieHistorica = defineTool({
@@ -83,11 +72,7 @@ const capagSerieHistorica = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.serieHistorica({
-          ibge: args.cod_ibge,
-          nome: args.nome,
-          uf: args.uf,
-        })
+        service.serieHistorica(Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf"]), { cod_ibge: "ibge" }))
       )
     ),
 });

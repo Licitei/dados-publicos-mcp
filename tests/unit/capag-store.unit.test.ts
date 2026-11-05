@@ -1,87 +1,21 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
-import * as TestClock from "effect/testing/TestClock";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer, Match, Predicate } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { sql } from "drizzle-orm";
-import { FetchHttpClient } from "effect/unstable/http";
 import { Db } from "../../src/kernel/db/client";
 import { Capag, CapagLive } from "../../src/sources/capag/store";
+import { fixtureLayer, pathIncludes } from "./support/fixture-server";
+import { storedZip, utf8 } from "./support/stored-zip";
 import { TestDbLive } from "./support/test-db";
 
-const crcTable = Array.from({ length: 256 }, (_, n) =>
-  Array.from({ length: 8 }).reduce<number>(
-    (c) => ((c & 1) === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1),
-    n
-  )
-);
-
-const crc32 = (bytes: Uint8Array) =>
-  (bytes.reduce(
-    (crc, byte) => (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff],
-    0xffffffff
-  ) ^
-    0xffffffff) >>>
-  0;
-
-type ZipEntry = { readonly name: string; readonly bytes: Uint8Array };
-
-const storedZip = (entries: readonly ZipEntry[]) => {
-  const encoder = new TextEncoder();
-  const local = entries.map((entry) => {
-    const nameBytes = encoder.encode(entry.name);
-    const header = new Uint8Array(30 + nameBytes.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034b50, true);
-    view.setUint16(4, 20, true);
-    view.setUint32(14, crc32(entry.bytes), true);
-    view.setUint32(18, entry.bytes.length, true);
-    view.setUint32(22, entry.bytes.length, true);
-    view.setUint16(26, nameBytes.length, true);
-    header.set(nameBytes, 30);
-    return { nameBytes, header, data: entry.bytes };
-  });
-  const offsets = local.reduce<readonly number[]>(
-    (acc, part) => [
-      ...acc,
-      (acc[acc.length - 1] ?? 0) + part.header.length + part.data.length,
-    ],
-    [0]
-  );
-  const central = local.map((part, index) => {
-    const header = new Uint8Array(46 + part.nameBytes.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x02014b50, true);
-    view.setUint32(16, crc32(part.data), true);
-    view.setUint32(20, part.data.length, true);
-    view.setUint32(24, part.data.length, true);
-    view.setUint16(28, part.nameBytes.length, true);
-    view.setUint32(42, offsets[index], true);
-    header.set(part.nameBytes, 46);
-    return header;
-  });
-  const centralSize = central.reduce((sum, header) => sum + header.length, 0);
-  const eocd = new Uint8Array(22);
-  const eocdView = new DataView(eocd.buffer);
-  eocdView.setUint32(0, 0x06054b50, true);
-  eocdView.setUint16(8, entries.length, true);
-  eocdView.setUint16(10, entries.length, true);
-  eocdView.setUint32(12, centralSize, true);
-  eocdView.setUint32(16, offsets[offsets.length - 1], true);
-  const chunks = [
-    ...local.flatMap((part) => [part.header, part.data]),
-    ...central,
-    eocd,
-  ];
-  const out = new Uint8Array(chunks.reduce((sum, c) => sum + c.length, 0));
-  chunks.reduce((position, chunk) => {
-    out.set(chunk, position);
-    return position + chunk.length;
-  }, 0);
-  return out;
-};
+const letters = Arr.fromIterable("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
 const colLetter = (index: number): string =>
   index < 26
-    ? String.fromCharCode(65 + index)
+    ? Option.getOrElse(Arr.get(letters, index), () => "A")
     : `${colLetter(Math.floor(index / 26) - 1)}${colLetter(index % 26)}`;
 
 const cell = (rowNumber: number, index: number, value: string) =>
@@ -93,9 +27,10 @@ const sheetRow = (
   rowNumber: number,
   values: readonly (readonly [number, string])[]
 ) =>
-  `<row r="${rowNumber}">${values
-    .map(([index, value]) => cell(rowNumber, index, value))
-    .join("")}</row>`;
+  `<row r="${rowNumber}">${Arr.join(
+    Arr.map(values, ([index, value]) => cell(rowNumber, index, value)),
+    ""
+  )}</row>`;
 
 const municipioRow = (
   rowNumber: number,
@@ -128,20 +63,20 @@ const municipioRow = (
 const municipiosXlsx = storedZip([
   {
     name: "xl/workbook.xml",
-    bytes: new TextEncoder().encode(
+    bytes: utf8(
       `<?xml version="1.0"?><workbook><sheets><sheet name="CAPAG Ano Base 2024" sheetId="1" r:id="rId1"/></sheets></workbook>`
     ),
   },
   {
     name: "xl/_rels/workbook.xml.rels",
-    bytes: new TextEncoder().encode(
+    bytes: utf8(
       `<?xml version="1.0"?><Relationships><Relationship Id="rId1" Type="ws" Target="worksheets/sheet1.xml"/></Relationships>`
     ),
   },
   {
     name: "xl/worksheets/sheet1.xml",
-    bytes: new TextEncoder().encode(
-      `<?xml version="1.0"?><worksheet><sheetData>${[
+    bytes: utf8(
+      `<?xml version="1.0"?><worksheet><sheetData>${Arr.join([
         sheetRow(1, [
           [0, "Cod.IBGE"],
           [1, "Municipio"],
@@ -183,7 +118,7 @@ const municipiosXlsx = storedZip([
           nota3: "B",
           capag: "B",
         }),
-      ].join("")}</sheetData></worksheet>`
+      ], "")}</sheetData></worksheet>`
     ),
   },
 ]);
@@ -219,17 +154,17 @@ const municipiosPackage = {
   },
 };
 
-const estados2023Csv = [
+const estados2023Csv = Arr.join([
   "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
   "SP;45,10%;A;88,00%;A;130,00%;A;A;Boa;-",
   "RJ;92,29%;D;70,00%;C;40,00%;D;C;Boa;-",
-].join("\n");
+], "\n");
 
-const estados2024Csv = [
+const estados2024Csv = Arr.join([
   "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
   "SP;44,00%;A;90,00%;A;140,00%;A;A;Boa;-",
   "RJ;95,00%;D;65,00%;C;38,00%;D;D;Boa;piora",
-].join("\n");
+], "\n");
 
 const entesPayload = {
   items: [
@@ -277,46 +212,71 @@ const entesPayload = {
   hasMore: false,
 };
 
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const url = new URL(String(input));
-  const id = url.searchParams.get("id");
-  return url.pathname.endsWith("/package_show") && id === "capag-estados"
-    ? Response.json(estadosPackage)
-    : url.pathname.endsWith("/package_show") && id === "capag-municipios"
-      ? Response.json(municipiosPackage)
-      : url.pathname.endsWith("/capag-estados-2023.csv")
-        ? new Response(estados2023Csv)
-        : url.pathname.endsWith("/capag-estados-2024.csv")
-          ? new Response(estados2024Csv)
-          : url.pathname.endsWith("/capag-municipios-2024.xlsx")
-            ? new Response(municipiosXlsx)
-            : url.pathname.endsWith("/entes")
-              ? Response.json(entesPayload)
-              : new Response("rota desconhecida", { status: 404 });
-};
+const quote = (value: string) => `"${value}"`;
 
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
+const jsonBody = (value: unknown): string =>
+  Match.value(value).pipe(
+    Match.when(Predicate.isString, quote),
+    Match.when(Arr.isArray, (items) =>
+      `[${Arr.join(Arr.map(items, jsonBody), ",")}]`
+    ),
+    Match.when(Predicate.isObject, (record) =>
+      `{${Arr.join(
+        Arr.map(
+          Rec.toEntries(record),
+          ([key, item]) => `${quote(key)}:${jsonBody(item)}`
+        ),
+        ","
+      )}}`
+    ),
+    Match.orElse((other) => `${other}`)
+  );
 
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
-);
+const json = { "content-type": "application/json" };
+
+const packageShow = (id: string) => (url: URL) =>
+  Str.endsWith("/package_show")(url.pathname) && url.searchParams.get("id") === id;
+
+const HttpFixture = fixtureLayer([
+  {
+    match: packageShow("capag-estados"),
+    respond: { body: jsonBody(estadosPackage), headers: json },
+  },
+  {
+    match: packageShow("capag-municipios"),
+    respond: { body: jsonBody(municipiosPackage), headers: json },
+  },
+  {
+    match: pathIncludes("/capag-estados-2023.csv"),
+    respond: { body: estados2023Csv },
+  },
+  {
+    match: pathIncludes("/capag-estados-2024.csv"),
+    respond: { body: estados2024Csv },
+  },
+  {
+    match: pathIncludes("/capag-municipios-2024.xlsx"),
+    respond: { body: municipiosXlsx },
+  },
+  {
+    match: (url) => Str.endsWith("/entes")(url.pathname),
+    respond: { body: jsonBody(entesPayload), headers: json },
+  },
+]);
 
 const TestLayer = Layer.mergeAll(
-  CapagLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
+  CapagLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpFixture))),
   TestDbLive,
-  HttpStub
+  HttpFixture
 );
 
 const seeded = Effect.gen(function* () {
-  yield* TestClock.setTime(Date.UTC(2024, 5, 15));
   const capag = yield* Capag;
   yield* capag.indexAno(2024);
   return capag;
 });
 
-describe("capag store + fiscal solvency ratings", () => {
+layer(TestLayer, { timeout: Duration.seconds(60) })("capag store + fiscal solvency ratings", (it) => {
   it.effect(
     "index discovers latest CSV (estados) + XLSX (municipios) and persists three tables",
     () =>
@@ -325,18 +285,17 @@ describe("capag store + fiscal solvency ratings", () => {
         const db = yield* Db;
         const estados = yield* db.execute(
           sql`select count(*)::int as count from capag_estado`
-        );
+        ).pipe(Effect.map(({ rows }) => rows));
         const municipios = yield* db.execute(
           sql`select count(*)::int as count from capag_municipio`
-        );
+        ).pipe(Effect.map(({ rows }) => rows));
         const entes = yield* db.execute(
           sql`select count(*)::int as count from siconfi_ente`
-        );
-        expect(Number(estados[0].count)).toBe(2);
-        expect(Number(municipios[0].count)).toBe(3);
-        expect(Number(entes[0].count)).toBe(4);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        ).pipe(Effect.map(({ rows }) => rows));
+        expect(Option.map(Arr.head(estados), (r) => Number(r.count))).toEqual(Option.some(2));
+        expect(Option.map(Arr.head(municipios), (r) => Number(r.count))).toEqual(Option.some(3));
+        expect(Option.map(Arr.head(entes), (r) => Number(r.count))).toEqual(Option.some(4));
+      }),
   );
 
   it.effect(
@@ -354,8 +313,7 @@ describe("capag store + fiscal solvency ratings", () => {
         expect(estado.uf).toBe("RJ");
         expect(estado.capag).toBe("D");
         expect(estado.indicador1).toBeCloseTo(0.95, 5);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -374,8 +332,7 @@ describe("capag store + fiscal solvency ratings", () => {
         expect(typo.score).toBeGreaterThan(0);
         const filtered = yield* capag.capagEnte({ nome: "rio", uf: "RJ" });
         expect(filtered.uf).toBe("RJ");
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -390,8 +347,7 @@ describe("capag store + fiscal solvency ratings", () => {
         const missing = yield* Effect.flip(capag.capagEnte({}));
         expect(missing).toMatchObject({ code: "capag.MISSING_IDENTIFIER" });
         expect(missing.message).toContain("Informe ibge ou nome");
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -405,14 +361,13 @@ describe("capag store + fiscal solvency ratings", () => {
             (cod_ibge, nome, nome_norm, uf, ano_base, posicao, capag, busca)
           values ('3550308', 'São Paulo', 'sao paulo', 'SP', 2022,
                   '2022-11-09', 'B', 'sao paulo')
-        `);
+        `).pipe(Effect.map(({ rows }) => rows));
         const serie = yield* capag.serieHistorica({ ibge: "3550308" });
         expect(serie.tipo).toBe("municipio");
-        const anos = serie.serie.map((row) => row.anoBase);
+        const anos = Arr.map(serie.serie, (row) => row.anoBase);
         expect(anos).toEqual([2022, 2024]);
-        expect(serie.serie.map((row) => row.capag)).toEqual(["B", "A"]);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        expect(Arr.map(serie.serie, (row) => row.capag)).toEqual(["B", "A"]);
+      }),
   );
 
   it.effect(
@@ -421,18 +376,17 @@ describe("capag store + fiscal solvency ratings", () => {
       Effect.gen(function* () {
         const capag = yield* seeded;
         const cd = yield* capag.entesPorNota({ notas: ["C", "D"] });
-        expect(cd.estados.map((e) => e.uf)).toEqual(["RJ"]);
-        const municipiosCD = cd.municipios.map((m) => m.nome);
+        expect(Arr.map(cd.estados, (e) => e.uf)).toEqual(["RJ"]);
+        const municipiosCD = Arr.map(cd.municipios, (m) => m.nome);
         expect(municipiosCD).toContain("Rio de Janeiro");
         expect(municipiosCD).not.toContain("São Paulo");
         const aCentroOeste = yield* capag.entesPorNota({
           notas: ["A", "B"],
           regiao: "CO",
         });
-        expect(aCentroOeste.municipios.map((m) => m.nome)).toEqual(["Goiânia"]);
+        expect(Arr.map(aCentroOeste.municipios, (m) => m.nome)).toEqual(["Goiânia"]);
         expect(aCentroOeste.estados).toEqual([]);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -441,11 +395,13 @@ describe("capag store + fiscal solvency ratings", () => {
       Effect.gen(function* () {
         const capag = yield* seeded;
         const entes = yield* capag.buscarEntePorNome("goiania");
-        expect(entes[0].ente).toBe("Goiânia");
-        expect(entes[0].codIbge).toBe("5208707");
-        expect(entes[0].score).toBeLessThan(0);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        const top = Arr.head(entes);
+        expect(Option.map(top, (e) => e.ente)).toEqual(Option.some("Goiânia"));
+        expect(Option.map(top, (e) => e.codIbge)).toEqual(
+          Option.some("5208707")
+        );
+        expect(Option.map(top, (e) => e.score < 0)).toEqual(Option.some(true));
+      }),
   );
 
   it.effect(
@@ -466,7 +422,6 @@ describe("capag store + fiscal solvency ratings", () => {
           capag.resolverEntePorCnpj("00.000.000/0000-00")
         );
         expect(missing).toMatchObject({ code: "capag.CNPJ_NOT_FOUND" });
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 });

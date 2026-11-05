@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { DateTime, Match, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const RFB_BASE = "https://arquivos.receitafederal.gov.br";
@@ -15,22 +18,32 @@ export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
 
 export const missingStatus = new Set([401, 403, 404]);
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-export const yyyymm = (millis: number, monthsBack: number) => {
-  const d = new Date(millis);
-  const date = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - monthsBack, 1)
-  );
-  return `${date.getUTCFullYear()}-${`${date.getUTCMonth() + 1}`.padStart(2, "0")}`;
+const yyyymmImpl = (millis: number, monthsBack: number) => {
+  const parts = DateTime.toPartsUtc(DateTime.makeUnsafe(millis));
+  const total = parts.year * 12 + (parts.month - 1) - monthsBack;
+  const year = Math.floor(total / 12);
+  const month = total - year * 12 + 1;
+  return `${year}-${pipe(`${month}`, Str.padStart(2, "0"))}`;
 };
 
-export const webdavFileUrl = (mes: string, file: string) =>
+export const yyyymm: {
+  (monthsBack: number): (millis: number) => string;
+  (millis: number, monthsBack: number): string;
+} = dual(2, yyyymmImpl);
+
+const webdavFileUrlImpl = (mes: string, file: string) =>
   `${RFB_WEBDAV}${mes}/${file}`;
 
+export const webdavFileUrl: {
+  (file: string): (mes: string) => string;
+  (mes: string, file: string): string;
+} = dual(2, webdavFileUrlImpl);
+
 export const partFiles = (prefix: "Empresas" | "Estabelecimentos" | "Socios") =>
-  range(10).map((i) => `${prefix}${i}.zip`);
+  pipe(
+    Arr.range(0, 9),
+    Arr.map((i) => `${prefix}${i}.zip`)
+  );
 
 export const defaultParts: readonly number[] = [0];
 
@@ -176,25 +189,29 @@ const porteMap: Record<string, string> = {
 export const porteCodigo = (value: string) => {
   const digits = onlyDigits(value);
   return digits !== ""
-    ? digits.padStart(2, "0")
+    ? pipe(digits, Str.padStart(2, "0"))
     : (porteMap[normalize(value)] ?? null);
 };
 
-const clean = (value: string) => value.trim();
+const clean = (value: string) => pipe(value, Str.trim);
 
 const pick = (record: Record<string, string>, keys: readonly string[]) =>
-  keys.map((key) => (record[key] ?? "").trim()).find((value) => value !== "") ??
-  "";
+  pipe(
+    keys,
+    Arr.map((key) => pipe(record[key] ?? "", Str.trim)),
+    Arr.findFirst((value) => value !== ""),
+    Option.getOrElse(() => "")
+  );
 
 const field = (record: Record<string, string>, keys: readonly string[]) =>
   clean(pick(record, keys));
 
 export const numeroBr = (value: string) => {
-  const trimmed = value.trim();
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
+  const trimmed = pipe(value, Str.trim);
+  const normalized = pipe(trimmed, Str.includes(","))
+    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
     : trimmed;
-  const cleaned = normalized.replace(/[^\d.\-]/g, "");
+  const cleaned = pipe(normalized, Str.replace(/[^\d.\-]/g, ""));
   const parsed = Number(cleaned);
   return cleaned === "" ||
     cleaned === "-" ||
@@ -214,38 +231,61 @@ const buildDate = (year: string, month: string, day: string) => {
     : `${year}-${month}-${day}`;
 };
 
+const captures = (value: string, pattern: RegExp) =>
+  pipe(
+    value,
+    Str.match(pattern),
+    Option.flatMap((found) =>
+      Option.all([Arr.get(found, 1), Arr.get(found, 2), Arr.get(found, 3)])
+    )
+  );
+
+const pad2 = Str.padStart(2, "0");
+
 export const dataBr = (value: string) => {
-  const trimmed = value.trim();
-  const compact = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
-  const slashed = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return trimmed === "" || /^0+$/.test(trimmed)
-    ? null
-    : compact
-      ? buildDate(compact[1], compact[2], compact[3])
-      : slashed
-        ? buildDate(
-            slashed[3],
-            slashed[2].padStart(2, "0"),
-            slashed[1].padStart(2, "0")
+  const trimmed = pipe(value, Str.trim);
+  return Match.value(trimmed).pipe(
+    Match.when(
+      (text) => text === "" || /^0+$/.test(text),
+      () => null
+    ),
+    Match.orElse((text) =>
+      pipe(
+        captures(text, /^(\d{4})(\d{2})(\d{2})$/),
+        Option.map(([y, m, d]) => buildDate(y, m, d)),
+        Option.orElse(() =>
+          pipe(
+            captures(text, /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/),
+            Option.map(([d, m, y]) => buildDate(y, pad2(m), pad2(d)))
           )
-        : iso
-          ? buildDate(iso[1], iso[2], iso[3])
-          : null;
+        ),
+        Option.orElse(() =>
+          pipe(
+            captures(text, /^(\d{4})-(\d{2})-(\d{2})$/),
+            Option.map(([y, m, d]) => buildDate(y, m, d))
+          )
+        ),
+        Option.getOrElse(() => null)
+      )
+    )
+  );
 };
 
-export const montarCnpjCompleto = (
-  basico: string,
-  ordem: string,
-  dv: string
-) =>
-  onlyDigits(basico).padStart(8, "0") +
-  onlyDigits(ordem).padStart(4, "0") +
-  onlyDigits(dv).padStart(2, "0");
+const montarCnpjCompletoImpl = (basico: string, ordem: string, dv: string) =>
+  pipe(onlyDigits(basico), Str.padStart(8, "0")) +
+  pipe(onlyDigits(ordem), Str.padStart(4, "0")) +
+  pipe(onlyDigits(dv), Str.padStart(2, "0"));
+
+export const montarCnpjCompleto: {
+  (ordem: string, dv: string): (basico: string) => string;
+  (basico: string, ordem: string, dv: string): string;
+} = dual(3, montarCnpjCompletoImpl);
 
 export const cpfVisivel = (mascarado: string) => {
   const digits = onlyDigits(mascarado);
-  return digits.length === 11 ? digits.slice(3, 9) : digits.slice(0, 6);
+  return digits.length === 11
+    ? pipe(digits, Str.slice(3, 9))
+    : pipe(digits, Str.slice(0, 6));
 };
 
 export const EmpresaFlat = Schema.Struct({
@@ -254,7 +294,7 @@ export const EmpresaFlat = Schema.Struct({
   razaoSocialNorm: Schema.String,
   naturezaJuridica: Schema.String,
   qualificacaoResponsavel: Schema.String,
-  capitalSocial: Schema.NullOr(Schema.Number),
+  capitalSocial: Schema.NullOr(Schema.Finite),
   porte: Schema.String,
   busca: Schema.String,
 });
@@ -350,7 +390,7 @@ const mapEstabelecimento = (record: Record<string, string>) => {
     dataInicioAtividade: dataBr(field(record, ["data_inicio_atividade"])),
     cnaePrincipal: field(record, ["cnae_fiscal_principal"]),
     cnaeSecundario: field(record, ["cnae_fiscal_secundaria"]),
-    uf: field(record, ["uf"]).toUpperCase(),
+    uf: pipe(field(record, ["uf"]), Str.toUpperCase),
     municipio: field(record, ["municipio"]),
     bairro: field(record, ["bairro"]),
     logradouro: field(record, ["logradouro"]),
@@ -398,23 +438,26 @@ const mapDominio = (tabela: DominioTabela) => (record: Record<string, string>) =
     descricao: field(record, ["descricao"]),
   }) satisfies DominioFlat;
 
-export const mapEmpresas = (records: readonly Record<string, string>[]) =>
-  records.map(mapEmpresa);
+type Records = readonly Record<string, string>[];
 
-export const mapEstabelecimentos = (
-  records: readonly Record<string, string>[]
-) => records.map(mapEstabelecimento);
+export const mapEmpresas = (records: Records) =>
+  pipe(records, Arr.map(mapEmpresa));
 
-export const mapSocios = (records: readonly Record<string, string>[]) =>
-  records.map(mapSocio);
+export const mapEstabelecimentos = (records: Records) =>
+  pipe(records, Arr.map(mapEstabelecimento));
 
-export const mapSimplesRows = (records: readonly Record<string, string>[]) =>
-  records.map(mapSimples);
+export const mapSocios = (records: Records) => pipe(records, Arr.map(mapSocio));
 
-export const mapDominios = (
-  tabela: DominioTabela,
-  records: readonly Record<string, string>[]
-) => records.map(mapDominio(tabela));
+export const mapSimplesRows = (records: Records) =>
+  pipe(records, Arr.map(mapSimples));
+
+const mapDominiosImpl = (records: Records, tabela: DominioTabela) =>
+  pipe(records, Arr.map(mapDominio(tabela)));
+
+export const mapDominios: {
+  (tabela: DominioTabela): (records: Records) => ReturnType<typeof mapDominiosImpl>;
+  (records: Records, tabela: DominioTabela): ReturnType<typeof mapDominiosImpl>;
+} = dual(2, mapDominiosImpl);
 
 export const ReceitaCnpjErrorCode = Schema.Literals([
   "receita.CNPJ_INVALIDO",
@@ -422,7 +465,7 @@ export const ReceitaCnpjErrorCode = Schema.Literals([
 ]);
 export type ReceitaCnpjErrorCode = (typeof ReceitaCnpjErrorCode)["Type"];
 
-export class ReceitaCnpjError extends Schema.TaggedErrorClass<ReceitaCnpjError>()(
+export class ReceitaCnpjError extends Schema.TaggedError<ReceitaCnpjError, { readonly brand: unique symbol }>()(
   "ReceitaCnpjError",
   {
     code: ReceitaCnpjErrorCode,

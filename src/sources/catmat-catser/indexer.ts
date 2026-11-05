@@ -1,9 +1,10 @@
+import * as Arr from "effect/Array";
 import { Effect, Match, Option, Stream } from "effect";
 import { Db } from "../../kernel/db/client";
 import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
 import { catserService } from "../../kernel/db/schemas/catser-service";
 import { Embedder } from "../../kernel/embed/embedder";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import {
   CatmatItemPayload,
   CatserItemPayload,
@@ -49,9 +50,9 @@ const insertMateriais = (rows: readonly CatmatMaterialFlat[]) =>
         const db = yield* Db;
         const embeddings = yield* embedder.embed(
           "passage",
-          rows.map(materialPassage)
+          Arr.map(rows, materialPassage)
         );
-        const values = rows.map((row, position) => ({
+        const values = Arr.map(rows, (row, position) => ({
           ...row,
           embedding: embeddings[position],
         }));
@@ -61,13 +62,13 @@ const insertMateriais = (rows: readonly CatmatMaterialFlat[]) =>
   );
 
 const fetchServicos = (state: PageState) =>
-  getJson(
-    pageUrl({
+  Effect.flatMap(Http, (http) =>
+    http.json(pageUrl({
       endpoint: endpoints.catserItem,
       pagina: state.pagina,
       tamanhoPagina: pageSizes.max,
     }),
-    CatserItemPayload
+    CatserItemPayload)
   ).pipe(
     Effect.flatMap((page) => {
       const stop = reachedEnd(state, page.totalPaginas, page.resultado.length);
@@ -78,13 +79,13 @@ const fetchServicos = (state: PageState) =>
   );
 
 const fetchMateriais = (state: PageState) =>
-  getJson(
-    pageUrl({
+  Effect.flatMap(Http, (http) =>
+    http.json(pageUrl({
       endpoint: endpoints.catmatItem,
       pagina: state.pagina,
       tamanhoPagina: pageSizes.max,
     }),
-    CatmatItemPayload
+    CatmatItemPayload)
   ).pipe(
     Effect.flatMap((page) => {
       const stop = reachedEnd(state, page.totalPaginas, page.resultado.length);

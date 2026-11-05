@@ -1,10 +1,10 @@
 import { Effect, Match } from "effect";
-import { HttpClientError } from "effect/unstable/http";
+import * as Arr from "effect/Array";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { Db } from "../../kernel/db/client";
 import { ceapsDespesa } from "../../kernel/db/schemas/ceaps-despesa";
 import { senador } from "../../kernel/db/schemas/senador";
-import { getJson, httpResponse, HttpError } from "../../kernel/http/client";
+import { Http, HttpError } from "../../kernel/http/client";
 import {
   ceapsUrl,
   csvOptions,
@@ -20,13 +20,7 @@ import {
 
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
+const chunks = <A>(items: readonly A[]) => Arr.chunksOf(items, chunkSize);
 
 const insertSenadores = (rows: readonly SenadorFlat[]) =>
   Effect.forEach(
@@ -43,32 +37,29 @@ const insertCeaps = (rows: readonly CeapsFlat[]) =>
     { concurrency: 1, discard: true }
   );
 
-export const indexSenadores = getJson(senadoresUrl, SenadoresPayload, {
-  headers: { accept: "application/json" },
-}).pipe(
+export const indexSenadores = Effect.flatMap(Http, (http) =>
+  http.json(senadoresUrl, SenadoresPayload, {
+    headers: { accept: "application/json" },
+  })
+).pipe(
   Effect.map(mapSenadores),
   Effect.flatMap((rows) => insertSenadores(rows).pipe(Effect.as(rows.length)))
 );
 
 const downloadCsv = (url: string) =>
-  httpResponse(url, { headers: { accept: "text/csv" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, { headers: { accept: "text/csv" } })
   );
 
 const tolerateMissing = <R>(
-  effect: Effect.Effect<
-    Uint8Array,
-    HttpError | HttpClientError.HttpClientError,
-    R
-  >,
+  effect: Effect.Effect<Uint8Array, HttpError, R>,
   ano: number
 ) =>
   effect.pipe(
     Effect.catchTag("HttpError", (error) =>
       Match.value(error).pipe(
         Match.when({ code: "http.STATUS" }, () =>
-          Effect.fail(new SenadoError({ code: "senado.CEAPS_MISSING", ano }))
+          Effect.fail(SenadoError.make({ code: "senado.CEAPS_MISSING", ano }))
         ),
         Match.orElse(() => Effect.fail(error))
       )

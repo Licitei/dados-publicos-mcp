@@ -1,4 +1,6 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option, pipe } from "effect";
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { fornecedor } from "../../kernel/db/schemas/fornecedor";
@@ -53,7 +55,7 @@ const makeSicaf = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmFornecedores = (q: string, limit: number, ativoAnd: SQL) =>
     db.execute(sql`
@@ -69,7 +71,7 @@ const makeSicaf = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2 ${ativoAnd}
       order by score desc, cnpj
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscar = (options: {
     readonly nome: string;
@@ -134,7 +136,7 @@ const makeSicaf = Effect.gen(function* () {
       const limit = clamp(options.limit, 50, 500);
       const where = {
         ...Match.value(options.uf).pipe(
-          Match.when(Match.string, (uf) => ({ ufSigla: uf.trim().toUpperCase() })),
+          Match.when(Match.string, (uf) => ({ ufSigla: pipe(uf, Str.trim, Str.toUpperCase) })),
           Match.orElse(() => ({}))
         ),
         ...Match.value(options.cnae).pipe(
@@ -165,8 +167,12 @@ const makeSicaf = Effect.gen(function* () {
     yield* indexFornecedores;
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${fornecedor}`
+    ).pipe(Effect.map(({ rows }) => rows));
+    return pipe(
+      Arr.head(rows),
+      Option.map((row) => Number(row.count)),
+      Option.getOrElse(() => 0)
     );
-    return Number(rows[0].count);
   });
 
   return { index, indexAll: index, buscar, habilitado, listar };
@@ -175,6 +181,6 @@ const makeSicaf = Effect.gen(function* () {
 export class Sicaf extends Context.Service<
   Sicaf,
   Effect.Success<typeof makeSicaf>
->()("dados-publicos-mcp/Sicaf") {}
+>()("dados-publicos-mcp/sources/sicaf-fornecedores/store/Sicaf") {}
 
 export const SicafLive = Layer.effect(Sicaf)(makeSicaf);

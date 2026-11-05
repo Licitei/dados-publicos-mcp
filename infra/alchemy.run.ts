@@ -6,7 +6,7 @@ import { providers } from "./local-index.run";
 export default Alchemy.Stack(
   "DadosPublicosLocal",
   {
-    providers: providers(),
+    providers,
     state: Alchemy.localState(),
   },
   Effect.gen(function* () {

@@ -1,3 +1,5 @@
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
@@ -31,10 +33,7 @@ const makeTransferegov = Effect.gen(function* () {
         orderBy: (c, { desc }) => desc(c.dataPublicacao),
         limit: 200,
       });
-      const total = convenios.reduce(
-        (sum, row) => sum + (row.valorRepasse ?? 0),
-        0
-      );
+      const total = Arr.reduce(convenios, 0, (sum, row) => sum + (row.valorRepasse ?? 0));
       return {
         documento: documentoInput,
         docNormalizado,
@@ -51,7 +50,7 @@ const makeTransferegov = Effect.gen(function* () {
       where cod_municipio_ibge = ${onlyDigits(codIbge)}
       order by valor_global desc nulls last, nr_convenio
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Convenio = (q: string, limit: number, ufWhere: SQL) =>
     db.execute(sql`
@@ -84,7 +83,7 @@ const makeTransferegov = Effect.gen(function* () {
       ) scored
       ${ufWhere}
       order by score desc
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarConvenio = (
     termo: string,
@@ -94,7 +93,7 @@ const makeTransferegov = Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 50, 200);
       const ufWhere: SQL = Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) => sql`where uf = ${uf.toUpperCase()}`),
+        Match.when(Match.string, (uf) => sql`where uf = ${Str.toUpperCase(uf)}`),
         Match.orElse(() => sql``)
       );
       return yield* bm25Convenio(q, limit, ufWhere);
@@ -105,8 +104,8 @@ const makeTransferegov = Effect.gen(function* () {
     const inserted = yield* indexAll;
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${convenio}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: Number(rows[0]?.count ?? 0) };
   });
 
   return {
@@ -121,6 +120,6 @@ const makeTransferegov = Effect.gen(function* () {
 export class Transferegov extends Context.Service<
   Transferegov,
   Effect.Success<typeof makeTransferegov>
->()("dados-publicos-mcp/Transferegov") {}
+>()("dados-publicos-mcp/sources/transferegov/store/Transferegov") {}
 
 export const TransferegovLive = Layer.effect(Transferegov)(makeTransferegov);

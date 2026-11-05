@@ -1,4 +1,5 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
+import * as Arr from "effect/Array";
 import { findNorma, normas, rootSegment } from "../../sources/legislacao/catalog";
 import { Legislacao } from "../../sources/legislacao/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
@@ -6,8 +7,8 @@ import { defineTool } from "../tool";
 
 const BuscarInput = Schema.Struct({
   termo: NonEmptyString,
-  norma: Schema.optional(Schema.String),
-  limite: Schema.optional(positiveIntMax(25)),
+  norma: Schema.optionalKey(Schema.String),
+  limite: Schema.optionalKey(positiveIntMax(25)),
 });
 
 const buscarLegislacao = defineTool({
@@ -17,14 +18,14 @@ const buscarLegislacao = defineTool({
   run: (args) =>
     Legislacao.pipe(
       Effect.flatMap((service) =>
-        service.search(args.termo, { normaId: args.norma, limit: args.limite })
+        service.search(args.termo, Struct.renameKeys(Struct.pick(args, ["norma", "limite"]), { norma: "normaId", limite: "limit" }))
       )
     ),
 });
 
 const ObterArtigoInput = Schema.Struct({
   norma: NonEmptyString,
-  artigo: Schema.Union([Schema.String, Schema.Number]),
+  artigo: Schema.Union([Schema.String, Schema.Finite]),
 });
 
 const obterArtigo = defineTool({
@@ -49,7 +50,7 @@ const listarNormas = defineTool({
   input: ListarNormasInput,
   run: () =>
     Effect.succeed(
-      normas.map((norma) => ({
+      Arr.map(normas, (norma) => ({
         id: norma.id,
         titulo: norma.titulo,
         apelidos: norma.apelidos,

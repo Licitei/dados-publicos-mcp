@@ -1,5 +1,9 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
+import * as Str from "effect/String";
 import { sql } from "drizzle-orm";
 import { Db } from "../../src/kernel/db/client";
 import { Embedder } from "../../src/kernel/embed/embedder";
@@ -10,13 +14,13 @@ import {
   replaceNorma,
   type NodeRow,
 } from "../../src/sources/legislacao/store";
-import { EmbedderStub } from "./support/embedder-stub";
+import { TestEmbedderLive } from "./support/test-embedder";
 import { TestDbLive } from "./support/test-db";
 
 const TestLayer = Layer.mergeAll(
-  LegislacaoLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, EmbedderStub))),
+  LegislacaoLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive))),
   TestDbLive,
-  EmbedderStub
+  TestEmbedderLive
 );
 
 const normaId = "lei-14133-2021";
@@ -50,9 +54,12 @@ const seedNorma = (id: string, titulo: string, fixture: readonly string[]) =>
   Effect.gen(function* () {
     const embedder = yield* Embedder;
     const nodes = buildTree({ id, titulo }, fixture);
-    const passages = nodes.map((n) => `${n.label} ${n.heading} ${n.text}`.trim());
+    const passages = Arr.map(nodes, (n) =>
+      Str.trim(`${n.label} ${n.heading} ${n.text}`)
+    );
     const embeddings = yield* embedder.embed("passage", passages);
-    const rows = nodes.map(
+    const rows = Arr.map(
+      nodes,
       (n, i) =>
         ({
           path: n.path,
@@ -62,20 +69,18 @@ const seedNorma = (id: string, titulo: string, fixture: readonly string[]) =>
           label: n.label,
           heading: n.heading,
           text: n.text,
-          summary: `${n.label} ${n.heading}`.trim(),
+          summary: Str.trim(`${n.label} ${n.heading}`),
           position: n.position,
-          embedding: embeddings[i],
+          embedding: Option.getOrUndefined(Arr.get(embeddings, i)),
         }) satisfies NodeRow
     );
     yield* replaceNorma(id, rows);
     return nodes;
   });
 
-const seed = Effect.gen(function* () {
-  return yield* seedNorma(normaId, "Lei 14.133/2021", lines);
-});
+const seed = seedNorma(normaId, "Lei 14.133/2021", lines);
 
-describe("legislacao store + query", () => {
+layer(TestLayer, { timeout: Duration.seconds(60) })("legislacao store + query", (it) => {
   it.effect(
     "hybrid search ranks results and honors the norma filter",
     () =>
@@ -84,11 +89,16 @@ describe("legislacao store + query", () => {
         const leg = yield* Legislacao;
         const hits = yield* leg.search("licitacoes", { normaId });
         expect(hits.length).toBeGreaterThan(0);
-        const scores = hits.map((h) => Number(h.score));
-        expect(scores[0]).toBeGreaterThanOrEqual(scores[scores.length - 1]);
-        expect(new Set(hits.map((h) => h.path)).size).toBe(hits.length);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        const scores = Arr.map(hits, (h) => Number(h.score));
+        expect(
+          Option.zipWith(Arr.head(scores), Arr.last(scores), (top, bottom) =>
+            top >= bottom
+          )
+        ).toEqual(Option.some(true));
+        expect(Arr.dedupe(Arr.map(hits, (h) => h.path)).length).toBe(
+          hits.length
+        );
+      }),
   );
 
   it.effect(
@@ -99,8 +109,7 @@ describe("legislacao store + query", () => {
         const leg = yield* Legislacao;
         const hits = yield* leg.search("licitacoes", { normaId: "inexistente" });
         expect(hits).toEqual([]);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -112,12 +121,11 @@ describe("legislacao store + query", () => {
         const leg = yield* Legislacao;
         const hits = yield* leg.search("licitacao", { normaId });
         expect(hits.length).toBeGreaterThan(0);
-        expect(hits.every((h) => String(h.norma_id) === normaId)).toBe(true);
+        expect(Arr.every(hits, (h) => String(h.norma_id) === normaId)).toBe(true);
         const hits2 = yield* leg.search("licitacao", { normaId: normaId2 });
         expect(hits2.length).toBeGreaterThan(0);
-        expect(hits2.every((h) => String(h.norma_id) === normaId2)).toBe(true);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        expect(Arr.every(hits2, (h) => String(h.norma_id) === normaId2)).toBe(true);
+      }),
   );
 
   it.effect(
@@ -127,13 +135,19 @@ describe("legislacao store + query", () => {
         yield* seed;
         const leg = yield* Legislacao;
         const toc = yield* leg.getToc(normaId);
-        expect(Number(toc[0].depth)).toBe(1);
-        expect(toc[0].parentPath).toBeNull();
-        const depths = toc.map((row) => Number(row.depth));
-        expect(Math.min(...depths)).toBe(1);
-        expect(Math.max(...depths)).toBeGreaterThan(1);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        expect(Option.map(Arr.head(toc), (r) => Number(r.depth))).toEqual(
+          Option.some(1)
+        );
+        expect(Option.map(Arr.head(toc), (r) => r.parentPath)).toEqual(
+          Option.some(null)
+        );
+        const depths = Arr.map(toc, (row) => Number(row.depth));
+        const sorted = Arr.sort(depths, Order.Number);
+        expect(Arr.head(sorted)).toEqual(Option.some(1));
+        expect(Option.map(Arr.last(sorted), (d) => d > 1)).toEqual(
+          Option.some(true)
+        );
+      }),
   );
 
   it.effect(
@@ -151,8 +165,7 @@ describe("legislacao store + query", () => {
           "TÍTULO II",
           "CAPÍTULO I",
         ]);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -166,8 +179,7 @@ describe("legislacao store + query", () => {
         );
         expect(error._tag).toBe("LegislacaoError");
         expect(error.message).toContain("Trecho nao encontrado");
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -178,8 +190,7 @@ describe("legislacao store + query", () => {
         const leg = yield* Legislacao;
         const res = yield* leg.getNode("lei_14133_2021.tit_ii.cap_i.art17");
         expect(String(res.node.summary)).toContain("Art. 17");
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -196,10 +207,9 @@ describe("legislacao store + query", () => {
           "TÍTULO II",
           "CAPÍTULO I",
         ]);
-        const childKinds = res.children.map((c) => c.kind).sort();
+        const childKinds = Arr.sort(Arr.map(res.children, (c) => c.kind), Order.String);
         expect(childKinds).toEqual(["inciso", "inciso", "paragrafo", "paragrafo"]);
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+      }),
   );
 
   it.effect(
@@ -212,14 +222,15 @@ describe("legislacao store + query", () => {
           sql`select path from legislacao_node
             where path <@ ${"lei_14133_2021.tit_ii.cap_i.art17"}::ltree
             order by position`
-        );
+        ).pipe(Effect.map(({ rows }) => rows));
         const root = "lei_14133_2021.tit_ii.cap_i.art17";
         expect(rows.length).toBeGreaterThan(1);
-        for (const row of rows) {
-          const path = String(row.path);
-          expect(path === root || path.startsWith(`${root}.`)).toBe(true);
-        }
-      }).pipe(Effect.provide(TestLayer)),
-    30_000
+        expect(
+          Arr.every(rows, (row) => {
+            const path = String(row.path);
+            return path === root || Str.startsWith(`${root}.`)(path);
+          })
+        ).toBe(true);
+      }),
   );
 });

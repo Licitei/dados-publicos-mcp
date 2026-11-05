@@ -1,6 +1,6 @@
 import { Effect, Match, Option, Stream } from "effect";
 import { parseCsvRecords } from "../../kernel/csv/parse";
-import { getJson, httpResponse } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import { readXlsxSheet } from "../../kernel/xlsx/sheet";
 import {
   CapagError,
@@ -25,24 +25,23 @@ import {
 const maxPages = 5_000;
 
 const fetchBytes = (url: string, accept: string) =>
-  httpResponse(url, { headers: { accept } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
-  );
+  Effect.flatMap(Http, (http) => http.bytes(url, { headers: { accept } }));
 
 const discoverLatest = (
   dataset: "estados" | "municipios",
   ceilingYear: number,
   pick: typeof latestCsvResource
 ) =>
-  getJson(packageShowUrl[dataset], PackageShowPayload, {
-    headers: { accept: "application/json" },
-  }).pipe(
+  Effect.flatMap(Http, (http) =>
+    http.json(packageShowUrl[dataset], PackageShowPayload, {
+      headers: { accept: "application/json" },
+    })
+  ).pipe(
     Effect.flatMap((payload) =>
       Match.value(pick(payload, ceilingYear)).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
-            new CapagError({ code: "capag.RESOURCE_MISSING", dataset })
+            CapagError.make({ code: "capag.RESOURCE_MISSING", dataset })
           )
         ),
         Match.orElse((entry) => Effect.succeed(entry))
@@ -54,10 +53,8 @@ export const fetchEstados = (ceilingYear: number) =>
   Effect.gen(function* () {
     const latest = yield* discoverLatest("estados", ceilingYear, latestCsvResource);
     const ano = latest.year ?? ceilingYear;
-    const records = parseCsvRecords(
-      yield* fetchBytes(latest.resource.url, "text/csv"),
-      csvOptions
-    );
+    const bytes = yield* fetchBytes(latest.resource.url, "text/csv");
+    const records = parseCsvRecords(bytes, csvOptions);
     return mapEstados(records, ano);
   });
 
@@ -70,23 +67,23 @@ export const fetchMunicipios = (ceilingYear: number) =>
     );
     const anoBase = latest.year ?? ceilingYear;
     const posicao = extractPosicao(latest.name);
-    const rows = yield* readXlsxSheet(
-      yield* fetchBytes(
-        latest.resource.url,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      ),
-      matchMunicipiosSheet
+    const bytes = yield* fetchBytes(
+      latest.resource.url,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
+    const rows = yield* readXlsxSheet(bytes, matchMunicipiosSheet);
     return mapMunicipiosRows(rows, anoBase, posicao);
   });
 
 type PageState = { readonly offset: number; readonly page: number };
 
 const fetchEntesPage = (state: PageState) =>
-  getJson(
-    `${siconfiEntesUrl}?limit=${siconfiPageSize}&offset=${state.offset}`,
-    SiconfiEntesPayload,
-    { headers: { accept: "application/json" } }
+  Effect.flatMap(Http, (http) =>
+    http.json(
+      `${siconfiEntesUrl}?limit=${siconfiPageSize}&offset=${state.offset}`,
+      SiconfiEntesPayload,
+      { headers: { accept: "application/json" } }
+    )
   ).pipe(
     Effect.map((payload) => {
       const items = payload.items ?? [];

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
-import ts from "typescript";
+import { join, relative, resolve } from "node:path";
+import * as ts from "tsrs/ast";
+import { API } from "tsrs/async";
 
 const argvRoots = process.argv.slice(2);
 const requestedRoots = argvRoots.length > 0 ? argvRoots : ["src"];
@@ -29,7 +30,7 @@ const checkedExtensions = new Set([".ts", ".tsx", ".mts", ".cts"]);
 const strictPrefixes = ["src/kernel/", "src/sources/"];
 
 const effectVocabulary =
-  "Idioms: Effect.fail, Effect.tryPromise({ try, catch }), Effect.acquireRelease, Effect.mapError, Effect.catchTag, Match.value/tag/when/orElse, Schema.TaggedErrorClass, Schema.Literals, Context.Service/Reference, Layer.effect, Effect.Success<typeof make>.";
+  "Idioms: Effect.fail, Effect.tryPromise({ try, catch }), Effect.acquireRelease, Effect.mapError, Effect.catchTag, Match.value/tag/when/orElse, Schema.TaggedError, Schema.Literals, Context.Service/Reference, Layer.effect, Effect.Success<typeof make>.";
 
 const helperName = /^(to|from|map|wrap|is)[A-Za-z0-9_]*Error$/;
 const failureName = /(Failure|Fault)$/;
@@ -90,9 +91,9 @@ const bodyHasNewError = (node: ts.Node): boolean => {
       found = true;
       return;
     }
-    ts.forEachChild(child, visit);
+    child.forEachChild(visit);
   };
-  ts.forEachChild(node, visit);
+  node.forEachChild(visit);
   return found;
 };
 
@@ -104,9 +105,9 @@ const containsSwitch = (node: ts.Node): boolean => {
       found = true;
       return;
     }
-    ts.forEachChild(child, visit);
+    child.forEachChild(visit);
   };
-  ts.forEachChild(node, visit);
+  node.forEachChild(visit);
   return found;
 };
 
@@ -118,7 +119,7 @@ const taggedErrorFields = (
   );
   const base = heritage?.types[0]?.expression;
   if (!base || !ts.isCallExpression(base)) return undefined;
-  if (!text(base.expression, node.getSourceFile()).startsWith("Schema.TaggedErrorClass"))
+  if (!text(base.expression, node.getSourceFile()).startsWith("Schema.TaggedError"))
     return undefined;
   const last = base.arguments[base.arguments.length - 1];
   return last && ts.isObjectLiteralExpression(last) ? last : undefined;
@@ -211,7 +212,7 @@ const collect = (file: string, source: ts.SourceFile, strict: boolean): Violatio
     if (strict) {
       if (
         (ts.isAsExpression(node) && text(node.type, source) !== "const") ||
-        ts.isTypeAssertionExpression(node) ||
+        ts.isTypeAssertion(node) ||
         ts.isNonNullExpression(node)
       )
         at(
@@ -282,11 +283,11 @@ const collect = (file: string, source: ts.SourceFile, strict: boolean): Violatio
           (clause) => clause.token === ts.SyntaxKind.ExtendsKeyword
         );
         const base = heritage?.types[0]?.expression;
-        if (!base || !text(base, source).startsWith("Schema.TaggedErrorClass"))
+        if (!base || !text(base, source).startsWith("Schema.TaggedError"))
           at(
             node,
-            "error-class-must-use-TaggedErrorClass",
-            "Error classes must extend Schema.TaggedErrorClass<Self>()('Name', {...}); no class extends Error / Data.TaggedError."
+            "error-class-must-use-TaggedError",
+            "Error classes must extend Schema.TaggedError<Self>()('Name', {...}); no class extends Error / Data.TaggedError."
           );
         else {
           const fields = taggedErrorFields(node);
@@ -354,7 +355,7 @@ const collect = (file: string, source: ts.SourceFile, strict: boolean): Violatio
           at(
             node,
             "no-widened-effect-error-channel",
-            "Tagged-only error channel: never annotate Effect.Effect with Error/unknown/any in the E slot; let inference carry the Schema.TaggedErrorClass union so failures stay discriminated."
+            "Tagged-only error channel: never annotate Effect.Effect with Error/unknown/any in the E slot; let inference carry the Schema.TaggedError union so failures stay discriminated."
           );
       }
 
@@ -406,7 +407,7 @@ const collect = (file: string, source: ts.SourceFile, strict: boolean): Violatio
     const nextInGetMessage =
       inGetMessage ||
       (ts.isGetAccessorDeclaration(node) && node.name.getText(source) === "message");
-    ts.forEachChild(node, (child) => visit(child, nextInGetMessage));
+    node.forEachChild((child) => visit(child, nextInGetMessage));
   };
 
   visit(source, false);
@@ -439,21 +440,22 @@ function* walk(root: string): Generator<string> {
 }
 
 let failed = false;
-for (const file of roots.flatMap((root) => [...walk(root)])) {
-  const rel = relative(process.cwd(), file).replaceAll("\\", "/");
-  const strict = strictPrefixes.some((prefix) => rel.startsWith(prefix));
-  const source = ts.createSourceFile(
-    file,
-    readFileSync(file, "utf8"),
-    ts.ScriptTarget.Latest,
-    true
-  );
-
-  for (const violation of collect(file, source, strict)) {
-    console.error(
-      `${rel}:${violation.line}:${violation.column}: [${violation.rule}] ${violation.message}`
+await using api = new API();
+{
+  for (const file of roots.flatMap((root) => [...walk(root)])) {
+    const rel = relative(process.cwd(), file).replaceAll("\\", "/");
+    const strict = strictPrefixes.some((prefix) => rel.startsWith(prefix));
+    await using retained = await api.createSourceFile(
+      resolve(file),
+      readFileSync(file, "utf8")
     );
-    failed = true;
+
+    for (const violation of collect(file, retained.sourceFile, strict)) {
+      console.error(
+        `${rel}:${violation.line}:${violation.column}: [${violation.rule}] ${violation.message}`
+      );
+      failed = true;
+    }
   }
 }
 

@@ -1,5 +1,5 @@
-import { Context, Duration, Effect, Match, Schedule, Schema } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { Context, Duration, Effect, Layer, Match, Option, Schedule, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 
 const HttpErrorCode = Schema.Literals([
   "http.STATUS",
@@ -9,11 +9,11 @@ const HttpErrorCode = Schema.Literals([
 ]);
 export type HttpErrorCode = (typeof HttpErrorCode)["Type"];
 
-export class HttpError extends Schema.TaggedErrorClass<HttpError>()("HttpError", {
+export class HttpError extends Schema.TaggedError<HttpError, { readonly brand: unique symbol }>()("HttpError", {
   code: HttpErrorCode,
   url: Schema.String,
-  status: Schema.optional(Schema.Number),
-  timeoutMs: Schema.optional(Schema.Number),
+  status: Schema.optional(Schema.Finite),
+  timeoutMs: Schema.optional(Schema.Finite),
   cause: Schema.optional(Schema.String),
 }) {
   override get message() {
@@ -32,10 +32,10 @@ export class HttpError extends Schema.TaggedErrorClass<HttpError>()("HttpError",
 
 const HttpConfigSchema = Schema.Struct({
   userAgent: Schema.String,
-  timeoutMs: Schema.Number,
-  maxRetries: Schema.Number,
-  retryBaseMillis: Schema.Number,
-  retryableStatus: Schema.ReadonlySet(Schema.Number),
+  timeoutMs: Schema.Finite,
+  maxRetries: Schema.Finite,
+  retryBaseMillis: Schema.Finite,
+  retryableStatus: Schema.ReadonlySet(Schema.Finite),
 });
 export type HttpConfig = (typeof HttpConfigSchema)["Type"];
 
@@ -54,63 +54,132 @@ export const HttpConfig = Context.Reference<HttpConfig>(
 );
 
 export const Options = Schema.Struct({
-  timeoutMs: Schema.optional(Schema.Number),
+  timeoutMs: Schema.optional(Schema.Finite),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 export type Options = (typeof Options)["Type"];
 
-export const httpResponse = (url: string, opts?: Options) =>
-  Effect.gen(function* () {
-    const cfg = yield* HttpConfig;
-    const timeoutMs = opts?.timeoutMs ?? cfg.timeoutMs;
+export const HttpOriginOverride = Context.Reference<Option.Option<string>>(
+  "dados-publicos-mcp/HttpOriginOverride",
+  { defaultValue: () => Option.none<string>() }
+);
 
-    return yield* HttpClient.get(url, {
-      headers: { "user-agent": cfg.userAgent, ...opts?.headers },
-    }).pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.mapError((e) =>
-        Match.value(e.reason).pipe(
-          Match.tag(
-            "StatusCodeError",
-            (r) =>
-              new HttpError({ code: "http.STATUS", url, status: r.response.status })
-          ),
-          Match.orElse(
-            (r) => new HttpError({ code: "http.NETWORK", url, cause: String(r) })
-          )
-        )
-      ),
-      Effect.timeout(Duration.millis(timeoutMs)),
-      Effect.catchTag("TimeoutError", () =>
-        Effect.fail(new HttpError({ code: "http.TIMEOUT", url, timeoutMs }))
-      ),
-      Effect.retry({
-        schedule: Schedule.exponential(Duration.millis(cfg.retryBaseMillis)),
-        times: cfg.maxRetries,
-        while: Match.type<HttpError>().pipe(
-          Match.when({ code: "http.STATUS" }, (e) =>
-            cfg.retryableStatus.has(e.status ?? -1)
-          ),
-          Match.orElse(() => true)
-        ),
-      })
-    );
-  });
+export interface HttpResponseData {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly bytes: Uint8Array;
+}
 
-export function getJson<S extends Schema.Top>(
-  url: string,
-  schema: S,
-  opts?: Options
-) {
-  return httpResponse(url, opts).pipe(
-    Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
-    Effect.mapError((e) =>
-      Match.value(e).pipe(
-        Match.tag("HttpError", (x) => x),
-        Match.orElse(
-          (x) => new HttpError({ code: "http.PARSE", url, cause: String(x) })
+const rewriteOrigin = (origin: string, raw: string) => {
+  const target = new URL(origin);
+  const url = new URL(raw);
+  url.protocol = target.protocol;
+  url.host = target.host;
+  return url.toString();
+};
+
+const makeHttp = Effect.gen(function* () {
+  const client = yield* HttpClient.HttpClient;
+
+  const fetchResponse = (url: string, opts?: Options) =>
+    Effect.gen(function* () {
+      const cfg = yield* HttpConfig;
+      const override = yield* HttpOriginOverride;
+      const timeoutMs = opts?.timeoutMs ?? cfg.timeoutMs;
+      const target = Option.match(override, {
+        onNone: () => url,
+        onSome: (origin) => rewriteOrigin(origin, url),
+      });
+
+      return yield* client
+        .get(target, {
+          headers: { "user-agent": cfg.userAgent, ...opts?.headers },
+        })
+        .pipe(
+          Effect.flatMap(HttpClientResponse.filterStatusOk),
+          Effect.mapError((e) =>
+            Match.value(e.reason).pipe(
+              Match.tag("StatusCodeError", (r) =>
+                HttpError.make({
+                  code: "http.STATUS",
+                  url,
+                  status: r.response.status,
+                })
+              ),
+              Match.orElse((r) =>
+                HttpError.make({ code: "http.NETWORK", url, cause: String(r) })
+              )
+            )
+          ),
+          Effect.timeoutOrElse({
+            duration: Duration.millis(timeoutMs),
+            orElse: () =>
+              Effect.fail(
+                HttpError.make({ code: "http.TIMEOUT", url, timeoutMs })
+              ),
+          }),
+          Effect.retry({
+            schedule: Schedule.exponential(Duration.millis(cfg.retryBaseMillis)),
+            times: cfg.maxRetries,
+            while: Match.type<HttpError>().pipe(
+              Match.when({ code: "http.STATUS" }, (e) =>
+                cfg.retryableStatus.has(e.status ?? -1)
+              ),
+              Match.orElse(() => true)
+            ),
+          })
+        );
+    });
+
+  const response = (url: string, opts?: Options) =>
+    fetchResponse(url, opts).pipe(
+      Effect.flatMap((res) =>
+        res.arrayBuffer.pipe(
+          Effect.mapBoth({
+            onSuccess: (buffer): HttpResponseData => ({
+              status: res.status,
+              headers: res.headers,
+              bytes: new Uint8Array(buffer),
+            }),
+            onFailure: (e) =>
+              HttpError.make({ code: "http.NETWORK", url, cause: String(e) }),
+          })
         )
       )
-    )
-  );
-}
+    );
+
+  const bytes = (url: string, opts?: Options) =>
+    response(url, opts).pipe(Effect.map((res) => res.bytes));
+
+  const text = (url: string, opts?: Options) =>
+    bytes(url, opts).pipe(
+      Effect.map((buffer) => new TextDecoder().decode(buffer))
+    );
+
+  const json = <S extends Schema.Top>(
+    url: string,
+    schema: S,
+    opts?: Options
+  ) =>
+    fetchResponse(url, opts).pipe(
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+      Effect.mapError((e) =>
+        Match.value(e).pipe(
+          Match.tag("HttpError", (x) => x),
+          Match.orElse((x) =>
+            HttpError.make({ code: "http.PARSE", url, cause: String(x) })
+          )
+        )
+      )
+    );
+
+  return { response, bytes, text, json };
+});
+
+export class Http extends Context.Service<Http, Effect.Success<typeof makeHttp>>()(
+  "dados-publicos-mcp/kernel/http/client/Http"
+) {}
+
+export const HttpLive = Layer.effect(Http)(makeHttp).pipe(
+  Layer.provide(FetchHttpClient.layer)
+);

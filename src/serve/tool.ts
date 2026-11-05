@@ -1,7 +1,8 @@
-import { Effect, Match, Schema } from "effect";
+import { Effect, Match, Option, Schema } from "effect";
 import type { JsonSchema } from "effect/JsonSchema";
-import type { HttpClient } from "effect/unstable/http";
+import * as Arr from "effect/Array";
 import type { Db } from "../kernel/db/client";
+import type { Http } from "../kernel/http/client";
 import type { Embedder } from "../kernel/embed/embedder";
 import type { CamaraDeputados } from "../sources/camara-deputados/store";
 import type { Capag } from "../sources/capag/store";
@@ -49,7 +50,7 @@ export type AppServices =
   | Sinapi
   | Db
   | Embedder
-  | HttpClient.HttpClient;
+  | Http;
 
 export type ObjectSchema = {
   readonly type: "object";
@@ -57,13 +58,38 @@ export type ObjectSchema = {
   readonly required: readonly string[];
 };
 
+export class ToolFailure extends Schema.TaggedError<
+  ToolFailure,
+  { readonly brand: unique symbol }
+>()("ToolFailure", { text: Schema.String }) {
+  override get message() {
+    return this.text;
+  }
+}
+
+const hasMessage = (value: unknown): value is { readonly message: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  "message" in value &&
+  typeof Reflect.get(value, "message") === "string";
+
+export const failureText = (error: unknown) =>
+  Match.value(error).pipe(
+    Match.when(
+      Schema.isSchemaError,
+      () => "Parametros invalidos para a ferramenta."
+    ),
+    Match.when(hasMessage, (tagged) => tagged.message),
+    Match.orElse(() => "Falha ao executar a ferramenta.")
+  );
+
 export type Tool = {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: ObjectSchema;
   readonly handle: (
     args: unknown
-  ) => Effect.Effect<unknown, unknown, AppServices>;
+  ) => Effect.Effect<unknown, ToolFailure, AppServices>;
 };
 
 const objectSchema = (schema: JsonSchema): ObjectSchema =>
@@ -74,10 +100,9 @@ const objectSchema = (schema: JsonSchema): ObjectSchema =>
       (value) => ({
         type: "object" as const,
         properties: value.properties,
-        required:
-          "required" in value && Array.isArray(value.required)
-            ? value.required
-            : [],
+        required: Schema.decodeUnknownOption(Schema.Array(Schema.String))(
+          Reflect.get(value, "required")
+        ).pipe(Option.getOrElse((): readonly string[] => [])),
       })
     ),
     Match.orElse(() => ({
@@ -101,5 +126,8 @@ export const defineTool = <
   description: spec.description,
   inputSchema: objectSchema(Schema.toJsonSchemaDocument(spec.input).schema),
   handle: (args) =>
-    Schema.decodeUnknownEffect(spec.input)(args).pipe(Effect.flatMap(spec.run)),
+    Schema.decodeUnknownEffect(spec.input)(args).pipe(
+      Effect.flatMap(spec.run),
+      Effect.mapError((error) => ToolFailure.make({ text: failureText(error) }))
+    ),
 });

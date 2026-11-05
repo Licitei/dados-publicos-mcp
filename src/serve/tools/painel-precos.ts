@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { PainelPrecos } from "../../sources/painel-precos/store";
 import { NonEmptyString, positiveIntMax, Uf } from "../checks";
 import { defineTool } from "../tool";
 
 const ItemInput = Schema.Struct({
   codigoItemCatalogo: NonEmptyString,
-  uf: Schema.optional(Uf),
-  limite: Schema.optional(positiveIntMax(500)),
+  uf: Schema.optionalKey(Uf),
+  limite: Schema.optionalKey(positiveIntMax(500)),
 });
 
 const precoPraticadoItem = defineTool({
@@ -17,17 +17,14 @@ const precoPraticadoItem = defineTool({
   run: (args) =>
     PainelPrecos.pipe(
       Effect.flatMap((service) =>
-        service.precoPorItem(args.codigoItemCatalogo, {
-          uf: args.uf,
-          limit: args.limite,
-        })
+        service.precoPorItem(args.codigoItemCatalogo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const EstatisticaInput = Schema.Struct({
   codigoItemCatalogo: NonEmptyString,
-  uf: Schema.optional(Uf),
+  uf: Schema.optionalKey(Uf),
 });
 
 const estatisticaPreco = defineTool({
@@ -38,14 +35,14 @@ const estatisticaPreco = defineTool({
   run: (args) =>
     PainelPrecos.pipe(
       Effect.flatMap((service) =>
-        service.estatisticaPreco(args.codigoItemCatalogo, { uf: args.uf })
+        service.estatisticaPreco(args.codigoItemCatalogo, Struct.pick(args, ["uf"]))
       )
     ),
 });
 
 const BuscarInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarPrecoPorDescricao = defineTool({
@@ -56,7 +53,7 @@ const buscarPrecoPorDescricao = defineTool({
   run: (args) =>
     PainelPrecos.pipe(
       Effect.flatMap((service) =>
-        service.buscarPrecoPorDescricao(args.termo, { limit: args.limite })
+        service.buscarPrecoPorDescricao(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });

@@ -1,10 +1,13 @@
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { Clock, Context, Effect, Layer, Match } from "effect";
 import { cosineDistance, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { ata } from "../../kernel/db/schemas/ata";
 import { contratacao } from "../../kernel/db/schemas/contratacao";
 import { contrato } from "../../kernel/db/schemas/contrato";
-import { Embedder } from "../../kernel/embed/embedder";
+import { EmbedError, Embedder } from "../../kernel/embed/embedder";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
   defaultModalidades,
@@ -159,10 +162,10 @@ const makePncp = Effect.gen(function* () {
       ${outerWhere}
       order by score desc, c.${sql.raw(pk)}
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const outerWhereOf = (filters: readonly (SQL | undefined)[]) => {
-    const present = filters.filter((value): value is SQL => value !== undefined);
+    const present = Arr.filter(filters, (value): value is SQL => value !== undefined);
     return Match.value(present.length).pipe(
       Match.when(0, () => sql``),
       Match.orElse(() => sql`where ${sql.join(present, sql` and `)}`)
@@ -172,9 +175,9 @@ const makePncp = Effect.gen(function* () {
   const ufFilter = (uf: string | undefined) =>
     Match.value(uf).pipe(
       Match.when(Match.string, (value) =>
-        value.trim().length === 0
+        Str.trim(value).length === 0
           ? undefined
-          : sql`c.uf_sigla = ${value.trim().toUpperCase()}`
+          : sql`c.uf_sigla = ${pipe(value, Str.trim, Str.toUpperCase)}`
       ),
       Match.orElse(() => undefined)
     );
@@ -192,7 +195,9 @@ const makePncp = Effect.gen(function* () {
   const municipioFilter = (municipio: string | undefined) =>
     Match.value(municipio).pipe(
       Match.when(Match.string, (value) =>
-        value.trim().length === 0 ? undefined : sql`c.codigo_ibge = ${value.trim()}`
+        Str.trim(value).length === 0
+          ? undefined
+          : sql`c.codigo_ibge = ${Str.trim(value)}`
       ),
       Match.orElse(() => undefined)
     );
@@ -215,7 +220,13 @@ const makePncp = Effect.gen(function* () {
     Effect.gen(function* () {
       const q = normalize(input.termo);
       const limit = clamp(input.limit, 20, 100);
-      const [queryVector] = yield* embedder.embed("query", [input.termo]);
+      const queryVector = yield* embedder.embed("query", [input.termo]).pipe(
+        Effect.flatMap((vectors) =>
+          Effect.fromOption(Arr.head(vectors), () =>
+            EmbedError.make({ code: "embed.RUN" })
+          )
+        )
+      );
 
       const rrfContratacao = rrf(
         contratacao,
@@ -269,7 +280,8 @@ const makePncp = Effect.gen(function* () {
       const tagged = (
         rows: readonly Record<string, unknown>[],
         tipo: string
-      ) => rows.map((row): Record<string, unknown> => ({ ...row, tipo }));
+      ) =>
+        Arr.map(rows, (row): Record<string, unknown> => ({ ...row, tipo }));
 
       return yield* Match.value(input.tipo).pipe(
         Match.when("contratacao", () =>
@@ -312,7 +324,7 @@ const makePncp = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmFornecedores = (q: string, limit: number) =>
     db.execute(sql`
@@ -322,7 +334,7 @@ const makePncp = Effect.gen(function* () {
       where word_similarity(${q}, busca_fornecedor) >= 0.2
       order by score desc, ni_fornecedor
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const fornecedorPncpPorNome = (
     nome: string,
@@ -333,7 +345,7 @@ const makePncp = Effect.gen(function* () {
       const limit = clamp(options?.limit, 20, 100);
       return yield* Match.value(q.length).pipe(
         Match.when(0, () =>
-          Effect.fail(new PncpError({ code: "pncp.MISSING_FORNECEDOR" }))
+          Effect.fail(PncpError.make({ code: "pncp.MISSING_FORNECEDOR" }))
         ),
         Match.orElse(() =>
           Effect.gen(function* () {
@@ -356,7 +368,7 @@ const makePncp = Effect.gen(function* () {
       const limit = clamp(input.limit, 50, 500);
       return yield* Match.value(alvo.length).pipe(
         Match.when(0, () =>
-          Effect.fail(new PncpError({ code: "pncp.MISSING_NI" }))
+          Effect.fail(PncpError.make({ code: "pncp.MISSING_NI" }))
         ),
         Match.orElse(() =>
           db.query.contrato
@@ -368,7 +380,7 @@ const makePncp = Effect.gen(function* () {
             })
             .pipe(
               Effect.map((rows) =>
-                rows.map((row): Record<string, unknown> => ({ ...row }))
+                Arr.map(rows, (row): Record<string, unknown> => ({ ...row }))
               )
             )
         )
@@ -386,7 +398,7 @@ const makePncp = Effect.gen(function* () {
       const where = {
         ...Match.value(options?.uf).pipe(
           Match.when(Match.string, (value) => ({
-            ufSigla: value.trim().toUpperCase(),
+            ufSigla: pipe(value, Str.trim, Str.toUpperCase),
           })),
           Match.orElse(() => ({}))
         ),
@@ -429,17 +441,17 @@ const makePncp = Effect.gen(function* () {
       });
       const contratacoes = yield* db.execute(
         sql`select count(*)::int as count from ${contratacao}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const contratos = yield* db.execute(
         sql`select count(*)::int as count from ${contrato}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const atas = yield* db.execute(
         sql`select count(*)::int as count from ${ata}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       return {
-        contratacoes: Number(contratacoes[0].count),
-        contratos: Number(contratos[0].count),
-        atas: Number(atas[0].count),
+        contratacoes: Number(contratacoes[0]?.count ?? 0),
+        contratos: Number(contratos[0]?.count ?? 0),
+        atas: Number(atas[0]?.count ?? 0),
       };
     });
 
@@ -463,7 +475,7 @@ const makePncp = Effect.gen(function* () {
 });
 
 export class Pncp extends Context.Service<Pncp, Effect.Success<typeof makePncp>>()(
-  "dados-publicos-mcp/Pncp"
+  "dados-publicos-mcp/sources/pncp/store/Pncp"
 ) {}
 
 export const PncpLive = Layer.effect(Pncp)(makePncp);

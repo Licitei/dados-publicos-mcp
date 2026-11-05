@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import * as Rec from "effect/Record";
 import { sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { Db } from "../kernel/db/client";
@@ -10,17 +11,17 @@ const countRows = (table: PgTable) =>
     Effect.flatMap((db) =>
       db.execute(sql`select count(*)::int as count from ${table}`)
     ),
-    Effect.map((rows) => Number(rows[0]?.count ?? 0)),
+    Effect.map(({ rows }) => Number(rows[0]?.count ?? 0)),
     Effect.catchCause(() => Effect.succeed(0))
   );
 
 const countFonte = (tables: Record<string, PgTable>) =>
   Effect.forEach(
-    Object.entries(tables),
+    Rec.toEntries(tables),
     ([tabela, table]) =>
       countRows(table).pipe(Effect.map((count) => [tabela, count] as const)),
     { concurrency: 2 }
-  ).pipe(Effect.map((entries) => Object.fromEntries(entries)));
+  ).pipe(Effect.map(Rec.fromEntries));
 
 const StatusInput = Schema.Struct({});
 
@@ -31,11 +32,11 @@ export const statusIndices = defineTool({
   input: StatusInput,
   run: () =>
     Effect.forEach(
-      Object.entries(tableGroupsBySource),
+      Rec.toEntries(tableGroupsBySource),
       ([fonte, tables]) =>
         countFonte(tables).pipe(
           Effect.map((contagens) => [fonte, contagens] as const)
         ),
       { concurrency: 2 }
-    ).pipe(Effect.map((entries) => Object.fromEntries(entries))),
+    ).pipe(Effect.map(Rec.fromEntries)),
 });

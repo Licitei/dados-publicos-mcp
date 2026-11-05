@@ -1,6 +1,8 @@
 import { Context, Effect, Layer, Match } from "effect";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
+import { Db, DbError } from "../../kernel/db/client";
 import { municipio } from "../../kernel/db/schemas/municipio";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
@@ -23,7 +25,11 @@ export const replaceAll = (rows: readonly MunicipioFlat[]) =>
         );
       })
     );
-  });
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+    )
+  );
 
 const defaultLimit = 10;
 
@@ -31,9 +37,9 @@ const makeIbgeLocalidades = Effect.gen(function* () {
   const db = yield* Db;
 
   const validateUf = (sigla: string) =>
-    Match.value(ufBySigla.get(sigla.trim().toUpperCase())).pipe(
+    Match.value(ufBySigla.get(pipe(sigla, Str.trim, Str.toUpperCase))).pipe(
       Match.when(Match.undefined, () =>
-        Effect.fail(new IbgeError({ code: "ibge.UF_INVALID", uf: sigla }))
+        Effect.fail(IbgeError.make({ code: "ibge.UF_INVALID", uf: sigla }))
       ),
       Match.orElse((uf) => Effect.succeed(uf))
     );
@@ -47,7 +53,7 @@ const makeIbgeLocalidades = Effect.gen(function* () {
         Match.when(Match.string, (uf) =>
           validateUf(uf).pipe(Effect.map((found) => found.sigla))
         ),
-        Match.orElse(() => Effect.succeed(undefined))
+        Match.orElse(() => Effect.undefined)
       );
       const normalized = normalize(termo);
       const limit = Math.min(
@@ -75,7 +81,7 @@ const makeIbgeLocalidades = Effect.gen(function* () {
           where ${condition}
           order by score desc, id
           limit ${sql.raw(String(limit))}
-        `);
+        `).pipe(Effect.map(({ rows }) => rows));
       const matched = yield* select(
         sql`${ufWhere} and (nome_normalizado % ${normalized} or ${normalized} <% nome_normalizado)`
       );
@@ -83,7 +89,7 @@ const makeIbgeLocalidades = Effect.gen(function* () {
       return yield* Match.value(rows.length).pipe(
         Match.when(0, () =>
           Effect.fail(
-            new IbgeError({
+            IbgeError.make({
               code: "ibge.MUNICIPIO_NOT_FOUND",
               termo,
               uf: ufFilter,
@@ -92,23 +98,31 @@ const makeIbgeLocalidades = Effect.gen(function* () {
         ),
         Match.orElse(() => Effect.succeed(rows))
       );
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const municipioByCodigo = (codigo: string) =>
     Effect.gen(function* () {
-      const normalizado = onlyDigits(codigo).padStart(codigoIbgeLength, "0");
+      const normalizado = pipe(onlyDigits(codigo), Str.padStart(codigoIbgeLength, "0"));
       const found = yield* db.query.municipio.findFirst({
         where: { id: normalizado },
       });
       return yield* Match.value(found).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
-            new IbgeError({ code: "ibge.CODE_NOT_FOUND", codigo, normalizado })
+            IbgeError.make({ code: "ibge.CODE_NOT_FOUND", codigo, normalizado })
           )
         ),
         Match.orElse((row) => Effect.succeed(row))
       );
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const listByUf = (uf: string) =>
     Effect.gen(function* () {
@@ -123,7 +137,11 @@ const makeIbgeLocalidades = Effect.gen(function* () {
         total: municipios.length,
         municipios,
       };
-    });
+    }).pipe(
+      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
+        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
+      )
+    );
 
   const index = fetchMunicipios.pipe(
     Effect.flatMap((flat) => replaceAll(flat).pipe(Effect.as(flat.length)))
@@ -142,7 +160,7 @@ const makeIbgeLocalidades = Effect.gen(function* () {
 export class IbgeLocalidades extends Context.Service<
   IbgeLocalidades,
   Effect.Success<typeof makeIbgeLocalidades>
->()("dados-publicos-mcp/IbgeLocalidades") {}
+>()("dados-publicos-mcp/sources/ibge-localidades/store/IbgeLocalidades") {}
 
 export const IbgeLocalidadesLive = Layer.effect(IbgeLocalidades)(
   makeIbgeLocalidades

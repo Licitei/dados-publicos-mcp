@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { TransparenciaDespesas } from "../../sources/transparencia-despesas/store";
 import { NonEmptyString, positiveIntMax, Uf } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  uf: Schema.optional(Uf),
-  limite: Schema.optional(positiveIntMax(200)),
+  uf: Schema.optionalKey(Uf),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarDespesaFederal = defineTool({
@@ -17,14 +17,14 @@ const buscarDespesaFederal = defineTool({
   run: (args) =>
     TransparenciaDespesas.pipe(
       Effect.flatMap((service) =>
-        service.buscarDespesa(args.termo, { uf: args.uf, limit: args.limite })
+        service.buscarDespesa(args.termo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
       )
     ),
 });
 
 const OrgaoInput = Schema.Struct({
   codigoOrgaoSuperior: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const despesasPorOrgao = defineTool({

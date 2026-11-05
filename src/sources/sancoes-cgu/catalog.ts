@@ -1,4 +1,8 @@
-import { Schema } from "effect";
+import { DateTime, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Rec from "effect/Record";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const cdnBase =
@@ -51,50 +55,68 @@ export const datasets: readonly DatasetSpec[] = [
   },
 ];
 
-export const zipUrl = (dataset: DatasetSpec, yyyymmdd: string) =>
-  `${cdnBase}/${dataset.key}/${yyyymmdd}_${dataset.zipSuffix}.zip`;
+export const zipUrl: {
+  (snapshotDate: string): (dataset: DatasetSpec) => string;
+  (dataset: DatasetSpec, snapshotDate: string): string;
+} = dual(
+  2,
+  (dataset: DatasetSpec, snapshotDate: string) =>
+    `${cdnBase}/${dataset.key}/${snapshotDate}_${dataset.zipSuffix}.zip`
+);
 
 export const acceptCsv = (name: string) => /\.csv$/i.test(name);
 
 export const isEfeitosCsv = (name: string) => /efeito/i.test(name);
 
-export const yyyymmdd = (millis: number, offset: number) => {
-  const date = new Date(millis - offset * 86_400_000);
-  const year = date.getUTCFullYear();
-  const month = `${date.getUTCMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getUTCDate()}`.padStart(2, "0");
-  return `${year}${month}${day}`;
-};
+export const yyyymmdd: {
+  (offset: number): (millis: number) => string;
+  (millis: number, offset: number): string;
+} = dual(2, (millis: number, offset: number) =>
+  pipe(
+    DateTime.makeUnsafe(millis - offset * 86_400_000),
+    DateTime.formatIsoDate,
+    Str.replace(/-/g, "")
+  )
+);
 
 const headerKey = (header: string) =>
-  header
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  pipe(
+    header,
+    Str.normalize("NFD"),
+    Str.replace(/\p{Diacritic}/gu, ""),
+    Str.toLowerCase,
+    Str.replace(/\s+/g, " "),
+    Str.trim
+  );
 
 const indexByKey = (record: Record<string, string>) =>
   new Map(
-    Object.entries(record).map(([key, value]) => [headerKey(key), value])
+    pipe(
+      record,
+      Rec.toEntries,
+      Arr.map(([key, value]) => [headerKey(key), value] as const)
+    )
   );
 
 const pick = (
   byKey: Map<string, string>,
   candidates: readonly string[]
-): string => {
-  const found = candidates
-    .map((candidate) => (byKey.get(headerKey(candidate)) ?? "").trim())
-    .find((value) => value !== "");
-  return found ?? "";
-};
+): string =>
+  pipe(
+    candidates,
+    Arr.map((candidate) =>
+      pipe(byKey.get(headerKey(candidate)) ?? "", Str.trim)
+    ),
+    Arr.findFirst((value) => value !== ""),
+    Option.getOrElse(() => "")
+  );
 
 const numeroBr = (value: string) => {
-  const trimmed = value.trim();
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
+  const trimmed = Str.trim(value);
+  const normalized = Str.includes(",")(trimmed)
+    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
     : trimmed;
-  const cleaned = normalized.replace(/[^\d.\-]/g, "");
+  const cleaned = pipe(normalized, Str.replace(/[^\d.\-]/g, ""));
   const parsed = Number(cleaned);
   return cleaned === "" || cleaned === "-" || !Number.isFinite(parsed)
     ? null
@@ -106,25 +128,33 @@ const buildDate = (year: string, month: string, day: string) => {
   const m = Number(month);
   const d = Number(day);
   return m < 1 || m > 12 || d < 1 || d > 31 || y < 1
-    ? null
-    : `${year}-${month}-${day}`;
+    ? Option.none()
+    : Option.some(`${year}-${month}-${day}`);
 };
 
 const dataBr = (value: string) => {
-  const trimmed = value.trim();
-  const slashed = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const trimmed = Str.trim(value);
+  const slashed = pipe(
+    trimmed,
+    Str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/),
+    Option.flatMap((found) =>
+      Option.all([Arr.get(found, 3), Arr.get(found, 2), Arr.get(found, 1)])
+    ),
+    Option.flatMap(([year, month, day]) =>
+      buildDate(year, Str.padStart(2, "0")(month), Str.padStart(2, "0")(day))
+    )
+  );
+  const iso = pipe(
+    trimmed,
+    Str.match(/^(\d{4})-(\d{2})-(\d{2})$/),
+    Option.flatMap((found) =>
+      Option.all([Arr.get(found, 1), Arr.get(found, 2), Arr.get(found, 3)])
+    ),
+    Option.flatMap(([year, month, day]) => buildDate(year, month, day))
+  );
   return trimmed === "" || /^0+$/.test(trimmed)
     ? null
-    : slashed
-      ? buildDate(
-          slashed[3],
-          slashed[2].padStart(2, "0"),
-          slashed[1].padStart(2, "0")
-        )
-      : iso
-        ? buildDate(iso[1], iso[2], iso[3])
-        : null;
+    : pipe(slashed, Option.orElse(() => iso), Option.getOrNull);
 };
 
 export const SancaoFlat = Schema.Struct({
@@ -137,7 +167,7 @@ export const SancaoFlat = Schema.Struct({
   razaoSocial: Schema.NullOr(Schema.String),
   categoria: Schema.NullOr(Schema.String),
   numeroProcesso: Schema.NullOr(Schema.String),
-  valorMulta: Schema.NullOr(Schema.Number),
+  valorMulta: Schema.NullOr(Schema.Finite),
   dataInicio: Schema.NullOr(Schema.String),
   dataFinal: Schema.NullOr(Schema.String),
   dataPublicacao: Schema.NullOr(Schema.String),
@@ -171,7 +201,13 @@ const cols = {
 } as const;
 
 const buscaOf = (...parts: readonly string[]) =>
-  normalize(parts.filter((part) => part !== "").join(" "));
+  normalize(
+    pipe(
+      parts,
+      Arr.filter((part) => part !== ""),
+      Arr.join(" ")
+    )
+  );
 
 const docOf = (documento: string) => onlyDigits(documento);
 
@@ -294,20 +330,34 @@ const hasContent = (row: SancaoFlat) =>
       row.docNormalizado
   );
 
-export const mapSancoes = (
+const mapSancoesImpl = (
   lista: DatasetKey,
   records: readonly Record<string, string>[]
 ) => {
   const mapper = mapperFor(lista);
-  return records.map((record) => mapper(indexByKey(record))).filter(hasContent);
+  return pipe(
+    records,
+    Arr.map((record) => mapper(indexByKey(record))),
+    Arr.filter(hasContent)
+  );
 };
+
+export const mapSancoes: {
+  (
+    records: readonly Record<string, string>[]
+  ): (lista: DatasetKey) => ReturnType<typeof mapSancoesImpl>;
+  (
+    lista: DatasetKey,
+    records: readonly Record<string, string>[]
+  ): ReturnType<typeof mapSancoesImpl>;
+} = dual(2, mapSancoesImpl);
 
 export const SancaoErrorCode = Schema.Literals([
   "sancoes.SNAPSHOT_MISSING",
 ]);
 export type SancaoErrorCode = (typeof SancaoErrorCode)["Type"];
 
-export class SancaoError extends Schema.TaggedErrorClass<SancaoError>()(
+export class SancaoError extends Schema.TaggedError<SancaoError, { readonly brand: unique symbol }>()(
   "SancaoError",
   {
     code: SancaoErrorCode,

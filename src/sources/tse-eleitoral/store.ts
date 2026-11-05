@@ -1,4 +1,5 @@
-import { Clock, Context, Effect, Layer, Match } from "effect";
+import { Clock, Context, DateTime, Effect, Layer, Match, Option, pipe } from "effect";
+import * as Arr from "effect/Array";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { bem } from "../../kernel/db/schemas/bem";
@@ -64,6 +65,13 @@ const candidatoView = sql`
   situacao_turno as "situacaoTurno"
 `;
 
+const firstCount = (rows: readonly { readonly count?: unknown }[]) =>
+  pipe(
+    Arr.head(rows),
+    Option.map((row) => Number(row.count)),
+    Option.getOrElse(() => 0)
+  );
+
 const makeTse = Effect.gen(function* () {
   const db = yield* Db;
 
@@ -86,7 +94,7 @@ const makeTse = Effect.gen(function* () {
       ) scored
       ${anoWhere}
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmCandidatos = (q: string, limit: number, anoAnd: SQL) =>
     db.execute(sql`
@@ -95,7 +103,7 @@ const makeTse = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2 ${anoAnd}
       order by score desc, sq_candidato
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarCandidato = (
     termo: string,
@@ -125,12 +133,12 @@ const makeTse = Effect.gen(function* () {
     readonly ano?: number;
   }) =>
     Effect.gen(function* () {
-      const sq = input.sqCandidato || undefined;
-      const cpf = input.cpf || undefined;
-      const hasIdentifier = Boolean(sq) || Boolean(cpf);
+      const sq = input.sqCandidato !== undefined && input.sqCandidato !== "" ? input.sqCandidato : undefined;
+      const cpf = input.cpf !== undefined && input.cpf !== "" ? input.cpf : undefined;
+      const hasIdentifier = sq !== undefined || cpf !== undefined;
       yield* Match.value(hasIdentifier).pipe(
         Match.when(false, () =>
-          Effect.fail(new TseError({ code: "tse.MISSING_IDENTIFIER" }))
+          Effect.fail(TseError.make({ code: "tse.MISSING_IDENTIFIER" }))
         ),
         Match.orElse(() => Effect.void)
       );
@@ -139,7 +147,7 @@ const makeTse = Effect.gen(function* () {
           Match.when(Match.string, (value) => ({ sqCandidato: value })),
           Match.orElse(() => ({}))
         ),
-        ...Match.value(sq ? undefined : cpf).pipe(
+        ...Match.value(sq === undefined ? cpf : undefined).pipe(
           Match.when(Match.string, (value) => ({ cpf: onlyDigits(value) })),
           Match.orElse(() => ({}))
         ),
@@ -153,32 +161,40 @@ const makeTse = Effect.gen(function* () {
         columns: candidatoColumns,
         orderBy: (c, { desc }) => desc(c.anoEleicao),
       });
-      const sqs = candidaturas
-        .map((c) => c.sqCandidato)
-        .filter((value): value is string => Boolean(value));
+      const sqs = pipe(
+        candidaturas,
+        Arr.map((c) => c.sqCandidato),
+        Arr.filter(
+          (value): value is string => value !== null && value !== ""
+        )
+      );
       const bens = yield* db.query.bem.findMany({
         where: { sqCandidato: { in: sqs } },
         columns: bemColumns,
         orderBy: (b, { desc }) => desc(b.valor),
       });
-      const totalBensDeclarado = bens.reduce(
-        (acc, item) => acc + (item.valor ?? 0),
-        0
+      const totalBensDeclarado = pipe(
+        bens,
+        Arr.reduce(0, (acc, item) => acc + (item.valor ?? 0))
       );
       return { candidaturas, bens, totalBensDeclarado };
     });
 
   const enrichCandidato = (rows: readonly Record<string, unknown>[]) =>
     Effect.gen(function* () {
-      const sqs = rows
-        .map((row) => row.sqCandidato)
-        .filter((value): value is string => typeof value === "string" && value.length > 0);
+      const sqs = pipe(
+        rows,
+        Arr.map((row) => row.sqCandidato),
+        Arr.filter(
+          (value): value is string => typeof value === "string" && value.length > 0
+        )
+      );
       const cands = yield* db.query.candidato.findMany({
         where: { sqCandidato: { in: sqs } },
         columns: candidatoInfo,
       });
-      const byId = new Map(cands.map((c) => [c.sqCandidato, c]));
-      return rows.map((row): Record<string, unknown> => {
+      const byId = new Map(pipe(cands, Arr.map((c) => [c.sqCandidato, c] as const)));
+      return pipe(rows, Arr.map((row): Record<string, unknown> => {
         const c = byId.get(
           typeof row.sqCandidato === "string" ? row.sqCandidato : ""
         );
@@ -189,7 +205,7 @@ const makeTse = Effect.gen(function* () {
           ufCandidato: c?.ufSigla ?? null,
           partidoCandidato: c?.partidoSigla ?? null,
         };
-      });
+      }));
     });
 
   const docDoacoes = (doc: string, limit: number, anoAnd: SQL) =>
@@ -199,7 +215,7 @@ const makeTse = Effect.gen(function* () {
       where r.cpf_cnpj_doador = ${doc} ${anoAnd}
       order by r.valor desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Doacoes = (q: string, limit: number, anoWhere: SQL) =>
     db.execute(sql`
@@ -220,7 +236,7 @@ const makeTse = Effect.gen(function* () {
       ${anoWhere}
       order by r.rk
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmDoacoes = (q: string, limit: number, anoAnd: SQL) =>
     db.execute(sql`
@@ -229,7 +245,7 @@ const makeTse = Effect.gen(function* () {
       where word_similarity(${q}, r.busca) >= 0.2 ${anoAnd}
       order by score desc, r.valor desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarDoacoes = (
     termo: string,
@@ -268,7 +284,7 @@ const makeTse = Effect.gen(function* () {
       where d.cpf_cnpj_forn = ${doc} ${anoAnd}
       order by d.valor desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const bm25Fornecedor = (q: string, limit: number, anoWhere: SQL) =>
     db.execute(sql`
@@ -289,7 +305,7 @@ const makeTse = Effect.gen(function* () {
       ${anoWhere}
       order by d.rk
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmFornecedor = (q: string, limit: number, anoAnd: SQL) =>
     db.execute(sql`
@@ -298,7 +314,7 @@ const makeTse = Effect.gen(function* () {
       where word_similarity(${q}, d.busca) >= 0.2 ${anoAnd}
       order by score desc, d.valor desc nulls last
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarFornecedorCampanha = (
     termo: string,
@@ -357,7 +373,7 @@ const makeTse = Effect.gen(function* () {
         where o.cpf_cnpj_orig = ${doc} ${anoAnd}
         order by o.valor desc nulls last
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const indexAnos = (anos: readonly number[]) =>
@@ -379,30 +395,30 @@ const makeTse = Effect.gen(function* () {
       );
       const candidatos = yield* db.execute(
         sql`select count(*)::int as count from ${candidato}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const bens = yield* db.execute(
         sql`select count(*)::int as count from ${bem}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const receitas = yield* db.execute(
         sql`select count(*)::int as count from ${receita}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const despesas = yield* db.execute(
         sql`select count(*)::int as count from ${despesa}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       const originarios = yield* db.execute(
         sql`select count(*)::int as count from ${receitaOriginario}`
-      );
+      ).pipe(Effect.map(({ rows }) => rows));
       return {
-        candidatos: Number(candidatos[0].count),
-        bens: Number(bens[0].count),
-        receitas: Number(receitas[0].count),
-        despesas: Number(despesas[0].count),
-        originarios: Number(originarios[0].count),
+        candidatos: firstCount(candidatos),
+        bens: firstCount(bens),
+        receitas: firstCount(receitas),
+        despesas: firstCount(despesas),
+        originarios: firstCount(originarios),
       };
     });
 
   const index = Effect.flatMap(Clock.currentTimeMillis, (millis) =>
-    indexAnos([new Date(millis).getFullYear()])
+    indexAnos([pipe(DateTime.makeUnsafe(millis), DateTime.getPartUtc("year"))])
   );
 
   return {
@@ -420,6 +436,6 @@ const makeTse = Effect.gen(function* () {
 export class TseEleitoral extends Context.Service<
   TseEleitoral,
   Effect.Success<typeof makeTse>
->()("dados-publicos-mcp/TseEleitoral") {}
+>()("dados-publicos-mcp/sources/tse-eleitoral/store/TseEleitoral") {}
 
 export const TseEleitoralLive = Layer.effect(TseEleitoral)(makeTse);

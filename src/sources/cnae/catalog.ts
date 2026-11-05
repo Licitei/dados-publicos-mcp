@@ -1,4 +1,7 @@
 import { Match, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
 export const subclassesUrl =
@@ -23,8 +26,11 @@ export type CnaeNivel = (typeof levels)[number]["nivel"];
 export const secaoNivel = levels[0].nivel;
 
 export const levelByDigits = new Map<number, CnaeNivel>(
-  levels.flatMap((level) =>
-    level.digits === null ? [] : [[level.digits, level.nivel] as const]
+  pipe(
+    levels,
+    Arr.flatMap((level) =>
+      level.digits === null ? [] : [[level.digits, level.nivel] as const]
+    )
   )
 );
 
@@ -86,7 +92,7 @@ export const CnaeErrorCode = Schema.Literals([
 ]);
 export type CnaeErrorCode = (typeof CnaeErrorCode)["Type"];
 
-export class CnaeError extends Schema.TaggedErrorClass<CnaeError>()(
+export class CnaeError extends Schema.TaggedError<CnaeError, { readonly brand: unique symbol }>()(
   "CnaeError",
   {
     code: CnaeErrorCode,
@@ -104,13 +110,14 @@ export class CnaeError extends Schema.TaggedErrorClass<CnaeError>()(
   }
 }
 
-const cleanText = (value: string) => value.replace(/\s+/g, " ").trim();
+const cleanText = (value: string) =>
+  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
 
 const listText = (value: readonly string[] | null | undefined) =>
   Match.value(value).pipe(
     Match.when(Match.null, () => ""),
     Match.when(Match.undefined, () => ""),
-    Match.orElse((items) => items.join(" "))
+    Match.orElse((items) => pipe(items, Arr.join(" ")))
   );
 
 const flattenSubclasse = (raw: SubclasseRaw) => {
@@ -135,28 +142,34 @@ const flattenSubclasse = (raw: SubclasseRaw) => {
     secaoId: secao.id,
     secaoDescricao,
     busca: normalize(
-      [
-        descricao,
-        listText(raw.atividades),
-        classeDescricao,
-        grupoDescricao,
-        divisaoDescricao,
-        secaoDescricao,
-      ].join(" ")
+      pipe(
+        [
+          descricao,
+          listText(raw.atividades),
+          classeDescricao,
+          grupoDescricao,
+          divisaoDescricao,
+          secaoDescricao,
+        ],
+        Arr.join(" ")
+      )
     ),
   } satisfies SubclasseFlat;
 };
 
 export const flatten = (payload: readonly SubclasseRaw[]) =>
-  payload.map(flattenSubclasse);
+  pipe(payload, Arr.map(flattenSubclasse));
 
 export const subclassePassage = (row: SubclasseFlat) =>
   cleanText(
-    [
-      row.descricao,
-      row.classeDescricao,
-      row.grupoDescricao,
-      row.divisaoDescricao,
-      row.secaoDescricao,
-    ].join(" ")
+    pipe(
+      [
+        row.descricao,
+        row.classeDescricao,
+        row.grupoDescricao,
+        row.divisaoDescricao,
+        row.secaoDescricao,
+      ],
+      Arr.join(" ")
+    )
   );

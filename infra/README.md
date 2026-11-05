@@ -30,7 +30,7 @@ table list in `infra/` to keep in sync (the old `infra/tables.ts` is gone).
 
 | file | role |
 |---|---|
-| `local-database.ts` | `Mcp.LocalDatabase` Resource + Provider — resolves the dataDir (`ensureDataDir`), opens PGlite, runs `provisionSchema` (extensions + every table). Redeploy is a no-op while `schemaHash()` (sha256 of `schemaDdlText`) is unchanged and the dataDir still exists (`diff` via `FileSystem.exists`). `schemaDdl`/`schemaHash` are derived from the kernel registry — no Drizzle-internals casts |
+| `local-database.ts` | `Mcp.LocalDatabase` Resource + Provider — resolves the dataDir (`ensureDataDir`), opens PGlite, runs `provisionSchema` (extensions + every table). Redeploy is a no-op while `schemaHash` (`Effect<string>`) (sha256 of `schemaDdlText`) is unchanged and the dataDir still exists (`diff` via `FileSystem.exists`). `schemaDdl`/`schemaHash` are derived from the kernel registry — no Drizzle-internals casts |
 | `local-index.ts` | `Mcp.LocalIndex` Resource + Provider — runs one source's index pipeline. **Registry + runner are injected** (`LocalIndexConfig`) so it is testable offline; it must never import `src/runtime`. Attributes carry `scopeHash` + `schemaHash`; `diff` re-indexes only when the scope or schema changed |
 | `local-index.run.ts` | production wiring — binds the real `indexRegistry` + `src/runtime`. `defaultConfig.run` runs `provisionSchema` **then** the source's index in the same runtime connection. Exposes the Effect-native `deployIndex` / `deployAll` (programmatic `deploy` from `alchemy/Deploy`, stack `DadosPublicosIndex`) used by the CLI. **Bun-only** (pulls `@effect/platform-bun` via `src/runtime`); keep it out of any vitest import |
 | `index-bundle.ts` | `Mcp.IndexBundle` Resource + Provider — snapshots the PGlite dataDir to a `dest` dir for distributing prebuilt indexes. Always-update `diff`; `delete` removes `dest`. Standalone (`McpBundle` collection), opt-in. **Keep `dest` distinct from the live dataDir** |
@@ -52,4 +52,4 @@ runtime (`DADOS_PUBLICOS_MCP_DATA_DIR`, else `$XDG_DATA_HOME`/`~/.local/share/da
 pass `{ dataDir }` to `LocalDatabase` to override.
 
 The deploy is covered by `tests/integration/{local-database,local-index,index-bundle}.integration.test.ts`
-via the `alchemy/Test/Vitest` harness (create → assert → destroy).
+via the `@alchemy.run/test/Vitest` harness (create → assert → destroy).

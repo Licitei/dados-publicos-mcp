@@ -1,4 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import { pipeline } from "@huggingface/transformers";
 import { embeddingDimensions } from "./dimensions";
 
@@ -13,7 +15,7 @@ const prefix = {
 const EmbedErrorCode = Schema.Literals(["embed.LOAD", "embed.RUN"]);
 export type EmbedErrorCode = (typeof EmbedErrorCode)["Type"];
 
-export class EmbedError extends Schema.TaggedErrorClass<EmbedError>()(
+export class EmbedError extends Schema.TaggedError<EmbedError, { readonly brand: unique symbol }>()(
   "EmbedError",
   {
     code: EmbedErrorCode,
@@ -30,9 +32,12 @@ export class EmbedError extends Schema.TaggedErrorClass<EmbedError>()(
   }
 }
 
+const EmbedDtype = Schema.Literals(["fp32", "fp16", "q8", "int8", "uint8", "q4"]);
+
 const EmbedConfigSchema = Schema.Struct({
   model: Schema.String,
-  dimensions: Schema.Number,
+  dimensions: Schema.Finite,
+  dtype: EmbedDtype,
 });
 export type EmbedConfig = (typeof EmbedConfigSchema)["Type"];
 
@@ -42,6 +47,7 @@ export const EmbedConfig = Context.Reference<EmbedConfig>(
     defaultValue: () => ({
       model: "Xenova/multilingual-e5-small",
       dimensions: embeddingDimensions,
+      dtype: "fp32",
     }),
   }
 );
@@ -50,8 +56,8 @@ const makeEmbedder = Effect.gen(function* () {
   const cfg = yield* EmbedConfig;
   const extractor = yield* Effect.acquireRelease(
     Effect.tryPromise({
-      try: () => pipeline("feature-extraction", cfg.model),
-      catch: (cause) => new EmbedError({ code: "embed.LOAD", cause: String(cause) }),
+      try: () => pipeline("feature-extraction", cfg.model, { dtype: cfg.dtype }),
+      catch: (cause) => EmbedError.make({ code: "embed.LOAD", cause: String(cause) }),
     }),
     (instance) => Effect.promise(() => instance.dispose())
   );
@@ -59,14 +65,15 @@ const makeEmbedder = Effect.gen(function* () {
   return {
     embed: (kind: EmbedKind, texts: readonly string[]) =>
       Effect.tryPromise({
-        try: async (): Promise<number[][]> => {
-          const tensor = await extractor(
-            texts.map((text) => prefix[kind] + text),
+        try: (): Promise<number[][]> =>
+          extractor(
+            pipe(
+              texts,
+              Arr.map((text) => prefix[kind] + text)
+            ),
             { pooling: "mean", normalize: true }
-          );
-          return tensor.tolist();
-        },
-        catch: (cause) => new EmbedError({ code: "embed.RUN", cause: String(cause) }),
+          ).then((tensor) => tensor.tolist()),
+        catch: (cause) => EmbedError.make({ code: "embed.RUN", cause: String(cause) }),
       }),
   };
 });
@@ -74,6 +81,6 @@ const makeEmbedder = Effect.gen(function* () {
 export class Embedder extends Context.Service<
   Embedder,
   Effect.Success<typeof makeEmbedder>
->()("dados-publicos-mcp/Embedder") {}
+>()("dados-publicos-mcp/kernel/embed/embedder") {}
 
 export const EmbedderLive = Layer.effect(Embedder)(makeEmbedder);

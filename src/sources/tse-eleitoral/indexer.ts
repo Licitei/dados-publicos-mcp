@@ -1,4 +1,5 @@
-import { Effect, Match } from "effect";
+import { Effect, Match, pipe } from "effect";
+import * as Arr from "effect/Array";
 import { Db } from "../../kernel/db/client";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { bem } from "../../kernel/db/schemas/bem";
@@ -6,7 +7,7 @@ import { candidato } from "../../kernel/db/schemas/candidato";
 import { despesa } from "../../kernel/db/schemas/despesa";
 import { receita } from "../../kernel/db/schemas/receita";
 import { receitaOriginario } from "../../kernel/db/schemas/receita-originario";
-import { httpResponse } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   acceptBrasil,
@@ -34,14 +35,16 @@ const range = (count: number) =>
   Array.from({ length: count }, (_, index) => index);
 
 const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
+  pipe(
+    range(Math.ceil(items.length / chunkSize)),
+    Arr.map((position) =>
+      items.slice(position * chunkSize, position * chunkSize + chunkSize)
+    )
   );
 
 const downloadZip = (url: string) =>
-  httpResponse(url, { headers: { accept: "application/zip" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, { headers: { accept: "application/zip" } })
   );
 
 const insertCandidatos = (rows: readonly CandidatoFlat[]) =>
@@ -85,8 +88,11 @@ export const indexCandidatos = (ano: number) =>
   Effect.gen(function* () {
     const bytes = yield* downloadZip(zipUrl("consulta_cand", ano));
     const entries = yield* unzipEntries(bytes, acceptBrasil(candidatoFile));
-    const rows = entries.flatMap((entry) =>
-      mapCandidatos(parseCsvRecords(entry.data, csvOptions))
+    const rows = pipe(
+      entries,
+      Arr.flatMap((entry) =>
+        mapCandidatos(parseCsvRecords(entry.data, csvOptions))
+      )
     );
     yield* insertCandidatos(rows);
     return rows.length;
@@ -96,8 +102,9 @@ export const indexBens = (ano: number) =>
   Effect.gen(function* () {
     const bytes = yield* downloadZip(zipUrl("bem_candidato", ano));
     const entries = yield* unzipEntries(bytes, acceptBrasil(bemFile));
-    const rows = entries.flatMap((entry) =>
-      mapBens(parseCsvRecords(entry.data, csvOptions))
+    const rows = pipe(
+      entries,
+      Arr.flatMap((entry) => mapBens(parseCsvRecords(entry.data, csvOptions)))
     );
     yield* insertBens(rows);
     return rows.length;
@@ -128,5 +135,8 @@ export const indexPrestacao = (ano: number) =>
       (entry) => loadEntry(entry.name, parseCsvRecords(entry.data, csvOptions)),
       { concurrency: 1 }
     );
-    return counts.reduce((acc, count) => acc + count, 0);
+    return pipe(
+      counts,
+      Arr.reduce(0, (acc, count) => acc + count)
+    );
   });

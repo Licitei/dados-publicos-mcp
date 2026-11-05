@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { DateTime, Option, Predicate, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const base = "https://pncp.gov.br/api/consulta/v1";
@@ -45,22 +48,24 @@ export const pageUrl = (opts: PageUrlOptions) => {
     ["uf", opts.uf],
   ];
   const params = new URLSearchParams(
-    entries
-      .filter(
+    pipe(
+      entries,
+      Arr.filter(
         ([, value]) =>
           value !== undefined && value !== null && String(value).length !== 0
-      )
-      .map(([key, value]) => [key, String(value)])
+      ),
+      Arr.map(([key, value]) => [key, String(value)] as const)
+    )
   );
   return `${base}/${opts.endpoint}?${params.toString()}`;
 };
 
 const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))
 );
 const looseString = Schema.optional(Schema.NullOr(Schema.String));
 const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number, Schema.Boolean]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]))
 );
 
 const orgaoEntidadeRaw = Schema.optional(
@@ -154,32 +159,32 @@ export type AtaRaw = (typeof AtaRaw)["Type"];
 
 export const ContratacaoPayload = Schema.Struct({
   data: Schema.Array(ContratacaoRaw),
-  totalPaginas: Schema.Number,
-  paginasRestantes: Schema.optional(Schema.Number),
+  totalPaginas: Schema.Finite,
+  paginasRestantes: Schema.optional(Schema.Finite),
 });
 
 export const ContratoPayload = Schema.Struct({
   data: Schema.Array(ContratoRaw),
-  totalPaginas: Schema.Number,
-  paginasRestantes: Schema.optional(Schema.Number),
+  totalPaginas: Schema.Finite,
+  paginasRestantes: Schema.optional(Schema.Finite),
 });
 
 export const AtaPayload = Schema.Struct({
   data: Schema.Array(AtaRaw),
-  totalPaginas: Schema.Number,
-  paginasRestantes: Schema.optional(Schema.Number),
+  totalPaginas: Schema.Finite,
+  paginasRestantes: Schema.optional(Schema.Finite),
 });
 
 export const ContratacaoFlat = Schema.Struct({
   numeroControlePNCP: Schema.String,
-  anoCompra: Schema.NullOr(Schema.Number),
-  sequencialCompra: Schema.NullOr(Schema.Number),
+  anoCompra: Schema.NullOr(Schema.Finite),
+  sequencialCompra: Schema.NullOr(Schema.Finite),
   objetoCompra: Schema.NullOr(Schema.String),
-  modalidadeId: Schema.NullOr(Schema.Number),
+  modalidadeId: Schema.NullOr(Schema.Finite),
   modalidadeNome: Schema.NullOr(Schema.String),
   situacaoCompraNome: Schema.NullOr(Schema.String),
-  valorTotalEstimado: Schema.NullOr(Schema.Number),
-  valorTotalHomologado: Schema.NullOr(Schema.Number),
+  valorTotalEstimado: Schema.NullOr(Schema.Finite),
+  valorTotalHomologado: Schema.NullOr(Schema.Finite),
   dataPublicacaoPncp: Schema.NullOr(Schema.String),
   dataAberturaProposta: Schema.NullOr(Schema.String),
   dataEncerramentoProposta: Schema.NullOr(Schema.String),
@@ -199,17 +204,17 @@ export type ContratacaoFlat = (typeof ContratacaoFlat)["Type"];
 export const ContratoFlat = Schema.Struct({
   numeroControlePNCP: Schema.String,
   numeroControlePncpCompra: Schema.NullOr(Schema.String),
-  anoContrato: Schema.NullOr(Schema.Number),
-  sequencialContrato: Schema.NullOr(Schema.Number),
+  anoContrato: Schema.NullOr(Schema.Finite),
+  sequencialContrato: Schema.NullOr(Schema.Finite),
   objetoContrato: Schema.NullOr(Schema.String),
   niFornecedor: Schema.NullOr(Schema.String),
   tipoPessoa: Schema.NullOr(Schema.String),
   nomeRazaoSocialFornecedor: Schema.NullOr(Schema.String),
   niFornecedorSubContratado: Schema.NullOr(Schema.String),
   nomeFornecedorSubContratado: Schema.NullOr(Schema.String),
-  valorInicial: Schema.NullOr(Schema.Number),
-  valorGlobal: Schema.NullOr(Schema.Number),
-  valorAcumulado: Schema.NullOr(Schema.Number),
+  valorInicial: Schema.NullOr(Schema.Finite),
+  valorGlobal: Schema.NullOr(Schema.Finite),
+  valorAcumulado: Schema.NullOr(Schema.Finite),
   dataAssinatura: Schema.NullOr(Schema.String),
   dataVigenciaInicio: Schema.NullOr(Schema.String),
   dataVigenciaFim: Schema.NullOr(Schema.String),
@@ -228,7 +233,7 @@ export type ContratoFlat = (typeof ContratoFlat)["Type"];
 export const AtaFlat = Schema.Struct({
   numeroControlePNCPAta: Schema.String,
   numeroControlePNCPCompra: Schema.NullOr(Schema.String),
-  anoAta: Schema.NullOr(Schema.Number),
+  anoAta: Schema.NullOr(Schema.Finite),
   numeroAtaRegistroPreco: Schema.NullOr(Schema.String),
   objetoContratacao: Schema.NullOr(Schema.String),
   vigenciaInicio: Schema.NullOr(Schema.String),
@@ -249,7 +254,7 @@ export const PncpErrorCode = Schema.Literals([
 ]);
 export type PncpErrorCode = (typeof PncpErrorCode)["Type"];
 
-export class PncpError extends Schema.TaggedErrorClass<PncpError>()("PncpError", {
+export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: unique symbol }>()("PncpError", {
   code: PncpErrorCode,
 }) {
   override get message() {
@@ -266,8 +271,10 @@ export class PncpError extends Schema.TaggedErrorClass<PncpError>()("PncpError",
 
 type Loose = string | number | boolean | null | undefined;
 
-const toStringOrNull = (value: Loose) =>
-  value === null || value === undefined ? null : String(value).trim() || null;
+const toStringOrNull = (value: Loose) => {
+  const text = value === null || value === undefined ? "" : Str.trim(String(value));
+  return text === "" ? null : text;
+};
 
 const toIntOrNull = (value: Loose) => {
   const text = toStringOrNull(value);
@@ -285,15 +292,21 @@ const toBool = (value: Loose) =>
   typeof value === "boolean"
     ? value
     : typeof value === "string"
-      ? value.trim().toLowerCase() === "true"
+      ? pipe(value, Str.trim, Str.toLowerCase) === "true"
       : value === null || value === undefined
         ? null
         : Boolean(value);
 
-const cleanText = (value: string) => value.replace(/\s+/g, " ").trim();
+const cleanText = (value: string) =>
+  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
 
 const firstString = (...values: readonly Loose[]) =>
-  values.map(toStringOrNull).find((value) => value !== null) ?? null;
+  pipe(
+    values,
+    Arr.map(toStringOrNull),
+    Arr.findFirst(Predicate.isNotNull),
+    Option.getOrNull
+  );
 
 const flattenContratacao = (raw: ContratacaoRaw) => {
   const numeroControlePNCP = toStringOrNull(raw.numeroControlePNCP);
@@ -334,7 +347,7 @@ const flattenContratacao = (raw: ContratacaoRaw) => {
 };
 
 export const flattenContratacoes = (rows: readonly ContratacaoRaw[]) =>
-  rows.flatMap(flattenContratacao);
+  Arr.flatMap(rows, flattenContratacao);
 
 const flattenContrato = (raw: ContratoRaw) => {
   const numeroControlePNCP = toStringOrNull(raw.numeroControlePNCP);
@@ -385,7 +398,7 @@ const flattenContrato = (raw: ContratoRaw) => {
 };
 
 export const flattenContratos = (rows: readonly ContratoRaw[]) =>
-  rows.flatMap(flattenContrato);
+  Arr.flatMap(rows, flattenContrato);
 
 const flattenAta = (raw: AtaRaw) => {
   const numeroControlePNCPAta = firstString(
@@ -421,7 +434,7 @@ const flattenAta = (raw: AtaRaw) => {
       ];
 };
 
-export const flattenAtas = (rows: readonly AtaRaw[]) => rows.flatMap(flattenAta);
+export const flattenAtas = (rows: readonly AtaRaw[]) => Arr.flatMap(rows, flattenAta);
 
 export const passageContratacao = (row: ContratacaoFlat) =>
   cleanText(row.objetoCompra ?? "");
@@ -432,13 +445,13 @@ export const passageContrato = (row: ContratoFlat) =>
 export const passageAta = (row: AtaFlat) =>
   cleanText(row.objetoContratacao ?? "");
 
-const pad = (value: number) => String(value).padStart(2, "0");
+const pad = (value: number) => Str.padStart(2, "0")(String(value));
 
 export const ymd = (millis: number) => {
-  const date = new Date(millis);
-  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(
-    date.getUTCDate()
-  )}`;
+  const date = DateTime.makeUnsafe(millis);
+  return `${DateTime.getPartUtc(date, "year")}${pad(
+    DateTime.getPartUtc(date, "month")
+  )}${pad(DateTime.getPartUtc(date, "day"))}`;
 };
 
 export const defaultWindowStart = (millis: number) =>

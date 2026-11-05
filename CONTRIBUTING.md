@@ -35,7 +35,7 @@ bun run test:integration              # testes de integração
 - Texto para usuário pode ser em português.
 - Sem secrets, tokens ou chaves de API.
 - Sem chamadas online em tools de consulta: consulta é local após indexação.
-- Erros são dados tipados com `Schema.TaggedErrorClass` e `Effect.fail`.
+- Erros são dados tipados com `Schema.TaggedError` e `Effect.fail`.
 - Serviços usam `Context.Service` + `Layer.effect`.
 - Fan-out externo deve ter concorrência limitada.
 - Queries com `LIMIT` precisam de ordenação determinística.

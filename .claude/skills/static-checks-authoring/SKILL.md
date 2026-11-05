@@ -5,13 +5,13 @@ description: Use when adding or changing a rule in tooling/static-checks/check-d
 
 # Extending the declarative-error static checks
 
-`tooling/static-checks/check-declarative-errors.ts` is the `bun run lint:errors` gate. It is **AST-based** (`ts.createSourceFile` + recursive `ts.forEachChild` walk over the typescript compiler API), not regex/line-based. AST is non-negotiable here: regex cannot tell a TS `as` cast (`ts.AsExpression`) from a SQL `as` alias inside a drizzle `sql\`...\`` template (`TemplateExpression`) or `import * as` (`NamespaceImport`).
+`tooling/static-checks/check-declarative-errors.ts` is the `bun run lint:errors` gate. It is **AST-based** (TS7 AST from `tsrs`: one `tsrs/async` `API` process, `api.createSourceFile` lease per file disposed via `await using`, recursive `node.forEachChild` walk; guards/kinds from `tsrs/ast`), not regex/line-based. AST is non-negotiable here: regex cannot tell a TS `as` cast (`ts.AsExpression`) from a SQL `as` alias inside a drizzle `sql\`...\`` template (`TemplateExpression`) or `import * as` (`NamespaceImport`).
 
 ## The model
 
 - `walk(root)` yields every checked file under the requested roots (default `["src"]`); `shouldSkip` drops `dist`/`node_modules`/`__tests__`/`test`/etc.
 - Per file: `const strict = strictPrefixes.some((p) => rel.startsWith(p))` where `strictPrefixes = ["src/kernel/", "src/sources/"]`.
-- `collect(file, source, strict)` runs `visit(node, inGetMessage)` recursively. Dispatch on **named** `ts.SyntaxKind` constants and `ts.isXxx` type guards — never literal kind numbers (in TS 6, `VariableStatement === 244`, not 245).
+- `collect(file, source, strict)` runs `visit(node, inGetMessage)` recursively. Dispatch on **named** `ts.SyntaxKind` constants and `ts.isXxx` type guards — never literal kind numbers (they differ between TS versions).
 - `at(node, rule, message)` records a violation with line/column. Any violation → `process.exit(1)`.
 
 ## Two tiers
@@ -25,7 +25,7 @@ New rules almost always go in the strict block.
 
 - `text(node, source)` — `node.getText(source)` with whitespace collapsed. Use it before any string compare so newlines don't defeat the match.
 - `bodyHasNewError` / `containsSwitch` — bounded recursive finders.
-- `taggedErrorFields(classDecl)` — the `Schema.TaggedErrorClass(...)` options object literal.
+- `taggedErrorFields(classDecl)` — the `Schema.TaggedError(...)` options object literal.
 - `fileHasLayerExport(source)` — does the file export a `Layer.*` binding (for the service-needs-layer rule).
 - `widenedError` / `bannedServiceApi` — the exact-match sets for the error-channel and v3-service rules.
 

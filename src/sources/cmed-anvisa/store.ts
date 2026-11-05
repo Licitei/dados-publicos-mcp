@@ -39,7 +39,7 @@ const makeCmed = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmMedicamento = (q: string, limit: number) =>
     db.execute(sql`
@@ -48,7 +48,7 @@ const makeCmed = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, id
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarMedicamento = (
     termo: string,
@@ -70,7 +70,7 @@ const makeCmed = Effect.gen(function* () {
       from ${medicamentoCmed}
       where ean1 = ${onlyDigits(ean)}
       limit 10
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const precoPorGgrem = (ggrem: string) =>
     db.execute(sql`
@@ -78,15 +78,15 @@ const makeCmed = Effect.gen(function* () {
       from ${medicamentoCmed}
       where ggrem = ${onlyDigits(ggrem)}
       limit 10
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const index = Effect.gen(function* () {
     yield* db.delete(medicamentoCmed);
     const inserted = yield* indexCmed;
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${medicamentoCmed}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: Number(rows[0]?.count ?? 0) };
   });
 
   return {
@@ -101,6 +101,6 @@ const makeCmed = Effect.gen(function* () {
 export class CmedAnvisa extends Context.Service<
   CmedAnvisa,
   Effect.Success<typeof makeCmed>
->()("dados-publicos-mcp/CmedAnvisa") {}
+>()("dados-publicos-mcp/sources/cmed-anvisa/store/CmedAnvisa") {}
 
 export const CmedAnvisaLive = Layer.effect(CmedAnvisa)(makeCmed);

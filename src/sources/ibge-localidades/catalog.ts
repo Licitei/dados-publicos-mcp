@@ -1,4 +1,7 @@
 import { Effect, Match, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
 export const codigoIbgeLength = 7;
@@ -7,40 +10,40 @@ export const municipiosUrl =
   "https://servicodados.ibge.gov.br/api/v1/localidades/municipios";
 
 const RegiaoRaw = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   sigla: Schema.String,
   nome: Schema.String,
 });
 
 const UfRaw = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   sigla: Schema.String,
   nome: Schema.String,
   regiao: RegiaoRaw,
 });
 
 const MicrorregiaoRaw = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   nome: Schema.String,
   mesorregiao: Schema.Struct({
-    id: Schema.Number,
+    id: Schema.Finite,
     nome: Schema.String,
     UF: UfRaw,
   }),
 });
 
 const RegiaoImediataRaw = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   nome: Schema.String,
   "regiao-intermediaria": Schema.Struct({
-    id: Schema.Number,
+    id: Schema.Finite,
     nome: Schema.String,
     UF: UfRaw,
   }),
 });
 
 export const MunicipioRaw = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   nome: Schema.String,
   microrregiao: Schema.NullOr(MicrorregiaoRaw),
   "regiao-imediata": Schema.optional(RegiaoImediataRaw),
@@ -54,9 +57,9 @@ export const MunicipioFlat = Schema.Struct({
   nome: Schema.String,
   nomeNormalizado: Schema.String,
   ufSigla: Schema.String,
-  ufId: Schema.Number,
+  ufId: Schema.Finite,
   ufNome: Schema.String,
-  mesorregiaoId: Schema.NullOr(Schema.Number),
+  mesorregiaoId: Schema.NullOr(Schema.Finite),
   mesorregiaoNome: Schema.NullOr(Schema.String),
   regiaoSigla: Schema.String,
 });
@@ -93,7 +96,7 @@ export const ufs = [
 ];
 export type Uf = (typeof ufs)[number];
 
-export const ufBySigla = new Map(ufs.map((uf) => [uf.sigla, uf] as const));
+export const ufBySigla = new Map(Arr.map(ufs, (uf) => [uf.sigla, uf] as const));
 
 export const IbgeErrorCode = Schema.Literals([
   "ibge.MUNICIPIO_NOT_FOUND",
@@ -103,7 +106,10 @@ export const IbgeErrorCode = Schema.Literals([
 ]);
 export type IbgeErrorCode = (typeof IbgeErrorCode)["Type"];
 
-export class IbgeError extends Schema.TaggedErrorClass<IbgeError>()("IbgeError", {
+export class IbgeError extends Schema.TaggedError<
+  IbgeError,
+  { readonly brand: unique symbol }
+>()("IbgeError", {
   code: IbgeErrorCode,
   termo: Schema.optional(Schema.String),
   uf: Schema.optional(Schema.String),
@@ -114,7 +120,7 @@ export class IbgeError extends Schema.TaggedErrorClass<IbgeError>()("IbgeError",
   override get message() {
     switch (this.code) {
       case "ibge.MUNICIPIO_NOT_FOUND":
-        return `Municipio nao encontrado: ${this.termo}${this.uf ? `/${this.uf}` : ""}`;
+        return `Municipio nao encontrado: ${this.termo}${this.uf === undefined || this.uf === "" ? "" : `/${this.uf}`}`;
       case "ibge.CODE_NOT_FOUND":
         return `Codigo IBGE nao encontrado: ${this.codigo} (normalizado: ${this.normalizado}). O codigo de municipio tem ${codigoIbgeLength} digitos.`;
       case "ibge.UF_INVALID":
@@ -126,7 +132,7 @@ export class IbgeError extends Schema.TaggedErrorClass<IbgeError>()("IbgeError",
 }
 
 const formatCodigoIbge = (id: number) =>
-  String(id).padStart(codigoIbgeLength, "0");
+  pipe(String(id), Str.padStart(codigoIbgeLength, "0"));
 
 const flattenMunicipio = (raw: MunicipioRaw) =>
   Match.value(raw.microrregiao).pipe(
@@ -134,7 +140,7 @@ const flattenMunicipio = (raw: MunicipioRaw) =>
       Match.value(raw["regiao-imediata"]).pipe(
         Match.when(Match.undefined, () =>
           Effect.fail(
-            new IbgeError({
+            IbgeError.make({
               code: "ibge.PARSE",
               municipio: `${raw.id} (${raw.nome})`,
             })

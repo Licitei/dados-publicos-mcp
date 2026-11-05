@@ -15,8 +15,8 @@ the low-level MCP SDK `Server`, and one CLI. Every file you touch follows the v2
 | | **v2 — the only world** |
 |---|---|
 | Lives in | `src/kernel/**`, `src/sources/**`, `src/serve/**`, `src/runtime.ts`, `src/index.ts` |
-| Stack | Effect `4.0.0-beta.81` + PGlite + Drizzle + local embeddings |
-| Errors | `Schema.TaggedErrorClass` + `Effect.fail` (never `throw`) |
+| Stack | Effect `4.1.2` + PGlite + Drizzle + local embeddings |
+| Errors | `Schema.TaggedError` + `Effect.fail` (never `throw`) |
 | Identifiers | **English** — pt-BR **only** inside user-facing error/description strings |
 | Static rules | universal **+ v2-strict** on `src/kernel/` and `src/sources/` |
 
@@ -28,12 +28,12 @@ src/
     db/                ONE PGlite db: client.ts, persistence.ts, data-dir.ts, ddl.ts,
                        schema-registry.ts, provision.ts, relations.ts, schemas/*
     embed/             local embeddings (@huggingface/transformers, multilingual-e5-small)
-    http/              the gold-standard HTTP client (getJson + Schema decode + classified retry)
+    http/              the gold-standard `Http` service (bytes/text/json(Schema), classified retry, HttpOriginOverride)
     csv/ zip/ xlsx/ text/   parsing kernels reused across sources
   sources/<x>/         21 vertical slices: catalog.ts + indexer.ts + store.ts
   serve/               the MCP tool layer (declared tools over the low-level SDK Server)
   runtime.ts           ManagedRuntime over AppLayer (21 sources ⊕ Infra)
-  index.ts             the CLI (effect/unstable/cli + @effect/platform-bun)
+  index.ts             the CLI (effect/cli + @effect/platform-bun)
 ```
 
 The 21 sources: `legislacao`, `ibge-localidades`, `cnae`, `catmat-catser`, `sicaf-fornecedores`,
@@ -56,7 +56,7 @@ bun src/index.ts index querido-diario --ufs SP,RJ --anos 2024,2025
 bun run check                                 # THE GATE — make it green before finishing any change
 ```
 
-`bun run check` = `typecheck` (`tsc --noEmit`, the type gate — no `dist`, `src` ships as-is)
+`bun run check` = `typecheck` (`effect-tsgo tsrs --noEmit --fast`, the type gate — no `dist`, `src` ships as-is)
 `+ lint:errors` (the AST checker) `+ test:unit` (`vitest run`). There is **no `bun test`** anymore and
 **no CI** — `check` is the only gate; `prepublishOnly` re-runs it. The integration suite is separate
 (`bun run test:integration`, `vitest.integration.config.ts`).
@@ -69,7 +69,7 @@ node `fs`-sync, no `process.env`). The single source of the schema is `src/kerne
 (`provisionSchema`) creates the extensions + every table.
 
 - `bun run infra:deploy` provisions the database (extensions + DDL) via the `Mcp.LocalDatabase`
-  resource. Idempotent: a redeploy is a **no-op** while the schema sha256 (`schemaHash()` over
+  resource. Idempotent: a redeploy is a **no-op** while the schema sha256 (`schemaHash` (an `Effect<string>`) over
   `schemaDdlText`) is unchanged and the dataDir still exists on disk. `bun run infra:destroy` tears the
   `DadosPublicosLocal` stack down (it does **not** wipe the dataDir).
 - `bun run index [<fonte>]` is **Alchemy-backed too**: it deploys `Mcp.LocalIndex` resources
@@ -94,7 +94,7 @@ The runtime never provisions: `serve` only **opens** the already-provisioned dat
 tier but follow the same idiom by convention):
 `no-as-cast` (`as const`/`satisfies` ok) · `no-let-var` · `no-enum` · `no-imperative-while-loop` ·
 `no-mutation-accumulator` (`+=`/`++`) · `no-mutable-mapped-type` (`-readonly`) ·
-`switch-only-in-get-message` · `error-class-must-use-TaggedErrorClass` ·
+`switch-only-in-get-message` · `error-class-must-use-TaggedError` ·
 `error-code-discrimination` · `no-barrel-passthrough-reexport` ·
 `retry-must-classify-errors` · `no-unbounded-concurrency` ·
 `no-widened-effect-error-channel` (no `Effect.Effect<_, Error|unknown|any>`) ·
@@ -109,7 +109,7 @@ false-positive-clean on the six gold files first.
 **`src/kernel/http/client.ts` is THE reference idiom.** Every file copies its moves:
 
 - **Closed sets**: `Schema.Literals([...])` + `export type X = (typeof X)["Type"]` — never `enum`.
-- **Errors**: `class XError extends Schema.TaggedErrorClass<XError>()("XError", { code, ... })` with
+- **Errors**: `class XError extends Schema.TaggedError<XError>()("XError", { code, ... })` with
   `override get message()` switching on `this.code` and returning pt-BR strings. Built inline at the
   failure site (`Effect.fail(new XError({ code, ... }))`), never via a helper.
 - **Config**: `Context.Reference` over a `Schema.Struct` with a `defaultValue` thunk (`DbConfig`,
@@ -119,7 +119,7 @@ false-positive-clean on the six gold files first.
 - **Branching**: `Match.value/.tag/.when/.orElse`, `Match.type<T>()` — `switch` only in `get message()`.
 - **Effects**: pipe combinators (`Effect.flatMap`/`mapError`/`retry`/`catchTag`/`timeout`/`forEach`/
   `acquireRelease`/`tryPromise({ try, catch })`). Errors flow through `Effect.fail` — **never throw**.
-- **Boundaries**: HTTP via the kernel (`getJson(url, Schema)` decodes JSON through a Schema so parse
+- **Boundaries**: HTTP via the kernel `Http` service (`yield* Http` then `http.json(url, Schema)` decodes JSON through a Schema so parse
   faults become a typed `http.PARSE`; never `response.json()`/`JSON.parse` raw). Fan-out to gov.br is
   **bounded** (`Effect.forEach(xs, f, { concurrency: 2 })`). Retry is **classified** (the kernel
   http client already does `Effect.retry` over a classified retryable-status set — do not touch it).
@@ -190,7 +190,7 @@ slice is three files plus its table schema(s):
    needed. Registering the table in `schema-registry.ts` is what makes it provisioned, hashed, and
    counted by `status_indices` — there is no separate table list to keep in sync.
 2. **`sources/<x>/catalog.ts`**: declared static data (the source's URLs / norms / modalidades /
-   error catalog as a `Schema.TaggedErrorClass`) and pure tree/shape builders.
+   error catalog as a `Schema.TaggedError`) and pure tree/shape builders.
 3. **`sources/<x>/indexer.ts`**: fetch via the kernel http client, parse via a kernel
    (`csv`/`zip`/`xlsx`/`text`), map to rows, embed passages. Bounded fan-out, classified retry.
 4. **`sources/<x>/store.ts`**: the `Context.Service` (`make` gen function returning the read/index
@@ -235,7 +235,7 @@ is the one introspection tool.
 
 ## The CLI & runtime
 
-`src/index.ts` is `effect/unstable/cli` (`Command`/`Flag`/`Argument`), run via `BunRuntime.runMain`
+`src/index.ts` is `effect/cli` (`Command`/`Flag`/`Argument`), run via `BunRuntime.runMain`
 with `@effect/platform-bun`'s `BunServices.layer`. The **root command with no subcommand** is `serve()`
 (stdio MCP server). The **`index` subcommand** takes an optional `<fonte>` and `--include-heavy`/
 `--ufs`/`--anos`/`--mes` flags; it resolves the source via `FonteKey` and **deploys it through
@@ -247,13 +247,21 @@ the shared `runtime`, so schema and index land in one persistent connection. An 
 
 `src/runtime.ts` is a single `ManagedRuntime` over `AppLayer` = the 21 source `XLive` layers
 `provideMerge` `Infra` (`DbLayer` over the persistence layer ⊕ `EmbedderLive` ⊕
-`FetchHttpClient.layer`). Both the CLI index path and the serve callbacks resolve services against it.
+`HttpLive`, which wraps `FetchHttpClient` internally). Both the CLI index path and the serve callbacks resolve services against it.
 
 ## Tests
 
 `@effect/vitest` only (no `bun test`, no `__tests__/`). `tests/unit/*.unit.test.ts` and
-`tests/integration/*.integration.test.ts`: `it.effect` runs the Effect with a `TestContext`; stub I/O
-via injected layers (e.g. `FetchHttpClient.Fetch`); drive retry/timeout with `TestClock`. Because
+`tests/integration/*.integration.test.ts`. Suites use `layer(TestLayer)("…", (it) => it.effect(…))`
+(one provide per suite — `strictEffectProvide`). **No fetch mocks**: HTTP goes over real TCP to a local
+fixture server — `fixtureLayer(routes)` in `tests/unit/support/fixture-server.ts` serves declared
+routes and rewrites upstream origins via `HttpClient.mapRequest`, so production URLs stay untouched;
+`fixtureLayer` provides the real kernel `HttpLive` plus `HttpOriginOverride` pointing at the server;
+zips are built with `tests/unit/support/stored-zip.ts` (`store` or real `deflate-raw`). Retry/timeout
+tests use real short durations under `layer(L, { excludeTestServices: true })`; avoid
+`TestClock.setTime` with the DB layer. No test doubles: embeddings use the real
+model via `TestEmbedderLive` (`tests/unit/support/test-embedder.ts`, multilingual-e5-small `q8`;
+production uses `fp32`). First run downloads the model into the transformers cache. Because
 stores no longer self-provision, tests provide **`TestDbLive`** (`tests/unit/support/test-db.ts` =
 `DbLayer` + a one-time `provisionSchema` over **ephemeral** PGlite) wherever they used the raw
 `DbLayer`; a single `TestDbLive` reference is memoized across the layer graph, so the same db + one
@@ -266,6 +274,6 @@ cross-platform temp via `mkdtemp(join(tmpdir(), …))`. The Alchemy resources ar
 
 Architecture decisions: `docs/adr/0001-effect-pglite.md`,
 `docs/adr/0002-declarative-architecture-and-folders.md` (note: the linter requires
-`Schema.TaggedErrorClass`, which supersedes those ADRs' `Data.TaggedError` wording). Domain
+`Schema.TaggedError`, which supersedes those ADRs' `Data.TaggedError` wording). Domain
 vocabulary: `CONTEXT.md`. Roadmap: `docs/ROADMAP_V2.md`. Skills: `effect-v4-source-authoring`,
 `static-checks-authoring`. **AGPL-3.0-only** — published artifacts are `src/` + `README.md` + `LICENSE`.

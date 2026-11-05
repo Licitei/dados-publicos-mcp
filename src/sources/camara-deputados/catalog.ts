@@ -1,4 +1,7 @@
-import { Schema } from "effect";
+import { Match, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 export const csvOptions = { encoding: "utf-8", delimiter: ";" } as const;
@@ -23,35 +26,42 @@ export const ehDocumento = (termo: string) => {
   const digits = onlyDigits(termo);
   return (
     digits.length >= 11 &&
-    digits.length === termo.replace(/[.\-/\s]/g, "").length
+    digits.length === pipe(termo, Str.replace(/[.\-/\s]/g, "")).length
   );
 };
 
-export const idFromUri = (uri: string) => {
-  const match = uri.match(/(\d+)\s*$/);
-  return match ? match[1] : "";
-};
+export const idFromUri = (uri: string) =>
+  pipe(
+    uri,
+    Str.match(/(\d+)\s*$/),
+    Option.flatMap((found) => Arr.get(found, 1)),
+    Option.getOrElse(() => "")
+  );
 
 const sentinels = new Set(["#NULO#", "#NULO", "-1", "#NE#", "#NI#"]);
 
 const clean = (value: string) => {
-  const trimmed = value.trim();
+  const trimmed = pipe(value, Str.trim);
   return sentinels.has(trimmed) ? "" : trimmed;
 };
 
 const pick = (record: Record<string, string>, keys: readonly string[]) =>
-  keys.map((key) => (record[key] ?? "").trim()).find((value) => value !== "") ??
-  "";
+  pipe(
+    keys,
+    Arr.map((key) => pipe(record[key] ?? "", Str.trim)),
+    Arr.findFirst((value) => value !== ""),
+    Option.getOrElse(() => "")
+  );
 
 const field = (record: Record<string, string>, keys: readonly string[]) =>
   clean(pick(record, keys));
 
 const numeroBr = (value: string) => {
-  const trimmed = value.trim();
-  const normalized = trimmed.includes(",")
-    ? trimmed.replace(/\./g, "").replace(",", ".")
+  const trimmed = pipe(value, Str.trim);
+  const normalized = pipe(trimmed, Str.includes(","))
+    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
     : trimmed;
-  const cleaned = normalized.replace(/[^\d.\-]/g, "");
+  const cleaned = pipe(normalized, Str.replace(/[^\d.\-]/g, ""));
   const parsed = Number(cleaned);
   return cleaned === "" ||
     cleaned === "-" ||
@@ -76,24 +86,44 @@ const buildDate = (year: string, month: string, day: string) => {
     : `${year}-${month}-${day}`;
 };
 
+const captures = (value: string, pattern: RegExp) =>
+  pipe(
+    value,
+    Str.match(pattern),
+    Option.flatMap((found) =>
+      Option.all([Arr.get(found, 1), Arr.get(found, 2), Arr.get(found, 3)])
+    )
+  );
+
+const pad2 = Str.padStart(2, "0");
+
 const dataBr = (value: string) => {
-  const trimmed = value.trim();
-  const compact = trimmed.match(/^(\d{4})(\d{2})(\d{2})$/);
-  const slashed = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return trimmed === "" || /^0+$/.test(trimmed)
-    ? null
-    : compact
-      ? buildDate(compact[1], compact[2], compact[3])
-      : slashed
-        ? buildDate(
-            slashed[3],
-            slashed[2].padStart(2, "0"),
-            slashed[1].padStart(2, "0")
+  const trimmed = pipe(value, Str.trim);
+  return Match.value(trimmed).pipe(
+    Match.when(
+      (text) => text === "" || /^0+$/.test(text),
+      () => null
+    ),
+    Match.orElse((text) =>
+      pipe(
+        captures(text, /^(\d{4})(\d{2})(\d{2})$/),
+        Option.map(([y, m, d]) => buildDate(y, m, d)),
+        Option.orElse(() =>
+          pipe(
+            captures(text, /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/),
+            Option.map(([d, m, y]) => buildDate(y, pad2(m), pad2(d)))
           )
-        : iso
-          ? buildDate(iso[1], iso[2], iso[3])
-          : null;
+        ),
+        Option.orElse(() =>
+          pipe(
+            captures(text, /^(\d{4})-(\d{2})-(\d{2})/),
+            Option.map(([y, m, d]) => buildDate(y, m, d))
+          )
+        ),
+        Option.getOrElse(() => null)
+      )
+    )
+  );
 };
 
 export const DeputadoFlat = Schema.Struct({
@@ -107,29 +137,29 @@ export const DeputadoFlat = Schema.Struct({
   dataFalecimento: Schema.String,
   ufNascimento: Schema.String,
   municipioNascimento: Schema.String,
-  idLegislaturaInicial: Schema.NullOr(Schema.Number),
-  idLegislaturaFinal: Schema.NullOr(Schema.Number),
+  idLegislaturaInicial: Schema.NullOr(Schema.Finite),
+  idLegislaturaFinal: Schema.NullOr(Schema.Finite),
 });
 export type DeputadoFlat = (typeof DeputadoFlat)["Type"];
 
 export const CotaFlat = Schema.Struct({
-  nuDeputadoId: Schema.NullOr(Schema.Number),
-  ideCadastro: Schema.NullOr(Schema.Number),
+  nuDeputadoId: Schema.NullOr(Schema.Finite),
+  ideCadastro: Schema.NullOr(Schema.Finite),
   nomeParlamentar: Schema.String,
   cpfDeputado: Schema.String,
   sgUf: Schema.String,
   sgPartido: Schema.String,
-  numSubCota: Schema.NullOr(Schema.Number),
+  numSubCota: Schema.NullOr(Schema.Finite),
   txtDescricao: Schema.String,
   txtFornecedor: Schema.String,
   cnpjCpf: Schema.String,
   cnpjCpfNorm: Schema.String,
   datEmissao: Schema.String,
-  vlrDocumento: Schema.NullOr(Schema.Number),
-  vlrGlosa: Schema.NullOr(Schema.Number),
-  vlrLiquido: Schema.NullOr(Schema.Number),
-  numMes: Schema.NullOr(Schema.Number),
-  numAno: Schema.NullOr(Schema.Number),
+  vlrDocumento: Schema.NullOr(Schema.Finite),
+  vlrGlosa: Schema.NullOr(Schema.Finite),
+  vlrLiquido: Schema.NullOr(Schema.Finite),
+  numMes: Schema.NullOr(Schema.Finite),
+  numAno: Schema.NullOr(Schema.Finite),
   ideDocumento: Schema.String,
   urlDocumento: Schema.String,
   busca: Schema.String,
@@ -140,8 +170,8 @@ export const ProposicaoFlat = Schema.Struct({
   id: Schema.String,
   uri: Schema.String,
   siglaTipo: Schema.String,
-  numero: Schema.NullOr(Schema.Number),
-  ano: Schema.NullOr(Schema.Number),
+  numero: Schema.NullOr(Schema.Finite),
+  ano: Schema.NullOr(Schema.Finite),
   ementa: Schema.String,
   ementaDetalhada: Schema.String,
   keywords: Schema.String,
@@ -159,7 +189,7 @@ export const ProposicaoAutorFlat = Schema.Struct({
   uriAutor: Schema.String,
   nomeAutor: Schema.String,
   nomeAutorNorm: Schema.String,
-  proponente: Schema.NullOr(Schema.Number),
+  proponente: Schema.NullOr(Schema.Finite),
 });
 export type ProposicaoAutorFlat = (typeof ProposicaoAutorFlat)["Type"];
 
@@ -250,25 +280,38 @@ const mapProposicaoAutor = (record: Record<string, string>) => {
 };
 
 export const mapDeputados = (records: readonly Record<string, string>[]) =>
-  records.map(mapDeputado).filter((row) => row.id !== "");
+  pipe(
+    records,
+    Arr.map(mapDeputado),
+    Arr.filter((row) => row.id !== "")
+  );
 
 export const mapCotas = (records: readonly Record<string, string>[]) =>
-  records.map(mapCota);
+  pipe(records, Arr.map(mapCota));
 
 export const mapProposicoes = (records: readonly Record<string, string>[]) =>
-  records.map(mapProposicao).filter((row) => row.id !== "");
+  pipe(
+    records,
+    Arr.map(mapProposicao),
+    Arr.filter((row) => row.id !== "")
+  );
 
 export const mapProposicaoAutores = (
   records: readonly Record<string, string>[]
-) => records.map(mapProposicaoAutor).filter((row) => row.idProposicao !== "");
+) =>
+  pipe(
+    records,
+    Arr.map(mapProposicaoAutor),
+    Arr.filter((row) => row.idProposicao !== "")
+  );
 
 export const passageProposicao = (row: ProposicaoFlat) =>
-  `${row.ementa} ${row.ementaDetalhada} ${row.keywords}`.trim();
+  pipe(`${row.ementa} ${row.ementaDetalhada} ${row.keywords}`, Str.trim);
 
 export const CamaraErrorCode = Schema.Literals(["camara.MISSING_FILTRO"]);
 export type CamaraErrorCode = (typeof CamaraErrorCode)["Type"];
 
-export class CamaraError extends Schema.TaggedErrorClass<CamaraError>()(
+export class CamaraError extends Schema.TaggedError<CamaraError, { readonly brand: unique symbol }>()(
   "CamaraError",
   {
     code: CamaraErrorCode,

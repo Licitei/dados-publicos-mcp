@@ -1,11 +1,12 @@
 import { Effect, Match } from "effect";
-import { HttpClientError } from "effect/unstable/http";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
 import { Db } from "../../kernel/db/client";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { cota } from "../../kernel/db/schemas/despesa-camara";
 import { deputado } from "../../kernel/db/schemas/deputado";
 import { proposicaoAutor } from "../../kernel/db/schemas/proposicao-autor";
-import { httpResponse, HttpError } from "../../kernel/http/client";
+import { Http, HttpError } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   acceptCsv,
@@ -26,28 +27,18 @@ import {
 
 const chunkSize = 2_000;
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
-
 const downloadZip = (url: string) =>
-  httpResponse(url, { headers: { accept: "application/zip" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, { headers: { accept: "application/zip" } })
   );
 
 const downloadCsv = (url: string) =>
-  httpResponse(url, { headers: { accept: "text/csv" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer))
+  Effect.flatMap(Http, (http) =>
+    http.bytes(url, { headers: { accept: "text/csv" } })
   );
 
 const tolerateMissing = <A, R>(
-  effect: Effect.Effect<A, HttpError | HttpClientError.HttpClientError, R>,
+  effect: Effect.Effect<A, HttpError, R>,
   empty: A
 ) =>
   effect.pipe(
@@ -61,7 +52,7 @@ const tolerateMissing = <A, R>(
 
 const insertDeputados = (rows: readonly DeputadoFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) =>
       Effect.flatMap(Db, (db) => db.insert(deputado).values([...batch])),
     { concurrency: 1, discard: true }
@@ -69,14 +60,14 @@ const insertDeputados = (rows: readonly DeputadoFlat[]) =>
 
 const insertCotas = (rows: readonly CotaFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) => Effect.flatMap(Db, (db) => db.insert(cota).values([...batch])),
     { concurrency: 1, discard: true }
   );
 
 const insertProposicaoAutores = (rows: readonly ProposicaoAutorFlat[]) =>
   Effect.forEach(
-    chunks(rows),
+    pipe(rows, Arr.chunksOf(chunkSize)),
     (batch) =>
       Effect.flatMap(Db, (db) =>
         db.insert(proposicaoAutor).values([...batch])
@@ -102,8 +93,11 @@ export const indexCotas = (ano: number) =>
       Match.orElse(() =>
         unzipEntries(bytes, acceptCsv).pipe(
           Effect.map((entries) =>
-            entries.flatMap((entry) =>
-              mapCotas(parseCsvRecords(entry.data, csvOptions))
+            pipe(
+              entries,
+              Arr.flatMap((entry) =>
+                mapCotas(parseCsvRecords(entry.data, csvOptions))
+              )
             )
           )
         )

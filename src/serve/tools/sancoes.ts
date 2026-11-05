@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { SancoesCgu } from "../../sources/sancoes-cgu/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
@@ -18,7 +18,7 @@ const verificarSancoes = defineTool({
 
 const BuscarNomeInput = Schema.Struct({
   nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(500)),
+  limite: Schema.optionalKey(positiveIntMax(500)),
 });
 
 const buscarSancionadoPorNome = defineTool({
@@ -29,7 +29,7 @@ const buscarSancionadoPorNome = defineTool({
   run: (args) =>
     SancoesCgu.pipe(
       Effect.flatMap((service) =>
-        service.buscarPorNome(args.nome, { limit: args.limite })
+        service.buscarPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
       )
     ),
 });
@@ -38,10 +38,10 @@ const VigentesInput = Schema.Struct({
   data: Schema.String.pipe(
     Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))
   ),
-  lista: Schema.optional(
+  lista: Schema.optionalKey(
     Schema.Literals(["ceis", "cnep", "ceaf", "cepim", "acordos-leniencia"])
   ),
-  limite: Schema.optional(positiveIntMax(500)),
+  limite: Schema.optionalKey(positiveIntMax(500)),
 });
 
 const sancoesVigentesNaData = defineTool({
@@ -52,10 +52,7 @@ const sancoesVigentesNaData = defineTool({
   run: (args) =>
     SancoesCgu.pipe(
       Effect.flatMap((service) =>
-        service.vigentesNaData(args.data, {
-          lista: args.lista,
-          limit: args.limite,
-        })
+        service.vigentesNaData(args.data, Struct.renameKeys(Struct.pick(args, ["lista", "limite"]), { limite: "limit" }))
       )
     ),
 });

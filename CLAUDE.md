@@ -7,13 +7,13 @@ Read **AGENTS.md** for the full picture. This file is the load-bearing subset.
 The v1→v2 cutover is **done**. There is no migration, no legacy layer, no two worlds. Everything
 live is Effect-native:
 
-- **`src/kernel/**`** — Effect v4 (`4.0.0-beta.81`) + PGlite + Drizzle. One local Postgres with four
+- **`src/kernel/**`** — Effect v4 (`4.1.2`) + PGlite + Drizzle. One local Postgres with four
   extensions: `vector` (pgvector), `pg_textsearch` (BM25), `ltree`, `pg_trgm`.
 - **`src/sources/**`** — 21 source slices, each a `Context.Service` store + an `XLive` Layer.
 - **`src/serve/**`** — the MCP tool layer over the low-level `@modelcontextprotocol/sdk` Server
   (`tool.ts`/`fold.ts`/`server.ts`/`status.ts`/`registry.ts`/`index-registry.ts`/`tools/<source>.ts`).
 - **`src/runtime.ts`** — `ManagedRuntime` over `AppLayer` (12 `XLive` `provideMerge` `Infra`).
-- **`src/index.ts`** — CLI via `effect/unstable/cli` + `@effect/platform-bun` (`BunRuntime.runMain`).
+- **`src/index.ts`** — CLI via `effect/cli` + `@effect/platform-bun` (`BunRuntime.runMain`).
 
 `serve` (the default, no-subcommand action) wires the real `src/sources` slices — 85 MCP tools
 (67 query + 12 `indexar_*` + `status_indices` + 5 `guia_*` skills that return composition recipes for
@@ -33,8 +33,13 @@ No per-fonte JSON/SQLite/FTS5 — that's gone. There is no live-API / "online re
 
 ## The gate
 
-`bun run check` (`tsc --noEmit` + `lint:errors` + `vitest run`) — the only gate, no CI. Make it
+`bun run check` (`effect-tsgo tsrs --noEmit --fast` + `lint:errors` + `vitest run`) — the only gate, no CI. Make it
 green before finishing any change. No `bun test`.
+
+The typecheck is TS7 via **tsrs** (`effect-tsgo` wraps it with the Effect language service). Every
+Effect diagnostic rule is `"error"` in `tsconfig.json` (including `apiStabilityLeak`: exported APIs
+never expose unstable types — HTTP goes through the kernel `Http` service, never `HttpClient`), plus `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`. Fix code,
+never add `@effect-diagnostics` comments.
 
 `lint:errors` is an **AST** linter (`tooling/static-checks/check-declarative-errors.ts`), two tiers;
 the **strict** tier applies only to `src/kernel/` and `src/sources/`. Every rule must be
@@ -43,7 +48,7 @@ false-positive-clean on the six gold files.
 ## v2-strict invariants (in `src/kernel`/`src/sources`)
 
 - Gold standard = `src/kernel/http/client.ts`. Copy its idiom.
-- `Schema.Literals` codes; `Schema.TaggedErrorClass` with `get message()` switch (pt-BR); error built
+- `Schema.Literals` codes; `Schema.TaggedError` with `get message()` switch (pt-BR); error built
   inline at the failure site (no helper). `Context.Service` + exported `Layer.effect`; shape via
   `Effect.Success<typeof make>`; config via `Context.Reference`.
 - `Match` for branching; `switch` only in `get message()`. Errors via `Effect.fail` — never `throw`.

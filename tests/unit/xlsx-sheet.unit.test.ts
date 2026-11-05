@@ -1,81 +1,19 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
 import { readXlsxSheet } from "../../src/kernel/xlsx/sheet";
+import { storedZip, utf8, type ZipEntry } from "./support/stored-zip";
 
-const crcTable = Array.from({ length: 256 }, (_, n) =>
-  Array.from({ length: 8 }).reduce<number>(
-    (c) => ((c & 1) === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1),
-    n
-  )
-);
-
-const crc32 = (bytes: Uint8Array) =>
-  (bytes.reduce(
-    (crc, byte) => (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff],
-    0xffffffff
-  ) ^
-    0xffffffff) >>>
-  0;
-
-type Entry = { readonly name: string; readonly bytes: Uint8Array };
-
-const storedZip = (entries: readonly Entry[]) => {
-  const encoder = new TextEncoder();
-  const local = entries.map((entry) => {
-    const nameBytes = encoder.encode(entry.name);
-    const header = new Uint8Array(30 + nameBytes.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x04034b50, true);
-    view.setUint16(4, 20, true);
-    view.setUint16(8, 0, true);
-    view.setUint32(14, crc32(entry.bytes), true);
-    view.setUint32(18, entry.bytes.length, true);
-    view.setUint32(22, entry.bytes.length, true);
-    view.setUint16(26, nameBytes.length, true);
-    header.set(nameBytes, 30);
-    return { nameBytes, header, data: entry.bytes };
-  });
-  const offsets = local.reduce<readonly number[]>((acc, part) => {
-    const previous = acc[acc.length - 1] ?? 0;
-    return [...acc, previous + part.header.length + part.data.length];
-  }, [0]);
-  const body = local.flatMap((part) => [part.header, part.data]);
-  const localSize = offsets[offsets.length - 1];
-  const central = local.map((part, index) => {
-    const header = new Uint8Array(46 + part.nameBytes.length);
-    const view = new DataView(header.buffer);
-    view.setUint32(0, 0x02014b50, true);
-    view.setUint16(10, 0, true);
-    view.setUint32(16, crc32(part.data), true);
-    view.setUint32(20, part.data.length, true);
-    view.setUint32(24, part.data.length, true);
-    view.setUint16(28, part.nameBytes.length, true);
-    view.setUint32(42, offsets[index], true);
-    header.set(part.nameBytes, 46);
-    return header;
-  });
-  const centralSize = central.reduce((sum, header) => sum + header.length, 0);
-  const eocd = new Uint8Array(22);
-  const eocdView = new DataView(eocd.buffer);
-  eocdView.setUint32(0, 0x06054b50, true);
-  eocdView.setUint16(8, entries.length, true);
-  eocdView.setUint16(10, entries.length, true);
-  eocdView.setUint32(12, centralSize, true);
-  eocdView.setUint32(16, localSize, true);
-  const total = [...body, ...central, eocd];
-  const out = new Uint8Array(
-    total.reduce((sum, chunk) => sum + chunk.length, 0)
+const cell = (rows: readonly (readonly string[])[], row: number, col: number) =>
+  Arr.get(rows, row).pipe(
+    Option.flatMap((r) => Arr.get(r, col)),
+    Option.getOrElse(() => "")
   );
-  total.reduce((position, chunk) => {
-    out.set(chunk, position);
-    return position + chunk.length;
-  }, 0);
-  return out;
-};
 
-const part = (name: string, xml: string): Entry => ({
+const part = (name: string, xml: string): ZipEntry => ({
   name,
-  bytes: new TextEncoder().encode(xml),
+  bytes: utf8(xml),
 });
 
 const workbookXlsx = storedZip([
@@ -100,15 +38,16 @@ const workbookXlsx = storedZip([
 describe("kernel/xlsx readXlsxSheet", () => {
   it.effect("reads rows by position resolving shared and inline strings", () =>
     Effect.gen(function* () {
-      const rows = yield* readXlsxSheet(workbookXlsx, (name) =>
-        name.startsWith("CAPAG Ano Base")
+      const rows = yield* readXlsxSheet(
+        workbookXlsx,
+        Str.startsWith("CAPAG Ano Base")
       );
       expect(rows.length).toBe(2);
-      expect(rows[0][0]).toBe("3550308");
-      expect(rows[0][1]).toBe("São Paulo");
-      expect(rows[0][2]).toBe("SP");
-      expect(rows[1][0]).toBe("0.8016");
-      expect(rows[1][2]).toBe("inline cell");
+      expect(cell(rows, 0, 0)).toBe("3550308");
+      expect(cell(rows, 0, 1)).toBe("São Paulo");
+      expect(cell(rows, 0, 2)).toBe("SP");
+      expect(cell(rows, 1, 0)).toBe("0.8016");
+      expect(cell(rows, 1, 2)).toBe("inline cell");
     })
   );
 

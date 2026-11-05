@@ -1,4 +1,7 @@
 import { Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
 export const endpoints = {
@@ -27,11 +30,11 @@ export const pageUrl = (opts: {
 };
 
 const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))
 );
 const looseString = Schema.optional(Schema.NullOr(Schema.String));
 const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number, Schema.Boolean]))
+  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]))
 );
 
 export const CatmatItemRaw = Schema.Struct({
@@ -68,21 +71,21 @@ export type CatserItemRaw = (typeof CatserItemRaw)["Type"];
 
 export const CatmatItemPayload = Schema.Struct({
   resultado: Schema.Array(CatmatItemRaw),
-  totalPaginas: Schema.Number,
+  totalPaginas: Schema.Finite,
 });
 
 export const CatserItemPayload = Schema.Struct({
   resultado: Schema.Array(CatserItemRaw),
-  totalPaginas: Schema.Number,
+  totalPaginas: Schema.Finite,
 });
 
 export const CatmatMaterialFlat = Schema.Struct({
-  codigoItem: Schema.Number,
-  codigoGrupo: Schema.NullOr(Schema.Number),
+  codigoItem: Schema.Finite,
+  codigoGrupo: Schema.NullOr(Schema.Finite),
   nomeGrupo: Schema.NullOr(Schema.String),
-  codigoClasse: Schema.NullOr(Schema.Number),
+  codigoClasse: Schema.NullOr(Schema.Finite),
   nomeClasse: Schema.NullOr(Schema.String),
-  codigoPdm: Schema.NullOr(Schema.Number),
+  codigoPdm: Schema.NullOr(Schema.Finite),
   nomePdm: Schema.NullOr(Schema.String),
   descricaoItem: Schema.NullOr(Schema.String),
   codigoNcm: Schema.NullOr(Schema.String),
@@ -93,17 +96,17 @@ export const CatmatMaterialFlat = Schema.Struct({
 export type CatmatMaterialFlat = (typeof CatmatMaterialFlat)["Type"];
 
 export const CatserServiceFlat = Schema.Struct({
-  codigoServico: Schema.Number,
+  codigoServico: Schema.Finite,
   nomeServico: Schema.NullOr(Schema.String),
-  codigoSecao: Schema.NullOr(Schema.Number),
+  codigoSecao: Schema.NullOr(Schema.Finite),
   nomeSecao: Schema.NullOr(Schema.String),
-  codigoDivisao: Schema.NullOr(Schema.Number),
+  codigoDivisao: Schema.NullOr(Schema.Finite),
   nomeDivisao: Schema.NullOr(Schema.String),
-  codigoGrupo: Schema.NullOr(Schema.Number),
+  codigoGrupo: Schema.NullOr(Schema.Finite),
   nomeGrupo: Schema.NullOr(Schema.String),
-  codigoClasse: Schema.NullOr(Schema.Number),
+  codigoClasse: Schema.NullOr(Schema.Finite),
   nomeClasse: Schema.NullOr(Schema.String),
-  codigoSubclasse: Schema.NullOr(Schema.Number),
+  codigoSubclasse: Schema.NullOr(Schema.Finite),
   nomeSubclasse: Schema.NullOr(Schema.String),
   statusServico: Schema.Boolean,
   busca: Schema.String,
@@ -116,7 +119,7 @@ export const CatmatCatserErrorCode = Schema.Literals([
 ]);
 export type CatmatCatserErrorCode = (typeof CatmatCatserErrorCode)["Type"];
 
-export class CatmatCatserError extends Schema.TaggedErrorClass<CatmatCatserError>()(
+export class CatmatCatserError extends Schema.TaggedError<CatmatCatserError, { readonly brand: unique symbol }>()(
   "CatmatCatserError",
   {
     code: CatmatCatserErrorCode,
@@ -136,8 +139,10 @@ export class CatmatCatserError extends Schema.TaggedErrorClass<CatmatCatserError
 
 type Loose = string | number | boolean | null | undefined;
 
-const toStringOrNull = (value: Loose) =>
-  value === null || value === undefined ? null : String(value).trim() || null;
+const toStringOrNull = (value: Loose) => {
+  const text = value === null || value === undefined ? "" : Str.trim(String(value));
+  return text === "" ? null : text;
+};
 
 const toIntOrNull = (value: Loose) => {
   const text = toStringOrNull(value);
@@ -149,13 +154,19 @@ const toBool = (value: Loose) =>
   typeof value === "boolean"
     ? value
     : typeof value === "string"
-      ? value.trim().toLowerCase() === "true"
+      ? pipe(value, Str.trim, Str.toLowerCase) === "true"
       : Boolean(value);
 
-const cleanText = (value: string) => value.replace(/\s+/g, " ").trim();
+const cleanText = (value: string) =>
+  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
 
 const joinText = (parts: readonly Loose[]) =>
-  parts.map(toStringOrNull).filter(Boolean).join(" ");
+  pipe(
+    parts,
+    Arr.map(toStringOrNull),
+    Arr.filter((part) => part !== null),
+    Arr.join(" ")
+  );
 
 const flattenMaterial = (raw: CatmatItemRaw) => {
   const codigoItem = toIntOrNull(raw.codigoItem);
@@ -188,7 +199,7 @@ const flattenMaterial = (raw: CatmatItemRaw) => {
 };
 
 export const flattenMateriais = (resultado: readonly CatmatItemRaw[]) =>
-  resultado.flatMap(flattenMaterial);
+  Arr.flatMap(resultado, flattenMaterial);
 
 const flattenServico = (raw: CatserItemRaw) => {
   const codigoServico = toIntOrNull(raw.codigoServico);
@@ -224,7 +235,7 @@ const flattenServico = (raw: CatserItemRaw) => {
 };
 
 export const flattenServicos = (resultado: readonly CatserItemRaw[]) =>
-  resultado.flatMap(flattenServico);
+  Arr.flatMap(resultado, flattenServico);
 
 export const materialPassage = (row: CatmatMaterialFlat) =>
   cleanText(joinText([row.descricaoItem, row.nomePdm, row.nomeClasse]));

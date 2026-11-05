@@ -1,3 +1,4 @@
+import * as Str from "effect/String";
 import { Context, Effect, Layer, Match } from "effect";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
@@ -21,7 +22,7 @@ const makeSinapi = Effect.gen(function* () {
   const precoPorCodigo = (codigo: string, uf: string | undefined) =>
     Effect.gen(function* () {
       const ufWhere: SQL = Match.value(uf).pipe(
-        Match.when(Match.string, (value) => sql`and uf = ${value.toUpperCase()}`),
+        Match.when(Match.string, (value) => sql`and uf = ${Str.toUpperCase(value)}`),
         Match.orElse(() => sql``)
       );
       return yield* db.execute(sql`
@@ -29,7 +30,7 @@ const makeSinapi = Effect.gen(function* () {
         from ${sinapiInsumo}
         where codigo = ${onlyDigits(codigo)} ${ufWhere}
         order by uf
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const bm25Insumo = (q: string, limit: number, ufWhere: SQL) =>
@@ -55,7 +56,7 @@ const makeSinapi = Effect.gen(function* () {
       ) scored
       ${ufWhere}
       order by score desc
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarInsumo = (
     termo: string,
@@ -65,7 +66,7 @@ const makeSinapi = Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 50, 200);
       const ufWhere: SQL = Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) => sql`where uf = ${uf.toUpperCase()}`),
+        Match.when(Match.string, (uf) => sql`where uf = ${Str.toUpperCase(uf)}`),
         Match.orElse(() => sql``)
       );
       return yield* bm25Insumo(q, limit, ufWhere);
@@ -77,8 +78,8 @@ const makeSinapi = Effect.gen(function* () {
     const inserted = yield* indexReferencia(referencia.ano, referencia.mes);
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${sinapiInsumo}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: Number(rows[0]?.count ?? 0) };
   });
 
   const indexAno = (ano: number) =>
@@ -106,6 +107,6 @@ const makeSinapi = Effect.gen(function* () {
 export class Sinapi extends Context.Service<
   Sinapi,
   Effect.Success<typeof makeSinapi>
->()("dados-publicos-mcp/Sinapi") {}
+>()("dados-publicos-mcp/sources/sinapi/store/Sinapi") {}
 
 export const SinapiLive = Layer.effect(Sinapi)(makeSinapi);

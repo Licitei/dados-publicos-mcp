@@ -1,4 +1,7 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { siconfiFato } from "../../kernel/db/schemas/siconfi-fato";
@@ -31,7 +34,7 @@ const makeSiconfiFiscal = Effect.gen(function* () {
       const idEnte = onlyDigits(idEnteInput);
       const limit = clamp(options?.limit, 200, 1000);
       const demonstrativoWhere: SQL = Match.value(options?.demonstrativo).pipe(
-        Match.when(Match.string, (d) => sql`and demonstrativo = ${d.toUpperCase()}`),
+        Match.when(Match.string, (d) => sql`and demonstrativo = ${pipe(d, Str.toUpperCase)}`),
         Match.orElse(() => sql``)
       );
       const exercicioWhere: SQL = Match.value(options?.exercicio).pipe(
@@ -44,7 +47,7 @@ const makeSiconfiFiscal = Effect.gen(function* () {
         where id_ente = ${idEnte} ${demonstrativoWhere} ${exercicioWhere}
         order by demonstrativo, anexo, cod_conta, coluna
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const bm25Conta = (q: string, limit: number) =>
@@ -64,7 +67,7 @@ const makeSiconfiFiscal = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmConta = (q: string, limit: number) =>
     db.execute(sql`
@@ -73,7 +76,7 @@ const makeSiconfiFiscal = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, id
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarConta = (
     termo: string,
@@ -108,8 +111,15 @@ const makeSiconfiFiscal = Effect.gen(function* () {
     const inserted = yield* indexEnte(uniaoEnte, defaultAno);
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${siconfiFato}`
+    ).pipe(Effect.map(({ rows }) => rows));
+    const total = pipe(
+      Arr.head(rows),
+      Option.match({
+        onNone: () => 0,
+        onSome: (row) => Number(row.count),
+      })
     );
-    return { inserted, total: Number(rows[0].count) };
+    return { inserted, total };
   });
 
   return { index, indexAno, indexarEnte, fiscalPorEnte, buscarConta };
@@ -118,6 +128,6 @@ const makeSiconfiFiscal = Effect.gen(function* () {
 export class SiconfiFiscal extends Context.Service<
   SiconfiFiscal,
   Effect.Success<typeof makeSiconfiFiscal>
->()("dados-publicos-mcp/SiconfiFiscal") {}
+>()("dados-publicos-mcp/sources/siconfi-fiscal/store/SiconfiFiscal") {}
 
 export const SiconfiFiscalLive = Layer.effect(SiconfiFiscal)(makeSiconfiFiscal);

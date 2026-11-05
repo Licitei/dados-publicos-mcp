@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { IbgeEconomia } from "../../sources/ibge-economia/store";
 import { intYear, NonEmptyString, positiveIntMax, Uf } from "../checks";
 import { defineTool } from "../tool";
@@ -18,7 +18,7 @@ const economiaMunicipio = defineTool({
 
 const BuscarInput = Schema.Struct({
   nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(50)),
+  limite: Schema.optionalKey(positiveIntMax(50)),
 });
 
 const buscarMunicipioEconomia = defineTool({
@@ -35,9 +35,9 @@ const buscarMunicipioEconomia = defineTool({
 });
 
 const RankingInput = Schema.Struct({
-  uf: Schema.optional(Uf),
-  ano: Schema.optional(intYear),
-  limite: Schema.optional(positiveIntMax(100)),
+  uf: Schema.optionalKey(Uf),
+  ano: Schema.optionalKey(intYear),
+  limite: Schema.optionalKey(positiveIntMax(100)),
 });
 
 const rankingMunicipiosPib = defineTool({
@@ -48,7 +48,7 @@ const rankingMunicipiosPib = defineTool({
   run: (args) =>
     IbgeEconomia.pipe(
       Effect.flatMap((service) =>
-        service.rankingPib({ uf: args.uf, ano: args.ano, limit: args.limite })
+        service.rankingPib(Struct.renameKeys(Struct.pick(args, ["uf", "ano", "limite"]), { limite: "limit" }))
       )
     ),
 });

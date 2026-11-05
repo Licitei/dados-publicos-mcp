@@ -1,4 +1,6 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Option, pipe } from "effect";
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
 import { sql, type SQL } from "drizzle-orm";
 import { Db } from "../../kernel/db/client";
 import { sancao } from "../../kernel/db/schemas/sancao";
@@ -57,16 +59,19 @@ const makeSancoesCgu = Effect.gen(function* () {
         columns: viewColumns,
         orderBy: (s, { desc }) => desc(s.dataInicio),
       });
-      const porLista = sancoes.reduce<Record<string, number>>(
-        (acc, row) => ({ ...acc, [row.lista]: (acc[row.lista] ?? 0) + 1 }),
-        {}
+      const porLista = pipe(
+        sancoes,
+        Arr.reduce<Record<string, number>, (typeof sancoes)[number]>(
+          {},
+          (acc, row) => ({ ...acc, [row.lista]: (acc[row.lista] ?? 0) + 1 })
+        )
       );
       return {
         documento: documentoInput,
         docNormalizado,
         tipoDocumento,
         sancionado: sancoes.length > 0,
-        inidoneoOuImpedido: sancoes.some((row) => impeditivas.has(row.lista)),
+        inidoneoOuImpedido: pipe(sancoes, Arr.some((row) => impeditivas.has(row.lista))),
         total: sancoes.length,
         porLista,
         sancoes,
@@ -94,7 +99,7 @@ const makeSancoesCgu = Effect.gen(function* () {
         ) ranked
       ) scored
       order by rk
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const trgmPorNome = (q: string, limit: number) =>
     db.execute(sql`
@@ -103,7 +108,7 @@ const makeSancoesCgu = Effect.gen(function* () {
       where word_similarity(${q}, busca) >= 0.2
       order by score desc, id
       limit ${sql.raw(String(limit))}
-    `);
+    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarPorNome = (
     nome: string,
@@ -124,7 +129,7 @@ const makeSancoesCgu = Effect.gen(function* () {
     options?: { readonly lista?: string; readonly limit?: number }
   ) =>
     Effect.gen(function* () {
-      const iso = data.trim();
+      const iso = Str.trim(data);
       const limit = clamp(options?.limit, 200, 500);
       const listaWhere: SQL = Match.value(options?.lista).pipe(
         Match.when(Match.string, (lista) => sql`and lista = ${lista}`),
@@ -139,7 +144,7 @@ const makeSancoesCgu = Effect.gen(function* () {
           ${listaWhere}
         order by data_inicio desc
         limit ${sql.raw(String(limit))}
-      `);
+      `).pipe(Effect.map(({ rows }) => rows));
     });
 
   const index = Effect.gen(function* () {
@@ -147,8 +152,12 @@ const makeSancoesCgu = Effect.gen(function* () {
     const inserted = yield* indexSnapshots;
     const rows = yield* db.execute(
       sql`select count(*)::int as count from ${sancao}`
-    );
-    return { inserted, total: Number(rows[0].count) };
+    ).pipe(Effect.map(({ rows }) => rows));
+    return { inserted, total: pipe(
+        Arr.head(rows),
+        Option.map((row) => Number(row.count)),
+        Option.getOrElse(() => 0)
+      ) };
   });
 
   return { index, indexAll: index, verificar, buscarPorNome, vigentesNaData };
@@ -157,6 +166,6 @@ const makeSancoesCgu = Effect.gen(function* () {
 export class SancoesCgu extends Context.Service<
   SancoesCgu,
   Effect.Success<typeof makeSancoesCgu>
->()("dados-publicos-mcp/SancoesCgu") {}
+>()("dados-publicos-mcp/sources/sancoes-cgu/store/SancoesCgu") {}
 
 export const SancoesCguLive = Layer.effect(SancoesCgu)(makeSancoesCgu);

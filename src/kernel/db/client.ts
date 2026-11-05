@@ -1,8 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Context, Effect, Layer, Schema } from "effect";
-import * as Reactivity from "effect/unstable/reactivity/Reactivity";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import { BunServices } from "@effect/platform-bun";
+import * as Reactivity from "effect/reactivity/Reactivity";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite/vector";
 import { pg_textsearch } from "@electric-sql/pglite/pg_textsearch";
@@ -10,16 +12,15 @@ import { ltree } from "@electric-sql/pglite/contrib/ltree";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import * as Pg from "@effect/sql-pg/PgClient";
+import * as PgTypes from "@effect/sql-pg/PgTypes";
+import * as Result from "effect/Result";
 import * as PgDrizzle from "drizzle-orm/effect-postgres";
 import { relations } from "./relations";
 
-const socketPort = 5432;
-const socketFile = `.s.PGSQL.${socketPort}`;
-
-const DbErrorCode = Schema.Literals(["db.OPEN", "db.CONNECT", "db.DRIVER"]);
+const DbErrorCode = Schema.Literals(["db.OPEN", "db.CONNECT", "db.DRIVER", "db.QUERY"]);
 export type DbErrorCode = (typeof DbErrorCode)["Type"];
 
-export class DbError extends Schema.TaggedErrorClass<DbError>()("DbError", {
+export class DbError extends Schema.TaggedError<DbError, { readonly brand: unique symbol }>()("DbError", {
   code: DbErrorCode,
   cause: Schema.optional(Schema.String),
 }) {
@@ -31,6 +32,8 @@ export class DbError extends Schema.TaggedErrorClass<DbError>()("DbError", {
         return "Falha ao conectar ao banco local.";
       case "db.DRIVER":
         return "Falha ao inicializar o driver do banco.";
+      case "db.QUERY":
+        return "Falha ao consultar o banco local.";
     }
   }
 }
@@ -47,57 +50,104 @@ export const DbConfig = Context.Reference<DbConfig>(
   }
 );
 
+const socketPort = 5432;
+const socketFile = `.s.PGSQL.${socketPort}`;
+
+const ltreeCodec: PgTypes.Codec<string> = {
+  encode: (value) => Result.succeed(new TextEncoder().encode(`\u0001${value}`)),
+  decode: (bytes) => Result.succeed(new TextDecoder().decode(bytes.subarray(1))),
+};
+
 const makeDb = Effect.gen(function* () {
   const cfg = yield* DbConfig;
-    const { dir } = yield* Effect.acquireRelease(
-      Effect.tryPromise({
-        try: async () => {
-          const pglite = await PGlite.create({
-            dataDir: cfg.dataDir,
-            extensions: { vector, pg_textsearch, ltree, pg_trgm },
-          });
-          const dir = await mkdtemp(join(tmpdir(), "dados-publicos-mcp-"));
-          const server = new PGLiteSocketServer({
-            db: pglite,
-            path: join(dir, socketFile),
-          });
-          await server.start();
-          return { pglite, server, dir };
-        },
-        catch: (cause) => new DbError({ code: "db.OPEN", cause: String(cause) }),
-      }),
-      ({ pglite, server, dir }) =>
-        Effect.promise(async () => {
-          await server.stop();
-          await pglite.close();
-          await rm(dir, { recursive: true, force: true });
-        })
-    );
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const socketDir = yield* fs.makeTempDirectoryScoped({ prefix: "dados-publicos-mcp-" }).pipe(
+    Effect.mapError((cause) =>
+      DbError.make({ code: "db.OPEN", cause: String(cause) })
+    )
+  );
 
-    const client = yield* Pg.make({
-      host: dir,
-      port: socketPort,
-      database: "template1",
-      maxConnections: 1,
-    }).pipe(
-      Effect.mapError(
-        (cause) => new DbError({ code: "db.CONNECT", cause: String(cause) })
-      )
-    );
+  const pglite = yield* Effect.acquireRelease(
+    Effect.tryPromise({
+      try: () =>
+        PGlite.create({
+          ...(cfg.dataDir === undefined ? {} : { dataDir: cfg.dataDir }),
+          extensions: { vector, pg_textsearch, ltree, pg_trgm },
+        }),
+      catch: (cause) =>
+        DbError.make({ code: "db.OPEN", cause: String(cause) }),
+    }),
+    (instance) => Effect.promise(() => instance.close())
+  );
 
-    const db = yield* PgDrizzle.make({ relations }).pipe(
-      Effect.provideService(Pg.PgClient, client),
-      Effect.provide(PgDrizzle.DefaultServices),
-      Effect.mapError(
-        (cause) => new DbError({ code: "db.DRIVER", cause: String(cause) })
-      )
-    );
+  yield* Effect.tryPromise({
+    try: () => pglite.exec("create extension if not exists ltree"),
+    catch: (cause) => DbError.make({ code: "db.OPEN", cause: String(cause) }),
+  });
 
-    return db;
-}).pipe(Effect.provide(Reactivity.layer));
+  const found = yield* Effect.tryPromise({
+    try: () =>
+      pglite.query<{ oid: number }>(
+        "select oid::int as oid from pg_type where typname = 'ltree'"
+      ),
+    catch: (cause) => DbError.make({ code: "db.OPEN", cause: String(cause) }),
+  });
+
+  const ltreeOid = yield* pipe(
+    Effect.fromOption(Arr.head(found.rows)),
+    Effect.mapBoth({
+      onSuccess: (row) => row.oid,
+      onFailure: () =>
+        DbError.make({ code: "db.OPEN", cause: "ltree type not found" }),
+    })
+  );
+
+  yield* Effect.acquireRelease(
+    Effect.tryPromise({
+      try: () => {
+        const server = new PGLiteSocketServer({
+          db: pglite,
+          path: path.join(socketDir, socketFile),
+        });
+        return server.start().then(() => server);
+      },
+      catch: (cause) =>
+        DbError.make({ code: "db.OPEN", cause: String(cause) }),
+    }),
+    (server) => Effect.promise(() => server.stop())
+  );
+
+  const types = PgTypes.makeRegistry();
+  types.register(ltreeOid, ltreeCodec);
+
+  const client = yield* Pg.make({
+    types,
+    prepare: false,
+    host: socketDir,
+    port: socketPort,
+    database: "template1",
+    maxConnections: 1,
+  }).pipe(
+    Effect.mapError((cause) =>
+      DbError.make({ code: "db.CONNECT", cause: String(cause) })
+    )
+  );
+
+  const services = yield* Layer.build(PgDrizzle.DefaultServices);
+
+  return yield* PgDrizzle.make({ relations }).pipe(
+    Effect.provideService(Pg.PgClient, client),
+    Effect.provideContext(services),
+    Effect.map((db): PgDrizzle.EffectPgDatabase<typeof relations> => db)
+  );
+});
 
 export class Db extends Context.Service<Db, Effect.Success<typeof makeDb>>()(
-  "dados-publicos-mcp/Db"
+  "dados-publicos-mcp/kernel/db/client/Db"
 ) {}
 
-export const DbLayer = Layer.effect(Db)(makeDb);
+export const DbLayer = Layer.effect(Db)(makeDb).pipe(
+  Layer.provide(Reactivity.layer),
+  Layer.provide(BunServices.layer)
+);
