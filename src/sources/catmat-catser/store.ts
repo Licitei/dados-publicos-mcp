@@ -1,213 +1,167 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { cosineDistance, sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
-import { catserService } from "../../kernel/db/schemas/catser-service";
-import { Embedder } from "../../kernel/embed/embedder";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import { Context, Effect, Layer, Match, Option, Schema, Struct } from "effect";
+import { Duck, idsParam } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize } from "../../kernel/text/normalize";
-import { CatmatCatserError } from "./catalog";
+import { catmatMaterialTable, CatmatCatserError, catserServiceTable } from "./catalog";
 import { indexMateriais, indexServicos } from "./indexer";
+import { clamp, lexicalOrFuzzy, scoredFrom } from "../../kernel/duck/search";
 
-const rrfK = 60;
-const candidates = 50;
+const NullableString = Schema.NullOr(Schema.String);
+const NullableNumber = Schema.NullOr(Schema.Finite);
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const MaterialRow = Schema.Struct({
+  codigoItem: Schema.Finite,
+  descricaoItem: NullableString,
+  codigoPdm: NullableNumber,
+  nomePdm: NullableString,
+  codigoClasse: NullableNumber,
+  nomeClasse: NullableString,
+  codigoGrupo: NullableNumber,
+  nomeGrupo: NullableString,
+  statusItem: Schema.Boolean,
+});
 
-const materialColumns = {
-  codigoItem: true,
-  descricaoItem: true,
-  codigoPdm: true,
-  nomePdm: true,
-  codigoClasse: true,
-  nomeClasse: true,
-  codigoGrupo: true,
-  nomeGrupo: true,
-  statusItem: true,
-} as const;
+const MaterialHit = Schema.Struct({ ...MaterialRow.fields, score: Schema.Finite });
 
-const servicoColumns = {
-  codigoServico: true,
-  nomeServico: true,
-  codigoSubclasse: true,
-  nomeSubclasse: true,
-  codigoClasse: true,
-  nomeClasse: true,
-  codigoGrupo: true,
-  nomeGrupo: true,
-  codigoDivisao: true,
-  nomeDivisao: true,
-  codigoSecao: true,
-  nomeSecao: true,
-  statusServico: true,
-} as const;
+const ServicoRow = Schema.Struct({
+  codigoServico: Schema.Finite,
+  nomeServico: NullableString,
+  codigoSubclasse: NullableNumber,
+  nomeSubclasse: NullableString,
+  codigoClasse: NullableNumber,
+  nomeClasse: NullableString,
+  codigoGrupo: NullableNumber,
+  nomeGrupo: NullableString,
+  codigoDivisao: NullableNumber,
+  nomeDivisao: NullableString,
+  codigoSecao: NullableNumber,
+  nomeSecao: NullableString,
+  statusServico: Schema.Boolean,
+});
 
-type Leaf = { readonly codigo: number; readonly descricao: string | null };
+const ServicoHit = Schema.Struct({
+  ...ServicoRow.mapFields(
+    Struct.pick([
+      "codigoServico",
+      "nomeServico",
+      "codigoSubclasse",
+      "nomeSubclasse",
+      "codigoClasse",
+      "nomeClasse",
+      "statusServico",
+    ])
+  ).fields,
+  score: Schema.Finite,
+});
 
-const mapMaterialLeaf = (
-  rows: readonly { readonly codigoItem: number; readonly descricaoItem: string | null }[]
-): readonly Leaf[] =>
-  rows.map((r) => ({ codigo: r.codigoItem, descricao: r.descricaoItem }));
+const Leaf = Schema.Struct({ codigo: Schema.Finite, descricao: NullableString });
 
-const mapServicoLeaf = (
-  rows: readonly { readonly codigoServico: number; readonly nomeServico: string | null }[]
-): readonly Leaf[] =>
-  rows.map((r) => ({ codigo: r.codigoServico, descricao: r.nomeServico }));
+const ServicoCorpus = Schema.Struct({ codigoServico: Schema.Finite, busca: Schema.String });
 
-const materialLeafColumns = { codigoItem: true, descricaoItem: true } as const;
-const servicoLeafColumns = { codigoServico: true, nomeServico: true } as const;
+const materialColumns = `"codigoItem", "descricaoItem", "codigoPdm", "nomePdm", "codigoClasse", "nomeClasse", "codigoGrupo", "nomeGrupo", "statusItem"`;
+
+const servicoColumns = `"codigoServico", "nomeServico", "codigoSubclasse", "nomeSubclasse", "codigoClasse", "nomeClasse", "codigoGrupo", "nomeGrupo", "codigoDivisao", "nomeDivisao", "codigoSecao", "nomeSecao", "statusServico"`;
+
+const servicoHitColumns = `"codigoServico", "nomeServico", "codigoSubclasse", "nomeSubclasse", "codigoClasse", "nomeClasse", "statusServico"`;
+
+const idsInteger = `IN (SELECT unnest(string_split(?, chr(31)))::INTEGER)`;
+
+const materialLevelColumn = (nivel: string) =>
+  Match.value(nivel).pipe(
+    Match.when("grupo", () => Option.some("codigoGrupo")),
+    Match.when("classe", () => Option.some("codigoClasse")),
+    Match.when("pdm", () => Option.some("codigoPdm")),
+    Match.orElse(() => Option.none<string>())
+  );
+
+const servicoLevelColumn = (nivel: string) =>
+  Match.value(nivel).pipe(
+    Match.when("secao", () => Option.some("codigoSecao")),
+    Match.when("divisao", () => Option.some("codigoDivisao")),
+    Match.when("grupo", () => Option.some("codigoGrupo")),
+    Match.when("classe", () => Option.some("codigoClasse")),
+    Match.when("subclasse", () => Option.some("codigoSubclasse")),
+    Match.orElse(() => Option.none<string>())
+  );
+
+const SearchOptions = Schema.Struct({
+  limit: Schema.optional(Schema.Finite),
+  apenasAtivos: Schema.optional(Schema.Boolean),
+});
+type SearchOptions = (typeof SearchOptions)["Type"];
+
+const searchTerms = (termo: string, options: SearchOptions | undefined, statusColumn: string) => ({
+  q: normalize(termo),
+  limit: clamp(options?.limit, 10, 50),
+  ativoAnd: options?.apenasAtivos === true ? ` AND "${statusColumn}"` : "",
+});
 
 const makeCatmatCatser = Effect.gen(function* () {
-  const db = yield* Db;
-  const embedder = yield* Embedder;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
-  const buscarMaterial = (
-    termo: string,
-    options?: { readonly limit?: number; readonly apenasAtivos?: boolean }
-  ) =>
+  const buscarMaterial = (termo: string, options?: SearchOptions) =>
     Effect.gen(function* () {
-      const q = normalize(termo);
-      const limit = clamp(options?.limit, 10, 50);
-      const [queryVector] = yield* embedder.embed("query", [termo]);
-      const ativoWhere = Match.value(options?.apenasAtivos).pipe(
-        Match.when(true, () => sql`where status_item`),
-        Match.orElse(() => sql``)
-      );
-      const ativoAnd = Match.value(options?.apenasAtivos).pipe(
-        Match.when(true, () => sql`and status_item`),
-        Match.orElse(() => sql``)
-      );
-      return yield* db.execute(sql`
-        with bm as (
-          select codigo_item, rk from (
-            select codigo_item, row_number() over () as rk
-            from (
-              select codigo_item
-              from ${catmatMaterial}
-              ${ativoWhere}
-              order by busca <@> to_bm25query(${q})
-              limit ${sql.raw(String(candidates))}
-            ) ranked
-          ) s
-        ),
-        vec as (
-          select codigo_item, row_number() over (order by dist) as rk
-          from (
-            select codigo_item,
-              ${cosineDistance(catmatMaterial.embedding, queryVector)} as dist
-            from ${catmatMaterial}
-            where embedding is not null ${ativoAnd}
-            order by dist
-            limit ${sql.raw(String(candidates))}
-          ) ranked
-        )
-        select
-          m.codigo_item as "codigoItem",
-          m.descricao_item as "descricaoItem",
-          m.codigo_pdm as "codigoPdm", m.nome_pdm as "nomePdm",
-          m.codigo_classe as "codigoClasse", m.nome_classe as "nomeClasse",
-          m.codigo_grupo as "codigoGrupo", m.nome_grupo as "nomeGrupo",
-          m.status_item as "statusItem",
-          coalesce(1.0 / (${sql.raw(String(rrfK))} + bm.rk), 0)
-            + coalesce(1.0 / (${sql.raw(String(rrfK))} + vec.rk), 0) as score
-        from bm
-        full outer join vec on bm.codigo_item = vec.codigo_item
-        join ${catmatMaterial} m
-          on m.codigo_item = coalesce(bm.codigo_item, vec.codigo_item)
-        order by score desc, m.codigo_item
-        limit ${sql.raw(String(limit))}
-      `);
+      const { q, limit, ativoAnd } = searchTerms(termo, options, "statusItem");
+      return q === ""
+        ? []
+        : yield* duck.query(
+            MaterialHit,
+            `SELECT ${materialColumns}, score ${scoredFrom(catmatMaterialTable)}${ativoAnd}
+             ORDER BY score DESC, "codigoItem" LIMIT ?`,
+            [q, limit]
+          );
     });
 
-  const bm25Servicos = (q: string, limit: number, ativoWhere: SQL) =>
-    db.execute(sql`
-      select
-        codigo_servico as "codigoServico", nome_servico as "nomeServico",
-        codigo_subclasse as "codigoSubclasse", nome_subclasse as "nomeSubclasse",
-        codigo_classe as "codigoClasse", nome_classe as "nomeClasse",
-        status_servico as "statusServico", -rk as score
-      from (
-        select
-          codigo_servico, nome_servico, codigo_subclasse, nome_subclasse,
-          codigo_classe, nome_classe, status_servico,
-          row_number() over () as rk
-        from (
-          select
-            codigo_servico, nome_servico, codigo_subclasse, nome_subclasse,
-            codigo_classe, nome_classe, status_servico
-          from ${catserService}
-          ${ativoWhere}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `);
-
-  const trgmServicos = (q: string, limit: number, ativoAnd: SQL) =>
-    db.execute(sql`
-      select
-        codigo_servico as "codigoServico", nome_servico as "nomeServico",
-        codigo_subclasse as "codigoSubclasse", nome_subclasse as "nomeSubclasse",
-        codigo_classe as "codigoClasse", nome_classe as "nomeClasse",
-        status_servico as "statusServico",
-        word_similarity(${q}, busca) as score
-      from ${catserService}
-      where word_similarity(${q}, busca) >= 0.2 ${ativoAnd}
-      order by score desc, codigo_servico
-      limit ${sql.raw(String(limit))}
-    `);
-
-  const buscarServico = (
-    termo: string,
-    options?: { readonly limit?: number; readonly apenasAtivos?: boolean }
-  ) =>
+  const buscarServico = (termo: string, options?: SearchOptions) =>
     Effect.gen(function* () {
-      const q = normalize(termo);
-      const limit = clamp(options?.limit, 10, 50);
-      const ativoWhere = Match.value(options?.apenasAtivos).pipe(
-        Match.when(true, () => sql`where status_servico`),
-        Match.orElse(() => sql``)
-      );
-      const ativoAnd = Match.value(options?.apenasAtivos).pipe(
-        Match.when(true, () => sql`and status_servico`),
-        Match.orElse(() => sql``)
-      );
-      const lexical = yield* bm25Servicos(q, limit, ativoWhere);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmServicos(q, limit, ativoAnd)),
-        Match.orElse(() => Effect.succeed(lexical))
-      );
+      const { q, limit, ativoAnd } = searchTerms(termo, options, "statusServico");
+      return yield* q === ""
+        ? Effect.succeed([])
+        : lexicalOrFuzzy(
+            duck.query(
+              ServicoHit,
+              `SELECT ${servicoHitColumns}, score ${scoredFrom(catserServiceTable)}${ativoAnd}
+               ORDER BY score DESC, "codigoServico" LIMIT ?`,
+              [q, limit]
+            ),
+            fuzzy.match("catser_service", q, { limit }),
+            (ids) =>
+              duck.query(
+                ServicoHit,
+                `SELECT ${servicoHitColumns}, 0::DOUBLE AS score FROM catser_service
+                 WHERE "codigoServico" ${idsInteger}${ativoAnd}`,
+                [idsParam(ids)]
+              ),
+            (row) => row.codigoServico
+          );
     });
 
   const resolver = (codigo: number, tipo?: "material" | "servico") =>
     Effect.gen(function* () {
-      const matRow = yield* db.query.catmatMaterial.findFirst({
-        where: { codigoItem: codigo },
-        columns: materialColumns,
-      });
-      const svcRow = yield* db.query.catserService.findFirst({
-        where: { codigoServico: codigo },
-        columns: servicoColumns,
-      });
-      const material = tipo === "servico" ? null : (matRow ?? null);
-      const servico = tipo === "material" ? null : (svcRow ?? null);
+      const matRows = yield* duck.query(
+        MaterialRow,
+        `SELECT ${materialColumns} FROM catmat_material WHERE "codigoItem" = ?`,
+        [codigo]
+      );
+      const svcRows = yield* duck.query(
+        ServicoRow,
+        `SELECT ${servicoColumns} FROM catser_service WHERE "codigoServico" = ?`,
+        [codigo]
+      );
+      const material = tipo === "servico" ? null : Option.getOrNull(Arr.head(matRows));
+      const servico = tipo === "material" ? null : Option.getOrNull(Arr.head(svcRows));
       return material === null && servico === null
-        ? yield* Effect.fail(
-            new CatmatCatserError({
-              code: "catmat.NOT_FOUND",
-              codigo: String(codigo),
-            })
-          )
+        ? yield* CatmatCatserError.make({
+            code: "catmat.NOT_FOUND",
+            codigo: String(codigo),
+          })
         : { material, servico };
     });
 
-  const normalizarItemEdital = (
-    descricao: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const normalizarItemEdital = (descricao: string, options?: { readonly limit?: number }) =>
     Effect.all(
       {
         materiais: buscarMaterial(descricao, options),
@@ -216,103 +170,36 @@ const makeCatmatCatser = Effect.gen(function* () {
       { concurrency: 2 }
     );
 
-  const listMaterialLevel = (nivel: string, codigo: number, limit: number) =>
-    Match.value(nivel).pipe(
-      Match.when("grupo", () =>
-        db.query.catmatMaterial
-          .findMany({
-            where: { codigoGrupo: codigo },
-            columns: materialLeafColumns,
-            orderBy: (m, { asc }) => asc(m.codigoItem),
-            limit,
-          })
-          .pipe(Effect.map(mapMaterialLeaf))
-      ),
-      Match.when("classe", () =>
-        db.query.catmatMaterial
-          .findMany({
-            where: { codigoClasse: codigo },
-            columns: materialLeafColumns,
-            orderBy: (m, { asc }) => asc(m.codigoItem),
-            limit,
-          })
-          .pipe(Effect.map(mapMaterialLeaf))
-      ),
-      Match.when("pdm", () =>
-        db.query.catmatMaterial
-          .findMany({
-            where: { codigoPdm: codigo },
-            columns: materialLeafColumns,
-            orderBy: (m, { asc }) => asc(m.codigoItem),
-            limit,
-          })
-          .pipe(Effect.map(mapMaterialLeaf))
-      ),
-      Match.orElse(() =>
-        Effect.fail(
-          new CatmatCatserError({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
-        )
-      )
+  const leaves = (
+    table: string,
+    codigoColumn: string,
+    descricaoColumn: string,
+    column: string,
+    codigo: number,
+    limit: number
+  ) =>
+    duck.query(
+      Leaf,
+      `SELECT "${codigoColumn}" AS codigo, "${descricaoColumn}" AS descricao FROM ${table}
+       WHERE "${column}" = ? ORDER BY "${codigoColumn}" LIMIT ?`,
+      [codigo, limit]
     );
 
+  const listMaterialLevel = (nivel: string, codigo: number, limit: number) =>
+    Option.match(materialLevelColumn(nivel), {
+      onNone: () =>
+        Effect.fail(CatmatCatserError.make({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })),
+      onSome: (column) =>
+        leaves("catmat_material", "codigoItem", "descricaoItem", column, codigo, limit),
+    });
+
   const listServicoLevel = (nivel: string, codigo: number, limit: number) =>
-    Match.value(nivel).pipe(
-      Match.when("secao", () =>
-        db.query.catserService
-          .findMany({
-            where: { codigoSecao: codigo },
-            columns: servicoLeafColumns,
-            orderBy: (s, { asc }) => asc(s.codigoServico),
-            limit,
-          })
-          .pipe(Effect.map(mapServicoLeaf))
-      ),
-      Match.when("divisao", () =>
-        db.query.catserService
-          .findMany({
-            where: { codigoDivisao: codigo },
-            columns: servicoLeafColumns,
-            orderBy: (s, { asc }) => asc(s.codigoServico),
-            limit,
-          })
-          .pipe(Effect.map(mapServicoLeaf))
-      ),
-      Match.when("grupo", () =>
-        db.query.catserService
-          .findMany({
-            where: { codigoGrupo: codigo },
-            columns: servicoLeafColumns,
-            orderBy: (s, { asc }) => asc(s.codigoServico),
-            limit,
-          })
-          .pipe(Effect.map(mapServicoLeaf))
-      ),
-      Match.when("classe", () =>
-        db.query.catserService
-          .findMany({
-            where: { codigoClasse: codigo },
-            columns: servicoLeafColumns,
-            orderBy: (s, { asc }) => asc(s.codigoServico),
-            limit,
-          })
-          .pipe(Effect.map(mapServicoLeaf))
-      ),
-      Match.when("subclasse", () =>
-        db.query.catserService
-          .findMany({
-            where: { codigoSubclasse: codigo },
-            columns: servicoLeafColumns,
-            orderBy: (s, { asc }) => asc(s.codigoServico),
-            limit,
-          })
-          .pipe(Effect.map(mapServicoLeaf))
-      ),
-      Match.orElse(() =>
-        Effect.fail(
-          new CatmatCatserError({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })
-        )
-      )
-    );
+    Option.match(servicoLevelColumn(nivel), {
+      onNone: () =>
+        Effect.fail(CatmatCatserError.make({ code: "catmat.LEVEL_UNRECOGNIZED", nivel })),
+      onSome: (column) =>
+        leaves("catser_service", "codigoServico", "nomeServico", column, codigo, limit),
+    });
 
   const listByLevel = (options: {
     readonly tipo: "material" | "servico";
@@ -323,12 +210,8 @@ const makeCatmatCatser = Effect.gen(function* () {
     Effect.gen(function* () {
       const limit = clamp(options.limit, 50, 500);
       const itens = yield* Match.value(options.tipo).pipe(
-        Match.when("material", () =>
-          listMaterialLevel(options.nivel, options.codigo, limit)
-        ),
-        Match.when("servico", () =>
-          listServicoLevel(options.nivel, options.codigo, limit)
-        ),
+        Match.when("material", () => listMaterialLevel(options.nivel, options.codigo, limit)),
+        Match.when("servico", () => listServicoLevel(options.nivel, options.codigo, limit)),
         Match.exhaustive
       );
       return {
@@ -341,19 +224,26 @@ const makeCatmatCatser = Effect.gen(function* () {
     });
 
   const index = Effect.gen(function* () {
-    yield* db.delete(catserService);
-    yield* db.delete(catmatMaterial);
+    yield* duck.create(catserServiceTable);
+    yield* duck.create(catmatMaterialTable);
     yield* indexServicos;
     yield* indexMateriais;
-    const materiais = yield* db.execute(
-      sql`select count(*)::int as count from ${catmatMaterial}`
+    yield* duck.reindex(catmatMaterialTable);
+    yield* duck.reindex(catserServiceTable);
+    const corpus = yield* duck.query(
+      ServicoCorpus,
+      `SELECT "codigoServico", busca FROM catser_service`
     );
-    const servicos = yield* db.execute(
-      sql`select count(*)::int as count from ${catserService}`
+    yield* fuzzy.write(
+      "catser_service",
+      pipe(
+        corpus,
+        Arr.map((row): readonly [number, string] => [row.codigoServico, row.busca])
+      )
     );
     return {
-      materiais: Number(materiais[0].count),
-      servicos: Number(servicos[0].count),
+      materiais: yield* duck.count(catmatMaterialTable),
+      servicos: yield* duck.count(catserServiceTable),
     };
   });
 
@@ -371,6 +261,6 @@ const makeCatmatCatser = Effect.gen(function* () {
 export class CatmatCatser extends Context.Service<
   CatmatCatser,
   Effect.Success<typeof makeCatmatCatser>
->()("dados-publicos-mcp/CatmatCatser") {}
+>()("dados-publicos-mcp/sources/catmat-catser/store/CatmatCatser") {}
 
 export const CatmatCatserLive = Layer.effect(CatmatCatser)(makeCatmatCatser);

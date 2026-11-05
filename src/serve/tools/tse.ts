@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { TseEleitoral } from "../../sources/tse-eleitoral/store";
 import { NonEmptyString, intYear, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarDoacoesInput = Schema.Struct({
   termo: NonEmptyString,
-  ano: Schema.optional(intYear),
-  limite: Schema.optional(positiveIntMax(200)),
+  ano: Schema.optionalKey(intYear),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarDoacoes = defineTool({
@@ -17,15 +17,18 @@ const buscarDoacoes = defineTool({
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.buscarDoacoes(args.termo, { ano: args.ano, limit: args.limite })
+        service.buscarDoacoes(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const BuscarFornecedorInput = Schema.Struct({
   termo: NonEmptyString,
-  ano: Schema.optional(intYear),
-  limite: Schema.optional(positiveIntMax(200)),
+  ano: Schema.optionalKey(intYear),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarFornecedorCampanha = defineTool({
@@ -36,40 +39,39 @@ const buscarFornecedorCampanha = defineTool({
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.buscarFornecedorCampanha(args.termo, {
-          ano: args.ano,
-          limit: args.limite,
-        })
+        service.buscarFornecedorCampanha(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const RastrearInput = Schema.Struct({
   cpfCnpj: NonEmptyString,
-  ano: Schema.optional(intYear),
-  limite: Schema.optional(positiveIntMax(200)),
+  ano: Schema.optionalKey(intYear),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const rastrearDoadorOriginario = defineTool({
   name: "rastrear_doador_originario",
-  description:
-    "Rastreia a cadeia de doacao via doador originario (CPF/CNPJ). Fonte: TSE (CC-BY).",
+  description: "Rastreia a cadeia de doacao via doador originario (CPF/CNPJ). Fonte: TSE (CC-BY).",
   input: RastrearInput,
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.rastrearDoadorOriginario(args.cpfCnpj, {
-          ano: args.ano,
-          limit: args.limite,
-        })
+        service.rastrearDoadorOriginario(
+          args.cpfCnpj,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const DueDiligenceInput = Schema.Struct({
-  cpf: Schema.optional(NonEmptyString),
-  sqCandidato: Schema.optional(NonEmptyString),
-  ano: Schema.optional(intYear),
+  cpf: Schema.optionalKey(NonEmptyString),
+  sqCandidato: Schema.optionalKey(NonEmptyString),
+  ano: Schema.optionalKey(intYear),
 }).pipe(
   Schema.check(
     Schema.makeFilter((value) =>
@@ -88,11 +90,7 @@ const dueDiligenceCandidato = defineTool({
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.dueDiligenceCandidato({
-          cpf: args.cpf,
-          sqCandidato: args.sqCandidato,
-          ano: args.ano,
-        })
+        service.dueDiligenceCandidato(Struct.pick(args, ["cpf", "sqCandidato", "ano"]))
       )
     ),
 });

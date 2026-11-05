@@ -1,72 +1,31 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import {
-  IbgeEconomia,
-  IbgeEconomiaLive,
-} from "../../src/sources/ibge-economia/store";
-import { TestDbLive } from "./support/test-db";
+import { expect, layer } from "@effect/vitest";
+import { Duration, Effect, Layer } from "effect";
+import * as Arr from "effect/Array";
+import * as Option from "effect/Option";
+import { IbgeEconomia, IbgeEconomiaLive } from "../../src/sources/ibge-economia/store";
+import { fixtureLayer, pathIncludes } from "./support/fixture-server";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
-const serie = (id: string, nome: string, valor: string) => ({
-  localidade: { id, nome, nivel: { id: "N6", nome: "Município" } },
-  serie: { "2021": valor },
-});
+const populacao =
+  '[{"id":"9324","variavel":"População residente estimada","unidade":"Pessoas","resultados":[{"classificacoes":[],"series":[{"localidade":{"id":"3550308","nome":"São Paulo (SP)","nivel":{"id":"N6","nome":"Município"}},"serie":{"2021":"12396372"}},{"localidade":{"id":"3509502","nome":"Campinas (SP)","nivel":{"id":"N6","nome":"Município"}},"serie":{"2021":"1223237"}}]}]}]';
 
-const populacao = [
+const pib =
+  '[{"id":"37","variavel":"Produto Interno Bruto a preços correntes","unidade":"Mil Reais","resultados":[{"classificacoes":[],"series":[{"localidade":{"id":"3550308","nome":"São Paulo (SP)","nivel":{"id":"N6","nome":"Município"}},"serie":{"2021":"828980747"}},{"localidade":{"id":"3509502","nome":"Campinas (SP)","nivel":{"id":"N6","nome":"Município"}},"serie":{"2021":"84000000"}}]}]}]';
+
+const HttpFixture = fixtureLayer([
   {
-    id: "9324",
-    variavel: "População residente estimada",
-    unidade: "Pessoas",
-    resultados: [
-      {
-        classificacoes: [],
-        series: [
-          serie("3550308", "São Paulo (SP)", "12396372"),
-          serie("3509502", "Campinas (SP)", "1223237"),
-        ],
-      },
-    ],
+    match: pathIncludes("/agregados/6579/"),
+    respond: { body: populacao, headers: { "content-type": "application/json" } },
   },
-];
-
-const pib = [
   {
-    id: "37",
-    variavel: "Produto Interno Bruto a preços correntes",
-    unidade: "Mil Reais",
-    resultados: [
-      {
-        classificacoes: [],
-        series: [
-          serie("3550308", "São Paulo (SP)", "828980747"),
-          serie("3509502", "Campinas (SP)", "84000000"),
-        ],
-      },
-    ],
+    match: pathIncludes("/agregados/5938/"),
+    respond: { body: pib, headers: { "content-type": "application/json" } },
   },
-];
+]);
 
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const url = String(input);
-  return url.includes("/agregados/6579/")
-    ? Response.json(populacao)
-    : url.includes("/agregados/5938/")
-      ? Response.json(pib)
-      : new Response("rota desconhecida", { status: 404 });
-};
-
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
-
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
-);
-
-const TestLayer = Layer.mergeAll(
-  IbgeEconomiaLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpStub))),
-  TestDbLive,
-  HttpStub
+const TestLayer = IbgeEconomiaLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
 const seeded = Effect.gen(function* () {
@@ -75,45 +34,43 @@ const seeded = Effect.gen(function* () {
   return ibge;
 });
 
-describe("ibge-economia store + sidra ingest", () => {
-  it.effect(
-    "merges populacao and PIB by codigo IBGE",
-    () =>
-      Effect.gen(function* () {
-        const ibge = yield* IbgeEconomia;
-        const result = yield* ibge.index;
-        expect(result.inserted).toBe(2);
-        expect(result.total).toBe(2);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-economia store + sidra ingest", (it) => {
+  it.effect("merges populacao and PIB by codigo IBGE", () =>
+    Effect.gen(function* () {
+      const ibge = yield* IbgeEconomia;
+      const result = yield* ibge.index;
+      expect(result.inserted).toBe(2);
+      expect(result.total).toBe(2);
+    })
+  );
+
+  it.effect("economiaPorCodigo returns populacao, PIB and computed per-capita", () =>
+    Effect.gen(function* () {
+      const ibge = yield* seeded;
+      const rows = yield* ibge.economiaPorCodigo("3550308");
+      expect(rows).toHaveLength(1);
+      const first = Arr.head(rows);
+      expect(Option.map(first, (r) => r.nome)).toEqual(Option.some("São Paulo"));
+      expect(Option.map(first, (r) => r.uf)).toEqual(Option.some("SP"));
+      expect(Option.map(first, (r) => Number(r.populacao))).toEqual(Option.some(12396372));
+      expect(Option.map(first, (r) => Number(r.pibMilReais))).toEqual(Option.some(828980747));
+      expect(Option.exists(first, (r) => Number(r.pibPerCapita) > 60000)).toBe(true);
+    })
   );
 
   it.effect(
-    "economiaPorCodigo returns populacao, PIB and computed per-capita",
-    () =>
-      Effect.gen(function* () {
-        const ibge = yield* seeded;
-        const rows = yield* ibge.economiaPorCodigo("3550308");
-        expect(rows).toHaveLength(1);
-        expect(rows[0].nome).toBe("São Paulo");
-        expect(rows[0].uf).toBe("SP");
-        expect(Number(rows[0].populacao)).toBe(12396372);
-        expect(Number(rows[0].pibMilReais)).toBe(828980747);
-        expect(Number(rows[0].pibPerCapita)).toBeGreaterThan(60000);
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
-  );
-
-  it.effect(
-    "rankingPib orders by PIB and honors the uf filter; trgm name search works",
+    "rankingPib orders by PIB and honors the uf filter; bm25 + fuzzy name search works",
     () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const ranking = yield* ibge.rankingPib({ uf: "sp", limit: 10 });
-        expect(ranking.map((r) => r.codIbge)).toEqual(["3550308", "3509502"]);
-        const fuzzy = yield* ibge.buscarMunicipio("campina", 10);
-        expect(fuzzy.map((r) => r.codIbge)).toContain("3509502");
-      }).pipe(Effect.provide(TestLayer)),
-    60_000
+        expect(Arr.map(ranking, (r) => r.codIbge)).toEqual(["3550308", "3509502"]);
+        const fuzzy = yield* ibge.buscarMunicipio("campnas", 10);
+        expect(Arr.map(fuzzy, (r) => r.codIbge)).toContain("3509502");
+        const exato = yield* ibge.buscarMunicipio("campinas", 10);
+        expect(Option.map(Arr.head(exato), (r) => r.codIbge)).toEqual(Option.some("3509502"));
+        expect(Option.exists(Arr.head(exato), (r) => r.score > 0)).toBe(true);
+        expect(Option.exists(Arr.head(fuzzy), (r) => r.score === 0)).toBe(true);
+      })
   );
 });

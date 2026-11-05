@@ -1,19 +1,46 @@
 import { Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
+import { pagedParams } from "../../kernel/http/paging";
+import type { DuckTable } from "../../kernel/duck/duck";
+import {
+  looseText,
+  looseString,
+  looseFlag,
+  toStringOrNull,
+  toIntOrNull,
+  toBool,
+  type Loose,
+} from "../../kernel/schema/loose";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
-export const consultarUrl =
-  "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_consultarFornecedor";
+export const fornecedorTable: DuckTable = {
+  name: "fornecedor",
+  key: "id",
+  columns: {
+    id: "BIGINT",
+    cnpj: "VARCHAR",
+    cpf: "VARCHAR",
+    nomeRazaoSocial: "VARCHAR",
+    ativo: "BOOLEAN",
+    habilitadoLicitar: "BOOLEAN",
+    ufSigla: "VARCHAR",
+    nomeMunicipio: "VARCHAR",
+    nomeMunicipioNormalizado: "VARCHAR",
+    codigoCnae: "INTEGER",
+    nomeCnae: "VARCHAR",
+    naturezaJuridicaNome: "VARCHAR",
+    porteEmpresaNome: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const consultarUrl = "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_consultarFornecedor";
 
 export const pageSizes = { min: 10, max: 500 } as const;
 export const ativoFlags = [true, false] as const;
-
-const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))
-);
-const looseString = Schema.optional(Schema.NullOr(Schema.String));
-const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number, Schema.Boolean]))
-);
 
 export const FornecedorRaw = Schema.Struct({
   cnpj: looseText,
@@ -32,7 +59,7 @@ export type FornecedorRaw = (typeof FornecedorRaw)["Type"];
 
 export const ConsultarPayload = Schema.Struct({
   resultado: Schema.Array(FornecedorRaw),
-  totalPaginas: Schema.Number,
+  totalPaginas: Schema.Finite,
 });
 export type ConsultarPayload = (typeof ConsultarPayload)["Type"];
 
@@ -45,48 +72,23 @@ export const FornecedorFlat = Schema.Struct({
   ufSigla: Schema.NullOr(Schema.String),
   nomeMunicipio: Schema.NullOr(Schema.String),
   nomeMunicipioNormalizado: Schema.String,
-  codigoCnae: Schema.NullOr(Schema.Number),
+  codigoCnae: Schema.NullOr(Schema.Finite),
   nomeCnae: Schema.NullOr(Schema.String),
   naturezaJuridicaNome: Schema.NullOr(Schema.String),
   porteEmpresaNome: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type FornecedorFlat = (typeof FornecedorFlat)["Type"];
+type FornecedorFlat = (typeof FornecedorFlat)["Type"];
 
 export const pageUrl = (opts: {
   readonly pagina: number;
   readonly tamanhoPagina: number;
   readonly ativo: boolean;
 }) => {
-  const tamanho = Math.min(
-    Math.max(opts.tamanhoPagina, pageSizes.min),
-    pageSizes.max
-  );
-  const params = new URLSearchParams({
-    pagina: String(opts.pagina),
-    tamanhoPagina: String(tamanho),
-    ativo: String(opts.ativo),
-  });
+  const params = pagedParams({ ...opts, ...pageSizes });
+  params.set("ativo", String(opts.ativo));
   return `${consultarUrl}?${params.toString()}`;
 };
-
-type Loose = string | number | boolean | null | undefined;
-
-const toStringOrNull = (value: Loose) =>
-  value === null || value === undefined ? null : String(value).trim() || null;
-
-const toIntOrNull = (value: Loose) => {
-  const text = toStringOrNull(value);
-  const parsed = text === null ? Number.NaN : Number(text);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
-};
-
-const toBool = (value: Loose) =>
-  typeof value === "boolean"
-    ? value
-    : typeof value === "string"
-      ? value.trim().toLowerCase() === "true"
-      : Boolean(value);
 
 const normalizeCnpjLoose = (value: Loose) => {
   const text = toStringOrNull(value);
@@ -96,7 +98,7 @@ const normalizeCnpjLoose = (value: Loose) => {
 
 const ufUpper = (value: Loose) => {
   const text = toStringOrNull(value);
-  return text === null ? null : text.toUpperCase();
+  return text === null ? null : Str.toUpperCase(text);
 };
 
 const flattenFornecedor = (raw: FornecedorRaw) => {
@@ -120,4 +122,4 @@ const flattenFornecedor = (raw: FornecedorRaw) => {
 };
 
 export const flatten = (resultado: readonly FornecedorRaw[]) =>
-  resultado.map(flattenFornecedor);
+  pipe(resultado, Arr.map(flattenFornecedor));

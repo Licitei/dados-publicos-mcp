@@ -1,200 +1,186 @@
-import { Clock, Context, Effect, Layer, Match } from "effect";
-import { sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { capagEstado } from "../../kernel/db/schemas/capag-estado";
-import { capagMunicipio } from "../../kernel/db/schemas/capag-municipio";
-import { siconfiEnte } from "../../kernel/db/schemas/siconfi-ente";
+import { Context, DateTime, Effect, Layer, Match, Schema, Struct } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
+import { Duck, type DuckParam, type DuckTable, idsParam, inIds } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
-import { CapagError, codigoIbgeLength } from "./catalog";
+import {
+  CapagError,
+  EnteFlat,
+  EstadoFlat,
+  Indicadores,
+  MunicipioFlat,
+  codigoIbgeLength,
+} from "./catalog";
 import { fetchSnapshot } from "./indexer";
+import { clamp, lexicalOrFuzzy, scoredFrom } from "../../kernel/duck/search";
 
-type EstadoRow = typeof capagEstado.$inferInsert;
-type MunicipioRow = typeof capagMunicipio.$inferInsert;
-type EnteRow = typeof siconfiEnte.$inferInsert;
-
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
-
-const insertChunkSize = 2_000;
-
-const chunks = <A>(items: readonly A[]) =>
-  Array.from(
-    { length: Math.ceil(items.length / insertChunkSize) },
-    (_, position) =>
-      items.slice(position * insertChunkSize, (position + 1) * insertChunkSize)
-  );
-
-const padIbge = (codigo: string) =>
-  onlyDigits(codigo).padStart(codigoIbgeLength, "0");
-
-type ScoredMunicipio = MunicipioRow & { readonly score: number };
-
-type EnteResult = {
-  readonly tipo: "estado" | "municipio";
-  readonly codIbge: string | null;
-  readonly nome: string;
-  readonly uf: string;
-  readonly ano: number;
-  readonly posicao: string | null;
-  readonly capag: string | null;
-  readonly indicador1: number | null;
-  readonly nota1: string | null;
-  readonly indicador2: number | null;
-  readonly nota2: string | null;
-  readonly indicador3: number | null;
-  readonly nota3: string | null;
-  readonly score: number | null;
+export const capagEstadoTable: DuckTable = {
+  name: "capag_estado",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    uf: "VARCHAR",
+    ano: "INTEGER",
+    indicador1: "DOUBLE",
+    nota1: "VARCHAR",
+    indicador2: "DOUBLE",
+    nota2: "VARCHAR",
+    indicador3: "DOUBLE",
+    nota3: "VARCHAR",
+    capag: "VARCHAR",
+    qualidadeInfo: "VARCHAR",
+    observacao: "VARCHAR",
+  },
 };
 
-const estadoToEnte = (row: EstadoRow): EnteResult => ({
+export const capagMunicipioTable: DuckTable = {
+  name: "capag_municipio",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    codIbge: "VARCHAR",
+    nome: "VARCHAR",
+    nomeNorm: "VARCHAR",
+    uf: "VARCHAR",
+    anoBase: "INTEGER",
+    posicao: "VARCHAR",
+    indicador1: "DOUBLE",
+    nota1: "VARCHAR",
+    indicador2: "DOUBLE",
+    nota2: "VARCHAR",
+    indicador3: "DOUBLE",
+    nota3: "VARCHAR",
+    capag: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+export const siconfiEnteTable: DuckTable = {
+  name: "siconfi_ente",
+  key: "codIbge",
+  columns: {
+    codIbge: "VARCHAR",
+    ente: "VARCHAR",
+    uf: "VARCHAR",
+    esfera: "VARCHAR",
+    regiao: "VARCHAR",
+    populacao: "INTEGER",
+    cnpj: "VARCHAR",
+    exercicio: "INTEGER",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const MunicipioScored = Schema.Struct({ ...MunicipioFlat.fields, score: Schema.Finite });
+const EnteScored = Schema.Struct({ ...EnteFlat.fields, score: Schema.Finite });
+const EnteBridge = EnteFlat.mapFields(Struct.pick(["codIbge", "ente", "uf", "esfera", "regiao"]));
+
+const trimUpper = (value: string) => pipe(value, Str.trim, Str.toUpperCase);
+
+const padIbge = (codigo: string) => pipe(onlyDigits(codigo), Str.padStart(codigoIbgeLength, "0"));
+
+const EnteResult = Schema.Struct({
+  tipo: Schema.Literals(["estado", "municipio"]),
+  codIbge: Schema.NullOr(Schema.String),
+  nome: Schema.String,
+  uf: Schema.String,
+  ano: Schema.Finite,
+  posicao: Schema.NullOr(Schema.String),
+  capag: Schema.NullOr(Schema.String),
+  ...Indicadores.fields,
+  score: Schema.NullOr(Schema.Finite),
+});
+type EnteResult = (typeof EnteResult)["Type"];
+
+const estadoToEnte = (row: EstadoFlat): EnteResult => ({
   tipo: "estado",
   codIbge: null,
   nome: row.uf,
   uf: row.uf,
   ano: row.ano,
   posicao: null,
-  capag: row.capag ?? null,
-  indicador1: row.indicador1 ?? null,
-  nota1: row.nota1 ?? null,
-  indicador2: row.indicador2 ?? null,
-  nota2: row.nota2 ?? null,
-  indicador3: row.indicador3 ?? null,
-  nota3: row.nota3 ?? null,
+  capag: row.capag,
+  indicador1: row.indicador1,
+  nota1: row.nota1,
+  indicador2: row.indicador2,
+  nota2: row.nota2,
+  indicador3: row.indicador3,
+  nota3: row.nota3,
   score: null,
 });
 
-const municipioToEnte = (
-  row: MunicipioRow,
-  score: number | null
-): EnteResult => ({
+const municipioToEnte = (row: MunicipioFlat, score: number | null): EnteResult => ({
   tipo: "municipio",
   codIbge: row.codIbge,
   nome: row.nome,
   uf: row.uf,
   ano: row.anoBase,
-  posicao: row.posicao ?? null,
-  capag: row.capag ?? null,
-  indicador1: row.indicador1 ?? null,
-  nota1: row.nota1 ?? null,
-  indicador2: row.indicador2 ?? null,
-  nota2: row.nota2 ?? null,
-  indicador3: row.indicador3 ?? null,
-  nota3: row.nota3 ?? null,
+  posicao: row.posicao,
+  capag: row.capag,
+  indicador1: row.indicador1,
+  nota1: row.nota1,
+  indicador2: row.indicador2,
+  nota2: row.nota2,
+  indicador3: row.indicador3,
+  nota3: row.nota3,
   score,
 });
 
-const makeCapag = Effect.gen(function* () {
-  const db = yield* Db;
+const optionalFilter = (
+  clause: string,
+  value: string | number | undefined
+): readonly [string, readonly DuckParam[]] => (value === undefined ? ["", []] : [clause, [value]]);
 
-  const replaceAll = (snapshot: {
-    readonly estados: readonly EstadoRow[];
-    readonly municipios: readonly MunicipioRow[];
-    readonly entes: readonly EnteRow[];
-  }) =>
-    db.transaction((tx) =>
-      Effect.gen(function* () {
-        yield* tx.delete(capagEstado);
-        yield* tx.delete(capagMunicipio);
-        yield* tx.delete(siconfiEnte);
-        yield* Effect.forEach(
-          chunks(snapshot.estados),
-          (batch) => tx.insert(capagEstado).values([...batch]),
-          { concurrency: 1, discard: true }
-        );
-        yield* Effect.forEach(
-          chunks(snapshot.municipios),
-          (batch) => tx.insert(capagMunicipio).values([...batch]),
-          { concurrency: 1, discard: true }
-        );
-        yield* Effect.forEach(
-          chunks(snapshot.entes),
-          (batch) => tx.insert(siconfiEnte).values([...batch]),
-          { concurrency: 1, discard: true }
-        );
-      })
-    );
+const makeCapag = Effect.gen(function* () {
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
   const municipioByCod = (codIbge: string, ano?: number) =>
-    db.query.capagMunicipio.findFirst({
-      where: {
-        codIbge,
-        ...Match.value(ano).pipe(
-          Match.when(Match.number, (a) => ({ anoBase: a })),
-          Match.orElse(() => ({}))
-        ),
-      },
-      orderBy: (m, { desc }) => desc(m.anoBase),
+    Effect.gen(function* () {
+      const anoFilter = optionalFilter(`AND "anoBase" = ?`, ano);
+      const rows = yield* duck.query(
+        MunicipioFlat,
+        `SELECT * EXCLUDE (id) FROM capag_municipio WHERE "codIbge" = ? ${anoFilter[0]} ORDER BY "anoBase" DESC LIMIT 1`,
+        [codIbge, ...anoFilter[1]]
+      );
+      return Arr.head(rows);
     });
 
   const estadoByUf = (uf: string, ano?: number) =>
-    db.query.capagEstado.findFirst({
-      where: {
-        uf,
-        ...Match.value(ano).pipe(
-          Match.when(Match.number, (a) => ({ ano: a })),
-          Match.orElse(() => ({}))
-        ),
-      },
-      orderBy: (e, { desc }) => desc(e.ano),
+    Effect.gen(function* () {
+      const anoFilter = optionalFilter(`AND ano = ?`, ano);
+      const rows = yield* duck.query(
+        EstadoFlat,
+        `SELECT * EXCLUDE (id) FROM capag_estado WHERE uf = ? ${anoFilter[0]} ORDER BY ano DESC LIMIT 1`,
+        [uf, ...anoFilter[1]]
+      );
+      return Arr.head(rows);
     });
 
-  const bm25Municipios = (q: string, limit: number) =>
-    db.execute(sql`
-      select cod_ibge as "codIbge", -rk as score
-      from (
-        select cod_ibge, row_number() over () as rk
-        from (
-          select cod_ibge
-          from ${capagMunicipio}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `);
-
-  const trgmMunicipios = (q: string, limit: number) =>
-    db.execute(sql`
-      select cod_ibge as "codIbge", word_similarity(${q}, busca) as score
-      from ${capagMunicipio}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, cod_ibge
-      limit ${sql.raw(String(limit))}
-    `);
-
-  const searchMunicipio = (
-    nome: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const searchMunicipio = (nome: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
       const q = normalize(nome);
       const limit = clamp(options?.limit, 10, 50);
-      const lexical = yield* bm25Municipios(q, limit);
-      const ranked = yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmMunicipios(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
+      const ranked = yield* lexicalOrFuzzy(
+        duck.query(
+          MunicipioScored,
+          `SELECT * EXCLUDE (id), score ${scoredFrom(capagMunicipioTable)} ORDER BY score DESC, "codIbge", "anoBase" DESC LIMIT ?`,
+          [q, limit]
+        ),
+        fuzzy.match("capag_municipio", q, { limit }),
+        (ids) =>
+          duck.query(
+            MunicipioScored,
+            `SELECT * EXCLUDE (id), 0::DOUBLE AS score FROM capag_municipio WHERE ${inIds("codIbge")} ORDER BY "anoBase" DESC`,
+            [idsParam(ids)]
+          ),
+        (row) => row.codIbge
       );
-      const codigos = ranked.map((row) => String(row.codIbge));
-      return yield* Match.value(codigos.length).pipe(
-        Match.when(0, () => Effect.succeed<readonly ScoredMunicipio[]>([])),
-        Match.orElse(() =>
-          db.query.capagMunicipio
-            .findMany({ where: { codIbge: { in: codigos } } })
-            .pipe(
-              Effect.map((rows) => {
-                const byCod = new Map(rows.map((row) => [row.codIbge, row]));
-                return ranked.flatMap((scored) => {
-                  const row = byCod.get(String(scored.codIbge));
-                  return row === undefined
-                    ? []
-                    : [{ ...row, score: Number(scored.score) }];
-                });
-              })
-            )
-        )
-      );
+      return Arr.dedupeWith(ranked, (a, b) => a.codIbge === b.codIbge);
     });
 
   const capagEnte = (input: {
@@ -207,73 +193,55 @@ const makeCapag = Effect.gen(function* () {
       Match.when({ ibge: Match.string }, ({ ibge, ano }) =>
         municipioByCod(padIbge(ibge), ano).pipe(
           Effect.flatMap((row) =>
-            Match.value(row).pipe(
-              Match.when(Match.undefined, () =>
-                estadoByUf(ibge.trim().toUpperCase(), ano).pipe(
+            Match.value(row._tag).pipe(
+              Match.when("None", () =>
+                estadoByUf(trimUpper(ibge), ano).pipe(
                   Effect.flatMap((estado) =>
-                    Match.value(estado).pipe(
-                      Match.when(Match.undefined, () =>
-                        Effect.fail(
-                          new CapagError({
-                            code: "capag.ENTE_NOT_FOUND",
-                            termo: ibge,
-                          })
-                        )
-                      ),
-                      Match.orElse((found) =>
-                        Effect.succeed(estadoToEnte(found))
-                      )
+                    Effect.fromOption(estado).pipe(
+                      Effect.mapBoth({
+                        onSuccess: estadoToEnte,
+                        onFailure: () =>
+                          CapagError.make({ code: "capag.ENTE_NOT_FOUND", termo: ibge }),
+                      })
                     )
                   )
                 )
               ),
-              Match.orElse((found) =>
-                Effect.succeed(municipioToEnte(found, null))
+              Match.orElse(() =>
+                Effect.fromOption(row).pipe(
+                  Effect.mapBoth({
+                    onSuccess: (found) => municipioToEnte(found, null),
+                    onFailure: () => CapagError.make({ code: "capag.ENTE_NOT_FOUND", termo: ibge }),
+                  })
+                )
               )
             )
           )
         )
       ),
       Match.when({ nome: Match.string }, ({ nome, uf, ano }) =>
-        searchMunicipio(nome).pipe(
-          Effect.flatMap((rows) => {
-            const filtered = Match.value(uf).pipe(
-              Match.when(Match.string, (sigla) =>
-                rows.filter(
-                  (row) => row.uf === sigla.trim().toUpperCase()
-                )
-              ),
-              Match.orElse(() => rows)
-            );
-            return Match.value(filtered[0]).pipe(
-              Match.when(Match.undefined, () =>
-                Effect.fail(
-                  new CapagError({ code: "capag.ENTE_NOT_FOUND", termo: nome })
-                )
-              ),
-              Match.orElse((best) =>
-                municipioByCod(best.codIbge, ano).pipe(
-                  Effect.map((row) =>
-                    row === undefined
-                      ? municipioToEnte(best, best.score)
-                      : municipioToEnte(row, best.score)
-                  )
+        bestMunicipio(nome, uf).pipe(
+          Effect.flatMap((best) =>
+            municipioByCod(best.codIbge, ano).pipe(
+              Effect.map((row) =>
+                municipioToEnte(
+                  pipe(row, (found) => (found._tag === "Some" ? found.value : best)),
+                  best.score
                 )
               )
-            );
-          })
+            )
+          )
         )
       ),
-      Match.orElse(() =>
-        Effect.fail(new CapagError({ code: "capag.MISSING_IDENTIFIER" }))
-      )
+      Match.orElse(() => Effect.fail(CapagError.make({ code: "capag.MISSING_IDENTIFIER" })))
     );
 
   const serieMunicipio = (codIbge: string) =>
-    db.query.capagMunicipio.findMany({
-      where: { codIbge },
-      orderBy: (m, { asc }) => [asc(m.anoBase), asc(m.posicao)],
-    });
+    duck.query(
+      MunicipioFlat,
+      `SELECT * EXCLUDE (id) FROM capag_municipio WHERE "codIbge" = ? ORDER BY "anoBase", posicao`,
+      [codIbge]
+    );
 
   const serieHistorica = (input: {
     readonly ibge?: string;
@@ -287,44 +255,15 @@ const makeCapag = Effect.gen(function* () {
         )
       ),
       Match.when({ nome: Match.string }, ({ nome, uf }) =>
-        searchMunicipio(nome).pipe(
-          Effect.flatMap((rows) => {
-            const filtered = Match.value(uf).pipe(
-              Match.when(Match.string, (sigla) =>
-                rows.filter((row) => row.uf === sigla.trim().toUpperCase())
-              ),
-              Match.orElse(() => rows)
-            );
-            return Match.value(filtered[0]).pipe(
-              Match.when(Match.undefined, () =>
-                Effect.fail(
-                  new CapagError({ code: "capag.ENTE_NOT_FOUND", termo: nome })
-                )
-              ),
-              Match.orElse((best) =>
-                serieMunicipio(best.codIbge).pipe(
-                  Effect.map((serie) => ({ tipo: "municipio" as const, serie }))
-                )
-              )
-            );
-          })
+        bestMunicipio(nome, uf).pipe(
+          Effect.flatMap((best) =>
+            serieMunicipio(best.codIbge).pipe(
+              Effect.map((serie) => ({ tipo: "municipio" as const, serie }))
+            )
+          )
         )
       ),
-      Match.orElse(() =>
-        Effect.fail(new CapagError({ code: "capag.MISSING_IDENTIFIER" }))
-      )
-    );
-
-  const regiaoFilter = (regiao: string | undefined) =>
-    Match.value(regiao).pipe(
-      Match.when(Match.string, (value) => ({ regiao: value.trim().toUpperCase() })),
-      Match.orElse(() => ({}))
-    );
-
-  const esferaFilter = (esfera: string | undefined) =>
-    Match.value(esfera).pipe(
-      Match.when(Match.string, (value) => ({ esfera: value.trim().toUpperCase() })),
-      Match.orElse(() => ({}))
+      Match.orElse(() => Effect.fail(CapagError.make({ code: "capag.MISSING_IDENTIFIER" })))
     );
 
   const entesPorNota = (options: {
@@ -335,176 +274,137 @@ const makeCapag = Effect.gen(function* () {
     readonly limit?: number;
   }) =>
     Effect.gen(function* () {
-      const notas = options.notas
-        .map((nota) => nota.trim())
-        .filter((nota) => nota !== "");
+      const notas = pipe(
+        options.notas,
+        Arr.map(Str.trim),
+        Arr.filter((nota) => nota !== "")
+      );
       const limit = clamp(options.limit, 50, 500);
-      const ufFilter = Match.value(options.uf).pipe(
-        Match.when(Match.string, (uf) => ({ uf: uf.trim().toUpperCase() })),
-        Match.orElse(() => ({}))
-      );
-      const usaPonte =
-        options.regiao !== undefined || options.esfera !== undefined;
-      const estados = yield* db.query.capagEstado.findMany({
-        where: { capag: { in: notas }, ...ufFilter },
-        orderBy: (e, { asc }) => asc(e.uf),
-      });
-      const municipios = yield* db.query.capagMunicipio.findMany({
-        where: { capag: { in: notas }, ...ufFilter },
-        orderBy: (m, { asc }) => [asc(m.uf), asc(m.nome)],
-      });
-      const municipalBridge = yield* Match.value(
-        usaPonte && municipios.length > 0
-      ).pipe(
-        Match.when(false, () => Effect.succeed<ReadonlySet<string>>(new Set())),
-        Match.orElse(() =>
-          db.query.siconfiEnte
-            .findMany({
-              where: {
-                codIbge: { in: municipios.map((m) => m.codIbge) },
-                ...regiaoFilter(options.regiao),
-                ...esferaFilter(options.esfera),
-              },
-              columns: { codIbge: true },
-            })
-            .pipe(
-              Effect.map(
-                (rows): ReadonlySet<string> =>
-                  new Set(rows.map((row) => row.codIbge))
-              )
-            )
+      const ufFilter = optionalFilter(
+        `AND uf = ?`,
+        Match.value(options.uf).pipe(
+          Match.when(Match.string, trimUpper),
+          Match.orElse(() => undefined)
         )
       );
-      const stateBridge = yield* Match.value(
-        usaPonte && estados.length > 0
-      ).pipe(
-        Match.when(false, () => Effect.succeed<ReadonlySet<string>>(new Set())),
-        Match.orElse(() =>
-          db.query.siconfiEnte
-            .findMany({
-              where: {
-                uf: { in: estados.map((e) => e.uf) },
-                esfera: "E",
-                ...regiaoFilter(options.regiao),
-              },
-              columns: { uf: true },
-            })
-            .pipe(
-              Effect.map(
-                (rows): ReadonlySet<string> =>
-                  new Set(
-                    rows.flatMap((row) => (row.uf === null ? [] : [row.uf]))
-                  )
-              )
-            )
+      const regiaoFilter = optionalFilter(
+        `AND regiao = ?`,
+        Match.value(options.regiao).pipe(
+          Match.when(Match.string, trimUpper),
+          Match.orElse(() => undefined)
         )
       );
-      const municipiosFiltrados = Match.value(usaPonte).pipe(
-        Match.when(false, () => municipios),
-        Match.orElse(() => municipios.filter((m) => municipalBridge.has(m.codIbge)))
+      const esferaFilter = optionalFilter(
+        `AND esfera = ?`,
+        Match.value(options.esfera).pipe(
+          Match.when(Match.string, trimUpper),
+          Match.orElse(() => undefined)
+        )
       );
-      const estadosFiltrados = Match.value(usaPonte).pipe(
-        Match.when(false, () => estados),
-        Match.orElse(() =>
-          Match.value(options.esfera).pipe(
-            Match.when(Match.string, (esfera) =>
-              esfera.trim().toUpperCase() === "E"
-                ? estados.filter((e) => stateBridge.has(e.uf))
-                : []
-            ),
-            Match.orElse(() => estados.filter((e) => stateBridge.has(e.uf)))
+      const usaPonte = options.regiao !== undefined || options.esfera !== undefined;
+      const estadoBridge = usaPonte
+        ? `AND uf IN (SELECT uf FROM siconfi_ente WHERE esfera = 'E' ${regiaoFilter[0]})`
+        : "";
+      const estadoBridgeParams = usaPonte ? regiaoFilter[1] : [];
+      const estadosPermitidos =
+        usaPonte && options.esfera !== undefined && trimUpper(options.esfera) !== "E"
+          ? false
+          : true;
+      const municipioBridge = usaPonte
+        ? `AND "codIbge" IN (SELECT "codIbge" FROM siconfi_ente WHERE true ${regiaoFilter[0]} ${esferaFilter[0]})`
+        : "";
+      const municipioBridgeParams = usaPonte ? [...regiaoFilter[1], ...esferaFilter[1]] : [];
+      const estados = estadosPermitidos
+        ? yield* duck.query(
+            EstadoFlat,
+            `SELECT * EXCLUDE (id) FROM capag_estado
+             WHERE ${inIds("capag")} ${ufFilter[0]} ${estadoBridge} ORDER BY uf LIMIT ?`,
+            [idsParam(notas), ...ufFilter[1], ...estadoBridgeParams, limit]
           )
-        )
+        : [];
+      const municipios = yield* duck.query(
+        MunicipioFlat,
+        `SELECT * EXCLUDE (id) FROM capag_municipio
+         WHERE ${inIds("capag")} ${ufFilter[0]} ${municipioBridge} ORDER BY uf, nome LIMIT ?`,
+        [idsParam(notas), ...ufFilter[1], ...municipioBridgeParams, limit]
       );
-      return {
-        estados: estadosFiltrados.slice(0, limit),
-        municipios: municipiosFiltrados.slice(0, limit),
-      };
+      return { estados, municipios };
     });
-
-  const bm25Entes = (q: string, limit: number) =>
-    db.execute(sql`
-      select cod_ibge as "codIbge", -rk as score
-      from (
-        select cod_ibge, row_number() over () as rk
-        from (
-          select cod_ibge
-          from ${siconfiEnte}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `);
-
-  const trgmEntes = (q: string, limit: number) =>
-    db.execute(sql`
-      select cod_ibge as "codIbge", word_similarity(${q}, busca) as score
-      from ${siconfiEnte}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, cod_ibge
-      limit ${sql.raw(String(limit))}
-    `);
 
   const buscarEntePorNome = (nome: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
       const q = normalize(nome);
       const limit = clamp(options?.limit, 10, 50);
-      const lexical = yield* bm25Entes(q, limit);
-      const ranked = yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmEntes(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
-      );
-      const codigos = ranked.map((row) => String(row.codIbge));
-      return yield* Match.value(codigos.length).pipe(
-        Match.when(0, () =>
-          Effect.succeed<readonly (EnteRow & { readonly score: number })[]>([])
+      return yield* lexicalOrFuzzy(
+        duck.query(
+          EnteScored,
+          `SELECT *, score ${scoredFrom(siconfiEnteTable)} ORDER BY score DESC, "codIbge" LIMIT ?`,
+          [q, limit]
         ),
-        Match.orElse(() =>
-          db.query.siconfiEnte
-            .findMany({ where: { codIbge: { in: codigos } } })
-            .pipe(
-              Effect.map((rows) => {
-                const byCod = new Map(rows.map((row) => [row.codIbge, row]));
-                return ranked.flatMap((scored) => {
-                  const row = byCod.get(String(scored.codIbge));
-                  return row === undefined
-                    ? []
-                    : [{ ...row, score: Number(scored.score) }];
-                });
-              })
-            )
-        )
+        fuzzy.match("siconfi_ente", q, { limit }),
+        (ids) =>
+          duck.query(
+            EnteScored,
+            `SELECT *, 0::DOUBLE AS score FROM siconfi_ente WHERE ${inIds("codIbge")}`,
+            [idsParam(ids)]
+          ),
+        (row) => row.codIbge
       );
     });
+
+  const bestMunicipio = (nome: string, uf: string | undefined) =>
+    searchMunicipio(nome).pipe(
+      Effect.flatMap((rows) => {
+        const filtered = Match.value(uf).pipe(
+          Match.when(Match.string, (sigla) =>
+            Arr.filter(rows, (row) => row.uf === trimUpper(sigla))
+          ),
+          Match.orElse(() => rows)
+        );
+        return Effect.fromOption(Arr.head(filtered)).pipe(
+          Effect.mapError(() => CapagError.make({ code: "capag.ENTE_NOT_FOUND", termo: nome }))
+        );
+      })
+    );
 
   const resolverEntePorCnpj = (cnpjInput: string) =>
     Effect.gen(function* () {
       const cnpj = onlyDigits(cnpjInput);
-      const ente = yield* db.query.siconfiEnte.findFirst({
-        where: { cnpj },
-        columns: {
-          codIbge: true,
-          ente: true,
-          uf: true,
-          esfera: true,
-          regiao: true,
-        },
-      });
-      return yield* Match.value(ente).pipe(
-        Match.when(Match.undefined, () =>
-          Effect.fail(
-            new CapagError({ code: "capag.CNPJ_NOT_FOUND", cnpj: cnpjInput })
-          )
-        ),
-        Match.orElse((found) => Effect.succeed({ cnpj, ...found }))
+      const rows = yield* duck.query(
+        EnteBridge,
+        `SELECT "codIbge", ente, uf, esfera, regiao FROM siconfi_ente WHERE cnpj = ? LIMIT 1`,
+        [cnpj]
       );
+      const ente = yield* Effect.fromOption(Arr.head(rows)).pipe(
+        Effect.mapError(() => CapagError.make({ code: "capag.CNPJ_NOT_FOUND", cnpj: cnpjInput }))
+      );
+      return { cnpj, ...ente };
     });
 
   const indexAno = (ceilingYear: number) =>
     Effect.gen(function* () {
       const snapshot = yield* fetchSnapshot(ceilingYear);
-      yield* replaceAll(snapshot);
+      const estados = Arr.map(snapshot.estados, (row) => ({ ...row, id: `${row.uf}:${row.ano}` }));
+      const municipios = Arr.map(snapshot.municipios, (row) => ({
+        ...row,
+        id: `${row.codIbge}:${row.anoBase}`,
+      }));
+      yield* duck.transaction(
+        duck
+          .replace(capagEstadoTable, estados)
+          .pipe(
+            Effect.andThen(duck.replace(capagMunicipioTable, municipios)),
+            Effect.andThen(duck.replace(siconfiEnteTable, snapshot.entes))
+          )
+      );
+      yield* fuzzy.write(
+        "capag_municipio",
+        Arr.map(municipios, (row): readonly [string, string] => [row.codIbge, row.busca])
+      );
+      yield* fuzzy.write(
+        "siconfi_ente",
+        Arr.map(snapshot.entes, (row): readonly [string, string] => [row.codIbge, row.busca])
+      );
       return {
         estados: snapshot.estados.length,
         municipios: snapshot.municipios.length,
@@ -512,9 +412,7 @@ const makeCapag = Effect.gen(function* () {
       };
     });
 
-  const index = Effect.flatMap(Clock.currentTimeMillis, (millis) =>
-    indexAno(new Date(millis).getUTCFullYear())
-  );
+  const index = Effect.flatMap(DateTime.now, (now) => indexAno(DateTime.getPartUtc(now, "year")));
 
   return {
     index,
@@ -528,9 +426,8 @@ const makeCapag = Effect.gen(function* () {
   };
 });
 
-export class Capag extends Context.Service<
-  Capag,
-  Effect.Success<typeof makeCapag>
->()("dados-publicos-mcp/Capag") {}
+export class Capag extends Context.Service<Capag, Effect.Success<typeof makeCapag>>()(
+  "dados-publicos-mcp/sources/capag/store/Capag"
+) {}
 
 export const CapagLive = Layer.effect(Capag)(makeCapag);

@@ -1,12 +1,12 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { QueridoDiario } from "../../sources/querido-diario/store";
 import { NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const BuscarDiariosInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  territoryId: Schema.optional(NonEmptyString),
-  limite: Schema.optional(positiveIntMax(50)),
+  territoryId: Schema.optionalKey(NonEmptyString),
+  limite: Schema.optionalKey(positiveIntMax(50)),
 });
 
 const buscarDiarios = defineTool({
@@ -17,17 +17,17 @@ const buscarDiarios = defineTool({
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.buscarDiarios(args.termo, {
-          territoryId: args.territoryId,
-          limit: args.limite,
-        })
+        service.buscarDiarios(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["territoryId", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const BuscarCnpjInput = Schema.Struct({
   cnpj: Schema.String.pipe(Schema.check(Schema.isMinLength(11))),
-  limite: Schema.optional(positiveIntMax(50)),
+  limite: Schema.optionalKey(positiveIntMax(50)),
 });
 
 const buscarCnpjEmDiario = defineTool({
@@ -38,31 +38,32 @@ const buscarCnpjEmDiario = defineTool({
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.buscarCnpjEmDiario(args.cnpj, { limit: args.limite })
+        service.buscarCnpjEmDiario(
+          args.cnpj,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const DiariosPorMunicipioInput = Schema.Struct({
   territoryId: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(50)),
+  limite: Schema.optionalKey(positiveIntMax(50)),
 });
 
 const diariosPorMunicipio = defineTool({
   name: "diarios_por_municipio",
-  description:
-    "Lista diarios oficiais de um municipio pelo codigo IBGE (territory_id).",
+  description: "Lista diarios oficiais de um municipio pelo codigo IBGE (territory_id).",
   input: DiariosPorMunicipioInput,
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.diariosPorMunicipio(args.territoryId, { limit: args.limite })
+        service.diariosPorMunicipio(
+          args.territoryId,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
-export const queridoDiarioTools = [
-  buscarDiarios,
-  buscarCnpjEmDiario,
-  diariosPorMunicipio,
-] as const;
+export const queridoDiarioTools = [buscarDiarios, buscarCnpjEmDiario, diariosPorMunicipio] as const;

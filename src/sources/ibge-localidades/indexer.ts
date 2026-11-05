@@ -1,9 +1,10 @@
 import { Effect } from "effect";
-import { getJson } from "../../kernel/http/client";
+import { Http } from "../../kernel/http/client";
 import { MunicipiosPayload, flatten, municipiosUrl } from "./catalog";
 
 export const fetchMunicipios = Effect.gen(function* () {
-  const payload = yield* getJson(municipiosUrl, MunicipiosPayload, {
+  const http = yield* Http;
+  const payload = yield* http.json(municipiosUrl, MunicipiosPayload, {
     headers: { accept: "application/json" },
   });
   return yield* flatten(payload);

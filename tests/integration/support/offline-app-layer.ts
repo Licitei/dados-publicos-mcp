@@ -1,7 +1,8 @@
-import { Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import { EmbedderStub } from "../../unit/support/embedder-stub";
-import { TestDbLive } from "../../unit/support/test-db";
+import { Effect, Layer } from "effect";
+import { fixtureLayer } from "../../unit/support/fixture-server";
+import { TestDuckLive } from "../../unit/support/test-duck";
+import { TestSearchLive } from "../../unit/support/test-search";
+import { TestFuzzyLive } from "../../unit/support/test-fuzzy";
 import { CamaraDeputadosLive } from "../../../src/sources/camara-deputados/store";
 import { CapagLive } from "../../../src/sources/capag/store";
 import { CatmatCatserLive } from "../../../src/sources/catmat-catser/store";
@@ -9,7 +10,6 @@ import { CmedAnvisaLive } from "../../../src/sources/cmed-anvisa/store";
 import { CnaeLive } from "../../../src/sources/cnae/store";
 import { IbgeEconomiaLive } from "../../../src/sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "../../../src/sources/ibge-localidades/store";
-import { LegislacaoLive } from "../../../src/sources/legislacao/store";
 import { PainelPrecosLive } from "../../../src/sources/painel-precos/store";
 import { PncpLive } from "../../../src/sources/pncp/store";
 import { QueridoDiarioLive } from "../../../src/sources/querido-diario/store";
@@ -24,21 +24,11 @@ import { TransparenciaDespesasLive } from "../../../src/sources/transparencia-de
 import { TransferegovLive } from "../../../src/sources/transferegov/store";
 import { TseEleitoralLive } from "../../../src/sources/tse-eleitoral/store";
 
-const route = async (input: string | URL | Request): Promise<Response> =>
-  new Response(`rota nao stubada: ${String(input)}`, { status: 404 });
+const HttpOffline = fixtureLayer([]);
 
-const fetchStub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
+const Infra = Layer.mergeAll(TestDuckLive, TestSearchLive, TestFuzzyLive, HttpOffline);
 
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchStub))
-);
-
-const Infra = Layer.mergeAll(TestDbLive, EmbedderStub, HttpStub);
-
-export const offlineSources = Layer.mergeAll(
-  LegislacaoLive,
+const offlineSources = Layer.mergeAll(
   IbgeLocalidadesLive,
   CnaeLive,
   CatmatCatserLive,
@@ -60,3 +50,10 @@ export const offlineSources = Layer.mergeAll(
   TransparenciaDespesasLive,
   SinapiLive
 ).pipe(Layer.provideMerge(Infra));
+
+export const withOfflineSources = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Layer.build(offlineSources).pipe(
+    Effect.orDie,
+    Effect.flatMap((context) => Effect.provideContext(effect, context)),
+    Effect.scoped
+  );

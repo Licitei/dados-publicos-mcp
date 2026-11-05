@@ -25,54 +25,32 @@ bun run start                         # servidor MCP via stdio
 bun run index                         # indexa fontes leves
 bun src/index.ts index <fonte>        # indexa uma fonte
 bun src/index.ts index --include-heavy
-bun run check                         # typecheck + lint estático + testes unitários
+bun run check                         # typecheck + lint + testes unitários
+bun run format                        # oxfmt
 bun run test:integration              # testes de integração
 ```
 
 ## Padrões do projeto
 
-- Código em inglês.
-- Texto para usuário pode ser em português.
-- Sem secrets, tokens ou chaves de API.
-- Sem chamadas online em tools de consulta: consulta é local após indexação.
-- Erros são dados tipados com `Schema.TaggedErrorClass` e `Effect.fail`.
-- Serviços usam `Context.Service` + `Layer.effect`.
-- Fan-out externo deve ter concorrência limitada.
-- Queries com `LIMIT` precisam de ordenação determinística.
+O lint (`tooling/lint`) é o livro de regras: tudo o que pode ser checado é regra com teste de fixture. Rode
+`bun run format` e `bun run check`. Se uma regra estiver errada, corrija a regra e os fixtures dela; não use
+comentários de disable. O que o lint não vê:
+
+- Código em inglês; texto para usuário em português.
+- Sem secrets, tokens ou chaves de API; consulta é sempre local após indexação.
 
 ## Adicionando uma fonte
 
-Uma fonte deve ser uma fatia vertical:
-
-```text
-src/sources/<fonte>/catalog.ts
-src/sources/<fonte>/indexer.ts
-src/sources/<fonte>/store.ts
-src/kernel/db/schemas/<tabela>.ts
-```
-
-O store **não cria o próprio schema**: ele assume que as tabelas já existem. O
-provisionamento (extensões + DDL) é centralizado e roda via Alchemy
-(`infra/`) / o comando `index`.
-
-Também atualize:
-
-- `src/kernel/db/schema-registry.ts` — registre a tabela em `dbSources` (isso
-  alimenta `allDbTables`, o DDL/hash e o `status_indices`);
-- `src/kernel/db/relations.ts`, se houver relação nova;
-- `src/runtime.ts`;
-- `src/serve/tools/<fonte>.ts`;
-- `src/serve/registry.ts`;
-- `src/serve/index-registry.ts`.
-
-`src/serve/status.ts` deriva o layout do registry — não precisa de edição.
+Copie `src/sources/cnae/`: `catalog.ts` (Schemas, códigos, erro, `DuckTable`s), `indexer.ts` (download + parse) e
+`store.ts` (`Context.Service` + `Layer.effect`; `index` com `duck.replace` e `fuzzy.write`; busca bm25 → fuzzy).
+Depois registre em `src/runtime.ts`, `src/serve/tools/<fonte>.ts`, `src/serve/registry.ts` e
+`src/serve/index-registry.ts` (entrada + `fonteTables`).
 
 ## Testes
 
-- Unitários ficam em `tests/unit/*.unit.test.ts`.
-- Integração fica em `tests/integration/*.integration.test.ts`.
-- Não dependa de rede pública em testes.
-- Prefira banco PGlite efêmero em teste: use `TestDbLive` (`tests/unit/support/test-db.ts`), que provê `DbLayer` + `provisionSchema` (extensões + todas as tabelas).
+- Unitários em `tests/unit/*.unit.test.ts`; integração em `tests/integration/*.integration.test.ts`.
+- Sem mocks e sem rede pública: `fixtureLayer` (servidor HTTP local), `TestDuckLive` (DuckDB real em pasta
+  temporária), `TestFuzzyLive` e `TestSearchLive` (fff real).
 
 ## PR bom
 

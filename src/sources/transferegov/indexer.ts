@@ -1,11 +1,12 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
+import * as Arr from "effect/Array";
 import { parseCsvRecords } from "../../kernel/csv/parse";
-import { Db } from "../../kernel/db/client";
-import { convenio } from "../../kernel/db/schemas/convenio";
-import { httpResponse } from "../../kernel/http/client";
+import { appendRows } from "../../kernel/duck/append";
+import { Http } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   acceptCsv,
+  convenioTable,
   convenioZipUrl,
   csvOptions,
   mapConvenios,
@@ -14,32 +15,20 @@ import {
   type ConvenioFlat,
 } from "./catalog";
 
-const chunkSize = 2_000;
-
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
-
-const chunks = <A>(items: readonly A[]) =>
-  range(Math.ceil(items.length / chunkSize)).map((position) =>
-    items.slice(position * chunkSize, position * chunkSize + chunkSize)
-  );
-
 const insertRows = (rows: readonly ConvenioFlat[]) =>
-  Effect.forEach(
-    chunks(rows),
-    (batch) => Effect.flatMap(Db, (db) => db.insert(convenio).values([...batch])),
-    { concurrency: 1, discard: true }
+  appendRows(
+    convenioTable,
+    Arr.map(rows, (row, position) => ({ id: position, ...row }))
   );
 
 const fetchCsv = (url: string) =>
-  httpResponse(url, { headers: { accept: "application/zip" } }).pipe(
-    Effect.flatMap((response) => response.arrayBuffer),
-    Effect.map((buffer) => new Uint8Array(buffer)),
+  Effect.flatMap(Http, (http) => http.bytes(url, { headers: { accept: "application/zip" } })).pipe(
     Effect.flatMap((bytes) => unzipEntries(bytes, acceptCsv)),
     Effect.map((entries) =>
-      entries.length === 0
-        ? []
-        : parseCsvRecords(entries[0].data, csvOptions)
+      Option.match(Arr.head(entries), {
+        onNone: () => [],
+        onSome: (entry) => parseCsvRecords(entry.data, csvOptions),
+      })
     )
   );
 

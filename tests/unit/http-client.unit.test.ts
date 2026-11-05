@@ -1,50 +1,36 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, Layer, Schema } from "effect";
-import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
-import { getJson, HttpConfig, httpResponse } from "../../src/kernel/http/client";
+import { expect, layer } from "@effect/vitest";
+import { Effect, Schema } from "effect";
+import { Http, HttpConfig } from "../../src/kernel/http/client";
+import { FixtureServer, fixtureLayer } from "./support/fixture-server";
 
+const JSON_TEXT = '{"ok":true,"items":[1,2,3],"name":"licitacao"}';
 const JSON_BODY = { ok: true, items: [1, 2, 3], name: "licitacao" };
 
 const BodySchema = Schema.Struct({
   ok: Schema.Boolean,
-  items: Schema.Array(Schema.Number),
+  items: Schema.Array(Schema.Finite),
   name: Schema.String,
 });
 
-let flakyHits = 0;
-
-const route = async (input: string | URL | Request): Promise<Response> => {
-  const path = new URL(String(input)).pathname;
-
-  switch (path) {
-    case "/json":
-      return Response.json(JSON_BODY);
-    case "/flaky":
-      flakyHits += 1;
-      return flakyHits === 1
-        ? new Response("indisponivel", { status: 503 })
-        : Response.json({ recovered: true });
-    case "/not-found":
-      return new Response("nada aqui", { status: 404 });
-    case "/bad-json":
-      return new Response("isto nao e json {{{", {
-        headers: { "content-type": "application/json" },
-      });
-    case "/never":
-      return new Promise<Response>(() => {});
-    default:
-      return new Response("rota desconhecida", { status: 404 });
-  }
-};
-
-const stub = Object.assign(route, {
-  preconnect: () => {},
-}) satisfies typeof fetch;
-
-const HttpStub = FetchHttpClient.layer.pipe(
-  Layer.provide(Layer.succeed(FetchHttpClient.Fetch, stub))
-);
+const HttpFixture = fixtureLayer([
+  { match: "/json", respond: { body: JSON_TEXT } },
+  {
+    match: "/flaky",
+    respond: (hit) =>
+      hit === 1 ? { status: 503, body: "indisponivel" } : { body: '{"recovered":true}' },
+  },
+  { match: "/down-a", respond: { status: 503, body: "indisponivel" } },
+  { match: "/down-b", respond: { status: 503, body: "indisponivel" } },
+  { match: "/not-found", respond: { status: 404, body: "nada aqui" } },
+  {
+    match: "/bad-json",
+    respond: {
+      body: "isto nao e json {{{",
+      headers: { "content-type": "application/json" },
+    },
+  },
+  { match: "/slow", respond: { body: "tarde", hang: true } },
+]);
 
 const noRetry = Effect.provideService(HttpConfig, {
   userAgent: "test",
@@ -54,14 +40,28 @@ const noRetry = Effect.provideService(HttpConfig, {
   retryableStatus: new Set<number>(),
 });
 
-const at = (path: string) => `http://stub.test${path}`;
+const fastRetry = Effect.provideService(HttpConfig, {
+  userAgent: "test",
+  timeoutMs: 30_000,
+  maxRetries: 2,
+  retryBaseMillis: 5,
+  retryableStatus: new Set<number>([503]),
+});
 
-describe("getJson", () => {
+const at = (path: string) => `https://upstream.example.test${path}`;
+
+const getJson = <S extends Schema.Top>(url: string, schema: S) =>
+  Effect.flatMap(Http, (http) => http.json(url, schema));
+
+const response = (url: string, opts?: { readonly timeoutMs: number }) =>
+  Effect.flatMap(Http, (http) => http.response(url, opts));
+
+layer(HttpFixture, { excludeTestServices: true })("Http.json", (it) => {
   it.effect("decodes the body against the schema", () =>
     Effect.gen(function* () {
       const value = yield* getJson(at("/json"), BodySchema);
       expect(value).toEqual(JSON_BODY);
-    }).pipe(Effect.provide(HttpStub))
+    })
   );
 
   it.effect("non-retryable 404 becomes http.STATUS", () =>
@@ -70,14 +70,14 @@ describe("getJson", () => {
       expect(error.code).toBe("http.STATUS");
       expect(error.status).toBe(404);
       expect(error.message).toContain("HTTP 404");
-    }).pipe(Effect.provide(HttpStub))
+    })
   );
 
   it.effect("invalid JSON becomes http.PARSE", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(getJson(at("/bad-json"), BodySchema));
       expect(error.code).toBe("http.PARSE");
-    }).pipe(Effect.provide(HttpStub))
+    })
   );
 
   it.effect("schema mismatch becomes http.PARSE", () =>
@@ -86,42 +86,45 @@ describe("getJson", () => {
         getJson(at("/json"), Schema.Struct({ missing: Schema.String }))
       );
       expect(error.code).toBe("http.PARSE");
-    }).pipe(Effect.provide(HttpStub))
+    })
   );
 });
 
-describe("httpResponse", () => {
+layer(HttpFixture, { excludeTestServices: true })("Http.response", (it) => {
   it.effect("retries the backoff after 503 and then succeeds", () =>
     Effect.gen(function* () {
-      flakyHits = 0;
-      const fiber = yield* Effect.forkChild(httpResponse(at("/flaky")));
-      yield* TestClock.adjust(Duration.seconds(1));
-      const res = yield* Fiber.join(fiber);
-
-      expect(flakyHits).toBe(2);
+      const res = yield* response(at("/flaky"));
+      const server = yield* FixtureServer;
+      const hits = yield* server.hits("/flaky");
+      expect(hits).toBe(2);
       expect(res.status).toBe(200);
-    }).pipe(Effect.provide(HttpStub))
+    }).pipe(fastRetry)
+  );
+
+  it.effect("gives up after maxRetries on a persistent 503", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(response(at("/down-a")));
+      const server = yield* FixtureServer;
+      const hits = yield* server.hits("/down-a");
+      expect(hits).toBe(3);
+      expect(error.code).toBe("http.STATUS");
+    }).pipe(fastRetry)
   );
 
   it.effect("interrupts on timeout with http.TIMEOUT", () =>
     Effect.gen(function* () {
-      const fiber = yield* Effect.forkChild(
-        Effect.flip(httpResponse(at("/never"), { timeoutMs: 100 }))
-      );
-      yield* TestClock.adjust(Duration.millis(100));
-      const error = yield* Fiber.join(fiber);
-
+      const error = yield* Effect.flip(response(at("/slow"), { timeoutMs: 100 }));
       expect(error.code).toBe("http.TIMEOUT");
-    }).pipe(noRetry, Effect.provide(HttpStub))
+    }).pipe(noRetry)
   );
 
   it.effect("an overridden HttpConfig disables retries", () =>
     Effect.gen(function* () {
-      flakyHits = 0;
-      const error = yield* Effect.flip(httpResponse(at("/flaky")));
-
-      expect(flakyHits).toBe(1);
+      const error = yield* Effect.flip(response(at("/down-b")));
+      const server = yield* FixtureServer;
+      const hits = yield* server.hits("/down-b");
+      expect(hits).toBe(1);
       expect(error.code).toBe("http.STATUS");
-    }).pipe(noRetry, Effect.provide(HttpStub))
+    }).pipe(noRetry)
   );
 });

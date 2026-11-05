@@ -1,112 +1,119 @@
-#!/usr/bin/env bun
-
 import { Console, Effect, Option, Schema } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
+import { Argument, Command, Flag } from "effect/cli";
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { deployAll, deployIndex } from "../infra/local-index.run";
+import {
+  IndexDeployer,
+  IndexDeployerLive,
+  type IndexDeployFailure,
+} from "../infra/local-index.run";
 import { FonteKey, type Scope } from "./serve/index-registry";
 import { serve } from "./serve/server";
 
-class UnknownFonteError extends Schema.TaggedErrorClass<UnknownFonteError>()(
-  "UnknownFonteError",
-  { fonte: Schema.String }
-) {
+class UnknownFonteError extends Schema.TaggedError<
+  UnknownFonteError,
+  { readonly brand: unique symbol }
+>()("UnknownFonteError", { fonte: Schema.String }) {
   override get message() {
     return `Fonte desconhecida: ${this.fonte}`;
   }
 }
 
+const splitParts = (value: string) => Arr.map(Str.split(value, ","), (part) => Str.trim(part));
+
 const splitUpper = (value: string) =>
-  value
-    .split(",")
-    .map((part) => part.trim().toUpperCase())
-    .filter((part) => part.length > 0);
+  Arr.filter(
+    Arr.map(splitParts(value), (part) => Str.toUpperCase(part)),
+    (part) => part.length > 0
+  );
 
 const splitNumbers = (value: string) =>
-  value
-    .split(",")
-    .map((part) => Number(part.trim()))
-    .filter((part) => Number.isFinite(part));
+  Arr.filter(
+    Arr.map(splitParts(value), (part) => Number(part)),
+    (part) => Number.isFinite(part)
+  );
 
 const buildScope = (input: {
   readonly ufs: Option.Option<string>;
   readonly anos: Option.Option<string>;
   readonly mes: Option.Option<string>;
 }): Scope => ({
-  ufs: input.ufs.pipe(Option.map(splitUpper), Option.getOrUndefined),
-  anos: input.anos.pipe(Option.map(splitNumbers), Option.getOrUndefined),
-  mes: input.mes.pipe(
-    Option.map((value) => value.trim()),
-    Option.getOrUndefined
-  ),
+  ...Option.match(input.ufs, {
+    onNone: () => ({}),
+    onSome: (value) => ({ ufs: splitUpper(value) }),
+  }),
+  ...Option.match(input.anos, {
+    onNone: () => ({}),
+    onSome: (value) => ({ anos: splitNumbers(value) }),
+  }),
+  ...Option.match(input.mes, {
+    onNone: () => ({}),
+    onSome: (value) => ({ mes: Str.trim(value) }),
+  }),
 });
 
 const decodeFonte = Schema.decodeUnknownOption(FonteKey);
 
-const runOne = (fonte: string, scope: Scope): Effect.Effect<void, unknown> =>
+const indexedJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+
+type IndexRun = Effect.Effect<
+  void,
+  UnknownFonteError | IndexDeployFailure | Schema.SchemaError,
+  IndexDeployer
+>;
+
+const runOne = (fonte: string, scope: Scope): IndexRun =>
   decodeFonte(fonte).pipe(
     Option.match({
       onNone: () =>
-        Console.error(
-          `Fontes disponiveis: ${FonteKey.literals.join(", ")}`
-        ).pipe(Effect.andThen(Effect.fail(new UnknownFonteError({ fonte })))),
-      onSome: (key) =>
-        deployIndex(key, scope).pipe(
-          Effect.flatMap((output) =>
-            Console.log(`ok "${key}": ${JSON.stringify(output.indexed)}`)
-          )
+        Console.error(`Fontes disponiveis: ${Arr.join(FonteKey.literals, ", ")}`).pipe(
+          Effect.andThen(Effect.fail(UnknownFonteError.make({ fonte })))
         ),
+      onSome: (key) =>
+        Effect.gen(function* () {
+          const deployer = yield* IndexDeployer;
+          const output = yield* deployer.deployIndex(key, scope);
+          const summary = yield* indexedJson(output.indexed);
+          yield* Console.log(`ok "${key}": ${summary}`);
+        }),
     })
   );
 
-const runAll = (
-  includeHeavy: boolean,
-  scope: Scope
-): Effect.Effect<void, unknown> =>
-  deployAll(includeHeavy, scope).pipe(
-    Effect.flatMap((output) =>
-      Console.log(
-        `${output.indexed.length} fonte(s) indexada(s) com sucesso.`
-      )
-    )
-  );
+const runAll = (includeHeavy: boolean, scope: Scope): IndexRun =>
+  Effect.gen(function* () {
+    const deployer = yield* IndexDeployer;
+    const output = yield* deployer.deployAll(includeHeavy, scope);
+    yield* Console.log(`${output.indexed.length} fonte(s) indexada(s) com sucesso.`);
+  });
 
 const indexCommand = Command.make(
   "index",
   {
-    fonte: Argument.string("fonte").pipe(
+    fonte: Argument.String("fonte").pipe(
       Argument.optional,
-      Argument.withDescription(
-        "Fonte a indexar. Sem fonte: indexa todas as fontes leves."
-      )
+      Argument.withDescription("Fonte a indexar. Sem fonte: indexa todas as fontes leves.")
     ),
-    includeHeavy: Flag.boolean("include-heavy").pipe(
-      Flag.withDescription(
-        "Indexa todas as fontes, incluindo as que exigem download pesado"
-      )
+    includeHeavy: Flag.Boolean("include-heavy").pipe(
+      Flag.withDescription("Indexa todas as fontes, incluindo as que exigem download pesado")
     ),
-    ufs: Flag.string("ufs").pipe(
+    ufs: Flag.String("ufs").pipe(
       Flag.optional,
       Flag.withDescription("Recorte de UFs (separadas por virgula). Ex: SP,RJ")
     ),
-    anos: Flag.string("anos").pipe(
+    anos: Flag.String("anos").pipe(
       Flag.optional,
-      Flag.withDescription(
-        "Recorte de anos (separados por virgula). Ex: 2024,2025"
-      )
+      Flag.withDescription("Recorte de anos (separados por virgula). Ex: 2024,2025")
     ),
-    mes: Flag.string("mes").pipe(
+    mes: Flag.String("mes").pipe(
       Flag.optional,
       Flag.withDescription("Recorte de mes (YYYY-MM). Ex: 2026-01")
     ),
   },
   (config) =>
-    Effect.suspend(() => {
-      const scope = buildScope(config);
-      return Option.match(config.fonte, {
-        onNone: () => runAll(config.includeHeavy, scope),
-        onSome: (fonte) => runOne(fonte, scope),
-      });
+    Option.match(config.fonte, {
+      onNone: () => runAll(config.includeHeavy, buildScope(config)),
+      onSome: (fonte) => runOne(fonte, buildScope(config)),
     })
 ).pipe(
   Command.withDescription(
@@ -114,14 +121,12 @@ const indexCommand = Command.make(
   )
 );
 
-const root = Command.make("dados-publicos-mcp", {}, () =>
-  Effect.promise(() => serve())
-).pipe(
+const root = Command.make("dados-publicos-mcp", {}, () => Effect.promise(() => serve())).pipe(
   Command.withDescription("Inicia o servidor MCP via stdio."),
   Command.withSubcommands([indexCommand])
 );
 
 Command.run(root, { version: "0.1.0" }).pipe(
-  Effect.provide(BunServices.layer),
+  Effect.provide([BunServices.layer, IndexDeployerLive]),
   BunRuntime.runMain
 );

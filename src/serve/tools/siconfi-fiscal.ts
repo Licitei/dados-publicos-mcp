@@ -1,13 +1,13 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { SiconfiFiscal } from "../../sources/siconfi-fiscal/store";
 import { intYear, NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
 const FiscalInput = Schema.Struct({
   idEnte: NonEmptyString,
-  demonstrativo: Schema.optional(Schema.Literals(["DCA", "RREO", "RGF"])),
-  exercicio: Schema.optional(intYear),
-  limite: Schema.optional(positiveIntMax(1000)),
+  demonstrativo: Schema.optionalKey(Schema.Literals(["DCA", "RREO", "RGF"])),
+  exercicio: Schema.optionalKey(intYear),
+  limite: Schema.optionalKey(positiveIntMax(1000)),
 });
 
 const fiscalEnte = defineTool({
@@ -18,29 +18,33 @@ const fiscalEnte = defineTool({
   run: (args) =>
     SiconfiFiscal.pipe(
       Effect.flatMap((service) =>
-        service.fiscalPorEnte(args.idEnte, {
-          demonstrativo: args.demonstrativo,
-          exercicio: args.exercicio,
-          limit: args.limite,
-        })
+        service.fiscalPorEnte(
+          args.idEnte,
+          Struct.renameKeys(Struct.pick(args, ["demonstrativo", "exercicio", "limite"]), {
+            limite: "limit",
+          })
+        )
       )
     ),
 });
 
 const BuscarContaInput = Schema.Struct({
   termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const buscarConta = defineTool({
   name: "buscar_conta_siconfi",
   description:
-    "Busca linhas de contas fiscais SICONFI por texto (ex: 'despesa com pessoal', 'receita corrente liquida') usando BM25 com fallback fuzzy pg_trgm.",
+    "Busca linhas de contas fiscais SICONFI por texto (ex: 'despesa com pessoal', 'receita corrente liquida').",
   input: BuscarContaInput,
   run: (args) =>
     SiconfiFiscal.pipe(
       Effect.flatMap((service) =>
-        service.buscarConta(args.termo, { limit: args.limite })
+        service.buscarConta(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });

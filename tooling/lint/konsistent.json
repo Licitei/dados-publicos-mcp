@@ -1,0 +1,28 @@
+{
+  "$schema": "../../node_modules/konsistent/konsistent.schema.json",
+  "version": "v1",
+  "conventions": [
+    {
+      "name": "source-slices-have-a-store",
+      "paths": "src/sources/{slice}",
+      "must": {
+        "haveType": "directory",
+        "haveFiles": ["store.ts"]
+      }
+    },
+    {
+      "name": "no-pure-barrels",
+      "paths": ["src/**/index.ts", "!src/index.ts"],
+      "mustNot": {
+        "areBarrelFiles": true
+      }
+    },
+    {
+      "name": "no-javascript-source",
+      "paths": ["src/**/*.js", "src/**/*.jsx", "src/**/*.mjs", "src/**/*.cjs"],
+      "mustNot": {
+        "haveType": "file"
+      }
+    }
+  ]
+}

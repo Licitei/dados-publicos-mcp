@@ -1,122 +1,81 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { sancao } from "../../kernel/db/schemas/sancao";
+import { Context, Effect, Layer, Option, pipe, Schema, Struct } from "effect";
+import * as Arr from "effect/Array";
+import * as Str from "effect/String";
+import { Duck, idsParam } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { sancaoTable, SancaoFlat } from "./catalog";
 import { indexSnapshots } from "./indexer";
+import {
+  castIds,
+  clamp,
+  countBy,
+  lexicalOrFuzzy,
+  scoredFrom,
+  tipoDocumento as tipoDocumentoOf,
+} from "../../kernel/duck/search";
 
-const viewColumns = {
-  lista: true,
-  codigo: true,
-  tipoPessoa: true,
-  documento: true,
-  docNormalizado: true,
-  nome: true,
-  razaoSocial: true,
-  categoria: true,
-  numeroProcesso: true,
-  valorMulta: true,
-  dataInicio: true,
-  dataFinal: true,
-  dataPublicacao: true,
-  orgaoSancionador: true,
-  ufOrgao: true,
-  fundamentacao: true,
-} as const;
+const SancaoView = SancaoFlat.mapFields(Struct.omit(["busca"]));
 
-const sancaoView = sql`
-  lista, codigo, tipo_pessoa as "tipoPessoa", documento,
-  doc_normalizado as "docNormalizado", nome, razao_social as "razaoSocial",
-  categoria, numero_processo as "numeroProcesso", valor_multa as "valorMulta",
-  data_inicio as "dataInicio", data_final as "dataFinal",
-  data_publicacao as "dataPublicacao",
-  orgao_sancionador as "orgaoSancionador", uf_orgao as "ufOrgao",
-  fundamentacao
-`;
+const NameHit = Schema.Struct({ ...SancaoView.fields, id: Schema.Finite, score: Schema.Finite });
+
+const VigenteHit = Schema.Struct({ ...SancaoView.fields, score: Schema.NullOr(Schema.String) });
+
+const viewSelect = `lista, codigo, "tipoPessoa", documento, "docNormalizado", nome, "razaoSocial", categoria, "numeroProcesso", "valorMulta", "dataInicio", "dataFinal", "dataPublicacao", "orgaoSancionador", "ufOrgao", fundamentacao`;
 
 const impeditivas = new Set(["ceis", "cnep", "cepim"]);
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
-
 const makeSancoesCgu = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
   const verificar = (documentoInput: string) =>
     Effect.gen(function* () {
       const docNormalizado = onlyDigits(documentoInput);
-      const tipoDocumento = Match.value(docNormalizado.length).pipe(
-        Match.when(14, () => "cnpj" as const),
-        Match.when(11, () => "cpf" as const),
-        Match.orElse(() => "desconhecido" as const)
+      const tipoDocumento = tipoDocumentoOf(docNormalizado);
+      const sancoes = yield* duck.query(
+        SancaoView,
+        `SELECT ${viewSelect} FROM sancao WHERE "docNormalizado" = ? ORDER BY "dataInicio" DESC NULLS LAST, id`,
+        [docNormalizado]
       );
-      const sancoes = yield* db.query.sancao.findMany({
-        where: { docNormalizado },
-        columns: viewColumns,
-        orderBy: (s, { desc }) => desc(s.dataInicio),
-      });
-      const porLista = sancoes.reduce<Record<string, number>>(
-        (acc, row) => ({ ...acc, [row.lista]: (acc[row.lista] ?? 0) + 1 }),
-        {}
-      );
+      const porLista = countBy(sancoes, (row) => row.lista);
       return {
         documento: documentoInput,
         docNormalizado,
         tipoDocumento,
         sancionado: sancoes.length > 0,
-        inidoneoOuImpedido: sancoes.some((row) => impeditivas.has(row.lista)),
+        inidoneoOuImpedido: pipe(
+          sancoes,
+          Arr.some((row) => impeditivas.has(row.lista))
+        ),
         total: sancoes.length,
         porLista,
         sancoes,
       };
     });
 
-  const bm25PorNome = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${sancaoView}, -rk as score
-      from (
-        select
-          lista, codigo, tipo_pessoa, documento, doc_normalizado, nome,
-          razao_social, categoria, numero_processo, valor_multa, data_inicio,
-          data_final, data_publicacao, orgao_sancionador, uf_orgao,
-          fundamentacao, row_number() over () as rk
-        from (
-          select
-            lista, codigo, tipo_pessoa, documento, doc_normalizado, nome,
-            razao_social, categoria, numero_processo, valor_multa, data_inicio,
-            data_final, data_publicacao, orgao_sancionador, uf_orgao,
-            fundamentacao
-          from ${sancao}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `);
-
-  const trgmPorNome = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${sancaoView}, word_similarity(${q}, busca) as score
-      from ${sancao}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, id
-      limit ${sql.raw(String(limit))}
-    `);
-
-  const buscarPorNome = (
-    nome: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const buscarPorNome = (nome: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
       const q = normalize(nome);
       const limit = clamp(options?.limit, 50, 100);
-      const lexical = yield* bm25PorNome(q, limit);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmPorNome(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
-      );
+      const rows = yield* Str.isNonEmpty(q)
+        ? lexicalOrFuzzy(
+            duck.query(
+              NameHit,
+              `SELECT id::DOUBLE AS id, ${viewSelect}, score ${scoredFrom(sancaoTable)} ORDER BY score DESC, id LIMIT ?`,
+              [q, limit]
+            ),
+            fuzzy.match("sancao", q, { limit }),
+            (ids) =>
+              duck.query(
+                NameHit,
+                `SELECT id::DOUBLE AS id, ${viewSelect}, 0::DOUBLE AS score FROM sancao WHERE ${castIds}`,
+                [idsParam(ids)]
+              ),
+            (row) => row.id
+          )
+        : Effect.succeed([]);
+      return Arr.map(rows, Struct.omit(["id"]));
     });
 
   const vigentesNaData = (
@@ -124,31 +83,36 @@ const makeSancoesCgu = Effect.gen(function* () {
     options?: { readonly lista?: string; readonly limit?: number }
   ) =>
     Effect.gen(function* () {
-      const iso = data.trim();
+      const iso = Str.trim(data);
       const limit = clamp(options?.limit, 200, 500);
-      const listaWhere: SQL = Match.value(options?.lista).pipe(
-        Match.when(Match.string, (lista) => sql`and lista = ${lista}`),
-        Match.orElse(() => sql``)
+      const lista = Option.fromNullishOr(options?.lista);
+      return yield* duck.query(
+        VigenteHit,
+        `SELECT ${viewSelect}, "dataInicio" AS score
+         FROM sancao
+         WHERE "dataInicio" IS NOT NULL
+           AND "dataInicio" <= ?
+           AND ("dataFinal" IS NULL OR "dataFinal" = '' OR "dataFinal" >= ?)
+           ${Option.isSome(lista) ? "AND lista = ?" : ""}
+         ORDER BY "dataInicio" DESC, id
+         LIMIT ?`,
+        [iso, iso, ...Option.match(lista, { onNone: () => [], onSome: (value) => [value] }), limit]
       );
-      return yield* db.execute(sql`
-        select ${sancaoView}, data_inicio as score
-        from ${sancao}
-        where data_inicio is not null
-          and data_inicio <= ${iso}
-          and (data_final is null or data_final = '' or data_final >= ${iso})
-          ${listaWhere}
-        order by data_inicio desc
-        limit ${sql.raw(String(limit))}
-      `);
     });
 
   const index = Effect.gen(function* () {
-    yield* db.delete(sancao);
+    yield* duck.create(sancaoTable);
     const inserted = yield* indexSnapshots;
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${sancao}`
+    yield* duck.reindex(sancaoTable);
+    const names = yield* duck.query(
+      Schema.Struct({ id: Schema.Finite, busca: Schema.String }),
+      `SELECT id::DOUBLE AS id, busca FROM sancao`
     );
-    return { inserted, total: Number(rows[0].count) };
+    yield* fuzzy.write(
+      "sancao",
+      Arr.map(names, (row): readonly [number, string] => [row.id, row.busca])
+    );
+    return { inserted, total: yield* duck.count(sancaoTable) };
   });
 
   return { index, indexAll: index, verificar, buscarPorNome, vigentesNaData };
@@ -157,6 +121,6 @@ const makeSancoesCgu = Effect.gen(function* () {
 export class SancoesCgu extends Context.Service<
   SancoesCgu,
   Effect.Success<typeof makeSancoesCgu>
->()("dados-publicos-mcp/SancoesCgu") {}
+>()("dados-publicos-mcp/sources/sancoes-cgu/store/SancoesCgu") {}
 
 export const SancoesCguLive = Layer.effect(SancoesCgu)(makeSancoesCgu);

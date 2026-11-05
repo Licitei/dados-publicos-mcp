@@ -1,54 +1,46 @@
-import { Cause, Effect, Exit } from "effect";
-import { sql } from "drizzle-orm";
-import * as Test from "alchemy/Test/Vitest";
+import { Effect, Schema } from "effect";
+import * as Test from "@alchemy.run/test/Vitest";
 import { describe, expect } from "@effect/vitest";
-import { Db } from "../../src/kernel/db/client";
-import { offlineSources } from "./support/offline-app-layer";
-import {
-  LocalIndex,
-  providers,
-  type IndexRegistry,
-  type LocalIndexConfig,
-} from "../../infra/local-index";
+import { Duck } from "../../src/kernel/duck/duck";
+import { IndexFailure, indexRegistry } from "../../src/serve/index-registry";
+import { withOfflineSources } from "./support/offline-app-layer";
+import { LocalIndex, providers, type LocalIndexConfig } from "../../infra/local-index";
+import { deploy, destroy, destroyIgnored } from "./support/stack";
 
 const offlineRun = Effect.gen(function* () {
-  const db = yield* Db;
-  yield* db.execute(
-    sql`create table if not exists local_index_probe (id text primary key)`
+  const duck = yield* Duck;
+  yield* duck.run("CREATE TABLE IF NOT EXISTS local_index_probe (id VARCHAR PRIMARY KEY)");
+  yield* duck.run("INSERT INTO local_index_probe (id) VALUES ('cnae') ON CONFLICT DO NOTHING");
+  const rows = yield* duck.query(
+    Schema.Struct({ count: Schema.Finite }),
+    "SELECT count(*)::INTEGER AS count FROM local_index_probe"
   );
-  yield* db.execute(
-    sql`insert into local_index_probe (id) values ('cnae') on conflict do nothing`
-  );
-  const rows = yield* db.execute(
-    sql`select count(*)::int as count from local_index_probe`
-  );
-  return Number(rows[0].count);
+  return rows[0]?.count ?? 0;
+}).pipe(Effect.mapError((error) => IndexFailure.make({ text: error.message })));
+
+const registryWith = (run: (typeof indexRegistry)["cnae"]["run"]) => ({
+  ...indexRegistry,
+  cnae: { heavy: false, tables: [], run },
 });
 
-const stubRegistry = {
-  cnae: { heavy: false, run: () => offlineRun },
-} as unknown as IndexRegistry;
+const stubRegistry = registryWith(() => offlineRun);
 
 const stubConfig: LocalIndexConfig = {
+  version: () => Effect.succeed(null),
   registry: stubRegistry,
-  run: (entry, scope) =>
-    Effect.runPromiseExit(entry.run(scope).pipe(Effect.provide(offlineSources))),
+  run: (entry, scope) => withOfflineSources(entry.run(scope)),
 };
 
 const failingConfig: LocalIndexConfig = {
-  registry: {
-    cnae: { heavy: false, run: () => Effect.fail("boom") },
-  } as unknown as IndexRegistry,
-  run: (entry, scope) =>
-    Effect.runPromiseExit(entry.run(scope).pipe(Effect.provide(offlineSources))),
+  version: () => Effect.succeed(null),
+  registry: registryWith(() => Effect.fail(IndexFailure.make({ text: "boom" }))),
+  run: (entry, scope) => withOfflineSources(entry.run(scope)),
 };
 
 const aggregateConfig: LocalIndexConfig = {
-  registry: {
-    cnae: { heavy: false, run: () => Effect.succeed([2, 3, 4]) },
-  } as unknown as IndexRegistry,
-  run: (entry, scope) =>
-    Effect.runPromiseExit(entry.run(scope).pipe(Effect.provide(offlineSources))),
+  version: () => Effect.succeed(null),
+  registry: registryWith(() => Effect.succeed([2, 3, 4])),
+  run: (entry, scope) => withOfflineSources(entry.run(scope)),
 };
 
 const ok = Test.make({ providers: providers(stubConfig) });
@@ -58,44 +50,34 @@ const aggregate = Test.make({ providers: providers(aggregateConfig) });
 describe("LocalIndex", () => {
   ok.test.provider("indexa a fonte offline e reporta a contagem", (stack) =>
     Effect.gen(function* () {
-      const indexed = yield* LocalIndex("cnae", { fonte: "cnae" }).pipe(
-        stack.deploy
-      );
+      const indexed = yield* deploy(stack, LocalIndex("cnae", { fonte: "cnae" }));
 
       expect(indexed.fonte).toEqual("cnae");
       expect(indexed.rows).toEqual(1);
 
-      yield* stack.destroy();
+      yield* destroy(stack);
     })
   );
 
   bad.test.provider("propaga a falha do pipeline como falha do reconcile", (stack) =>
     Effect.gen(function* () {
-      const exit = yield* LocalIndex("cnae", { fonte: "cnae" }).pipe(
-        stack.deploy,
-        Effect.exit
-      );
+      const failure = yield* Effect.flip(deploy(stack, LocalIndex("cnae", { fonte: "cnae" })));
 
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        expect(Cause.pretty(exit.cause)).toContain("boom");
-      }
+      expect(failure._tag).toEqual("StackOperationError");
+      expect(failure.op).toEqual("deploy");
+      expect(failure.cause).toContain("boom");
 
-      yield* stack.destroy().pipe(Effect.ignore);
+      yield* destroyIgnored(stack);
     })
   );
 
-  aggregate.test.provider(
-    "soma contagens quando o pipeline retorna varios numeros",
-    (stack) =>
-      Effect.gen(function* () {
-        const indexed = yield* LocalIndex("cnae", { fonte: "cnae" }).pipe(
-          stack.deploy
-        );
+  aggregate.test.provider("soma contagens quando o pipeline retorna varios numeros", (stack) =>
+    Effect.gen(function* () {
+      const indexed = yield* deploy(stack, LocalIndex("cnae", { fonte: "cnae" }));
 
-        expect(indexed.rows).toEqual(9);
+      expect(indexed.rows).toEqual(9);
 
-        yield* stack.destroy();
-      })
+      yield* destroy(stack);
+    })
   );
 });

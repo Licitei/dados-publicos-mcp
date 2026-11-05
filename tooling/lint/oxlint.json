@@ -1,0 +1,671 @@
+{
+  "$schema": "../../node_modules/@effect/tsgo/oxlint-schema.json",
+  "extends": [
+    "../../node_modules/@effect/tsgo/oxlint-presets/strict.json"
+  ],
+  "options": {
+    "typeAware": true,
+    "reportUnusedDisableDirectives": "error"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    ".alchemy/**",
+    ".claude/**",
+    "docs/**",
+    "tooling/lint/__tests__/fixtures/**"
+  ],
+  "jsPlugins": [
+    "./plugin/index.ts"
+  ],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "builtin": true,
+    "es2022": true,
+    "node": true
+  },
+  "plugins": [
+    "typescript",
+    "import",
+    "unicorn",
+    "vitest",
+    "effecttsgo"
+  ],
+  "rules": {
+    "typescript/consistent-type-assertions": [
+      "error",
+      {
+        "assertionStyle": "never"
+      }
+    ],
+    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/consistent-type-imports": "error",
+    "eslint/no-var": "error",
+    "eslint/prefer-const": "error",
+    "eslint/no-console": "error",
+    "eslint/no-throw-literal": "error",
+    "eslint/no-param-reassign": "error",
+    "eslint/no-plusplus": "error",
+    "eslint/no-await-in-loop": "error",
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "import/no-duplicates": "error",
+    "import/no-mutable-exports": "error",
+    "unicorn/prefer-node-protocol": "error",
+    "dados-publicos/no-source-comments": "off",
+    "dados-publicos/filename-case": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "effect/http",
+              "effect/http/**",
+              "effect/unstable/http",
+              "effect/unstable/http/**",
+              "**/HttpClient",
+              "**/FetchHttpClient"
+            ],
+            "message": "Only src/kernel/http may touch HTTP clients; go through the kernel Http service."
+          },
+          {
+            "group": [
+              "drizzle-orm",
+              "drizzle-orm/**",
+              "node:sqlite",
+              "bun:sqlite",
+              "drizzle-orm/pglite",
+              "drizzle-orm/node-postgres",
+              "drizzle-orm/postgres-js",
+              "drizzle-orm/better-sqlite3",
+              "drizzle-orm/libsql",
+              "drizzle-orm/libsql/**",
+              "drizzle-orm/bun-sqlite",
+              "drizzle-orm/bun-sql",
+              "drizzle-orm/sql-js",
+              "drizzle-orm/effect-*",
+              "@electric-sql/*",
+              "@effect/sql-*",
+              "effect/sql",
+              "effect/sql/**",
+              "effect/unstable/sql",
+              "effect/unstable/sql/**"
+            ],
+            "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+          },
+          {
+            "group": [
+              "@duckdb/*"
+            ],
+            "message": "Only src/kernel/duck may import DuckDB."
+          },
+          {
+            "group": [
+              "@ff-labs/fff-node",
+              "effect/process",
+              "effect/process/**",
+              "effect/unstable/process",
+              "effect/unstable/process/**"
+            ],
+            "message": "Only src/kernel/search may spawn processes or import the fff search engine."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/src/**/*.ts",
+        "**/infra/**/*.ts",
+        "**/tests/**/*.ts",
+        "**/tooling/**/*.ts",
+        "plugin/**/*.ts",
+        "__tests__/**/*.ts",
+        "../bench/**/*.ts",
+        "knip.ts",
+        "lint-runner.ts",
+        "reuse-policy.ts",
+        "source-policy.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-source-comments": "error",
+        "dados-publicos/filename-case": "error"
+      }
+    },
+    {
+      "files": [
+        "**/src/**/*.ts",
+        "**/infra/**/*.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-throw": "error",
+        "dados-publicos/no-instanceof": "error",
+        "dados-publicos/no-statement-try-catch-finally": "error",
+        "dados-publicos/no-error-helper-functions": "error",
+        "dados-publicos/no-data-tagged-error": "error",
+        "dados-publicos/no-context-tag": "error",
+        "dados-publicos/no-effect-service": "error",
+        "dados-publicos/no-service-option": "error",
+        "dados-publicos/no-then-in-effect-gen": "error",
+        "dados-publicos/no-unowned-effect-run": "error",
+        "dados-publicos/no-extra-managed-runtime": "error",
+        "dados-publicos/no-swallowed-try-promise": "error",
+        "dados-publicos/no-swallowed-promise-catch": "error",
+        "dados-publicos/no-in-operator": "error",
+        "dados-publicos/no-reflect-get": "error",
+        "dados-publicos/no-reflect-apply": "error",
+        "dados-publicos/no-json-string-comparison": "error",
+        "dados-publicos/no-direct-fetch": "error",
+        "dados-publicos/prefer-effect-foreach": "error"
+      }
+    },
+    {
+      "files": [
+        "**/src/**/*.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-raw-json": "error"
+      }
+    },
+    {
+      "files": [
+        "**/src/kernel/**/*.ts",
+        "**/src/sources/**/*.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-as-cast": "error",
+        "dados-publicos/no-let-var": "error",
+        "dados-publicos/no-enum": "error",
+        "dados-publicos/no-imperative-while-loop": "error",
+        "dados-publicos/no-mutation-accumulator": "error",
+        "dados-publicos/no-mutable-mapped-type": "error",
+        "dados-publicos/switch-only-in-get-message": "error",
+        "dados-publicos/error-class-must-use-tagged-error": "error",
+        "dados-publicos/error-code-discrimination": "error",
+        "dados-publicos/tagged-error-needs-message-getter": "error",
+        "dados-publicos/error-code-must-be-literals": "error",
+        "dados-publicos/retry-must-classify-errors": "error",
+        "dados-publicos/no-unbounded-concurrency": "error",
+        "dados-publicos/no-widened-effect-error-channel": "error",
+        "dados-publicos/no-v3-service-api": "error",
+        "dados-publicos/service-needs-layer": "error",
+        "dados-publicos/config-via-context-reference": "error",
+        "dados-publicos/no-barrel-passthrough-reexport": "error",
+        "dados-publicos/no-thin-error-factories": "error",
+        "dados-publicos/no-wrap-only-errors": "error",
+        "dados-publicos/no-handwritten-type-predicates": "error",
+        "dados-publicos/no-generic-json-codec-wrappers": "error",
+        "dados-publicos/no-generic-helper-names": "error",
+        "dados-publicos/no-thin-forwarding-wrappers": "error",
+        "dados-publicos/no-unknown-type-aliases": "error",
+        "dados-publicos/no-unsafe-dictionary-type": "error"
+      }
+    },
+    {
+      "files": [
+        "**/src/kernel/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "effect/http",
+                  "effect/http/**",
+                  "effect/unstable/http",
+                  "effect/unstable/http/**",
+                  "**/HttpClient",
+                  "**/FetchHttpClient"
+                ],
+                "message": "Only src/kernel/http may touch HTTP clients; go through the kernel Http service."
+              },
+              {
+                "group": [
+                  "drizzle-orm",
+                  "drizzle-orm/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "drizzle-orm/pglite",
+                  "drizzle-orm/node-postgres",
+                  "drizzle-orm/postgres-js",
+                  "drizzle-orm/better-sqlite3",
+                  "drizzle-orm/libsql",
+                  "drizzle-orm/libsql/**",
+                  "drizzle-orm/bun-sqlite",
+                  "drizzle-orm/bun-sql",
+                  "drizzle-orm/sql-js",
+                  "drizzle-orm/effect-*",
+                  "@electric-sql/*",
+                  "@effect/sql-*",
+                  "effect/sql",
+                  "effect/sql/**",
+                  "effect/unstable/sql",
+                  "effect/unstable/sql/**"
+                ],
+                "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+              },
+              {
+                "group": [
+                  "@duckdb/*"
+                ],
+                "message": "Only src/kernel/duck may import DuckDB."
+              },
+              {
+                "group": [
+                  "@ff-labs/fff-node",
+                  "effect/process",
+                  "effect/process/**",
+                  "effect/unstable/process",
+                  "effect/unstable/process/**"
+                ],
+                "message": "Only src/kernel/search may spawn processes or import the fff search engine."
+              },
+              {
+                "regex": "(^|/)(sources|serve)(/|$)",
+                "message": "src/kernel is the toolbox: it must not import src/sources or src/serve."
+              },
+              {
+                "regex": "(^|/)infra(/|$)",
+                "message": "src/kernel must not import infra."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "**/src/kernel/http/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "drizzle-orm",
+                  "drizzle-orm/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "drizzle-orm/pglite",
+                  "drizzle-orm/node-postgres",
+                  "drizzle-orm/postgres-js",
+                  "drizzle-orm/better-sqlite3",
+                  "drizzle-orm/libsql",
+                  "drizzle-orm/libsql/**",
+                  "drizzle-orm/bun-sqlite",
+                  "drizzle-orm/bun-sql",
+                  "drizzle-orm/sql-js",
+                  "drizzle-orm/effect-*",
+                  "@electric-sql/*",
+                  "@effect/sql-*",
+                  "effect/sql",
+                  "effect/sql/**",
+                  "effect/unstable/sql",
+                  "effect/unstable/sql/**"
+                ],
+                "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+              },
+              {
+                "group": [
+                  "@duckdb/*"
+                ],
+                "message": "Only src/kernel/duck may import DuckDB."
+              },
+              {
+                "group": [
+                  "@ff-labs/fff-node",
+                  "effect/process",
+                  "effect/process/**",
+                  "effect/unstable/process",
+                  "effect/unstable/process/**"
+                ],
+                "message": "Only src/kernel/search may spawn processes or import the fff search engine."
+              },
+              {
+                "regex": "(^|/)(sources|serve)(/|$)",
+                "message": "src/kernel is the toolbox: it must not import src/sources or src/serve."
+              },
+              {
+                "regex": "(^|/)infra(/|$)",
+                "message": "src/kernel must not import infra."
+              }
+            ]
+          }
+        ],
+        "dados-publicos/no-direct-fetch": "off"
+      }
+    },
+    {
+      "files": [
+        "**/src/kernel/duck/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "effect/http",
+                  "effect/http/**",
+                  "effect/unstable/http",
+                  "effect/unstable/http/**",
+                  "**/HttpClient",
+                  "**/FetchHttpClient"
+                ],
+                "message": "Only src/kernel/http may touch HTTP clients; go through the kernel Http service."
+              },
+              {
+                "group": [
+                  "drizzle-orm",
+                  "drizzle-orm/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "drizzle-orm/pglite",
+                  "drizzle-orm/node-postgres",
+                  "drizzle-orm/postgres-js",
+                  "drizzle-orm/better-sqlite3",
+                  "drizzle-orm/libsql",
+                  "drizzle-orm/libsql/**",
+                  "drizzle-orm/bun-sqlite",
+                  "drizzle-orm/bun-sql",
+                  "drizzle-orm/sql-js",
+                  "drizzle-orm/effect-*",
+                  "@electric-sql/*",
+                  "@effect/sql-*",
+                  "effect/sql",
+                  "effect/sql/**",
+                  "effect/unstable/sql",
+                  "effect/unstable/sql/**"
+                ],
+                "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+              },
+              {
+                "group": [
+                  "@ff-labs/fff-node",
+                  "effect/process",
+                  "effect/process/**",
+                  "effect/unstable/process",
+                  "effect/unstable/process/**"
+                ],
+                "message": "Only src/kernel/search may spawn processes or import the fff search engine."
+              },
+              {
+                "regex": "(^|/)(sources|serve)(/|$)",
+                "message": "src/kernel is the toolbox: it must not import src/sources or src/serve."
+              },
+              {
+                "regex": "(^|/)infra(/|$)",
+                "message": "src/kernel must not import infra."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "**/src/kernel/search/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "effect/http",
+                  "effect/http/**",
+                  "effect/unstable/http",
+                  "effect/unstable/http/**",
+                  "**/HttpClient",
+                  "**/FetchHttpClient"
+                ],
+                "message": "Only src/kernel/http may touch HTTP clients; go through the kernel Http service."
+              },
+              {
+                "group": [
+                  "drizzle-orm",
+                  "drizzle-orm/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "drizzle-orm/pglite",
+                  "drizzle-orm/node-postgres",
+                  "drizzle-orm/postgres-js",
+                  "drizzle-orm/better-sqlite3",
+                  "drizzle-orm/libsql",
+                  "drizzle-orm/libsql/**",
+                  "drizzle-orm/bun-sqlite",
+                  "drizzle-orm/bun-sql",
+                  "drizzle-orm/sql-js",
+                  "drizzle-orm/effect-*",
+                  "@electric-sql/*",
+                  "@effect/sql-*",
+                  "effect/sql",
+                  "effect/sql/**",
+                  "effect/unstable/sql",
+                  "effect/unstable/sql/**"
+                ],
+                "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+              },
+              {
+                "group": [
+                  "@duckdb/*"
+                ],
+                "message": "Only src/kernel/duck may import DuckDB."
+              },
+              {
+                "regex": "(^|/)(sources|serve)(/|$)",
+                "message": "src/kernel is the toolbox: it must not import src/sources or src/serve."
+              },
+              {
+                "regex": "(^|/)infra(/|$)",
+                "message": "src/kernel must not import infra."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "**/src/sources/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "effect/http",
+                  "effect/http/**",
+                  "effect/unstable/http",
+                  "effect/unstable/http/**",
+                  "**/HttpClient",
+                  "**/FetchHttpClient"
+                ],
+                "message": "Only src/kernel/http may touch HTTP clients; go through the kernel Http service."
+              },
+              {
+                "group": [
+                  "drizzle-orm",
+                  "drizzle-orm/**",
+                  "node:sqlite",
+                  "bun:sqlite",
+                  "drizzle-orm/pglite",
+                  "drizzle-orm/node-postgres",
+                  "drizzle-orm/postgres-js",
+                  "drizzle-orm/better-sqlite3",
+                  "drizzle-orm/libsql",
+                  "drizzle-orm/libsql/**",
+                  "drizzle-orm/bun-sqlite",
+                  "drizzle-orm/bun-sql",
+                  "drizzle-orm/sql-js",
+                  "drizzle-orm/effect-*",
+                  "@electric-sql/*",
+                  "@effect/sql-*",
+                  "effect/sql",
+                  "effect/sql/**",
+                  "effect/unstable/sql",
+                  "effect/unstable/sql/**"
+                ],
+                "message": "No SQL drivers: tabular data goes through the kernel Duck service."
+              },
+              {
+                "group": [
+                  "@duckdb/*"
+                ],
+                "message": "Only src/kernel/duck may import DuckDB."
+              },
+              {
+                "group": [
+                  "@ff-labs/fff-node",
+                  "effect/process",
+                  "effect/process/**",
+                  "effect/unstable/process",
+                  "effect/unstable/process/**"
+                ],
+                "message": "Only src/kernel/search may spawn processes or import the fff search engine."
+              },
+              {
+                "regex": "(^|/)serve(/|$)",
+                "message": "src/sources slices must not import src/serve."
+              },
+              {
+                "regex": "(^|/)infra(/|$)",
+                "message": "src/sources slices must not import infra."
+              },
+              {
+                "regex": "^\\.\\./[^./][^/]*(/|$)",
+                "message": "A source slice must not import another slice; share through src/kernel."
+              },
+              {
+                "regex": "(^|/)sources/",
+                "message": "A source slice must not import another slice; share through src/kernel."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "**/src/index.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-unowned-effect-run": "off",
+        "dados-publicos/no-extra-managed-runtime": "off",
+        "eslint/no-console": "off"
+      }
+    },
+    {
+      "files": [
+        "**/src/runtime.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-unowned-effect-run": "off",
+        "dados-publicos/no-extra-managed-runtime": [
+          "error",
+          {
+            "max": 1
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "**/infra/**/*.run.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-unowned-effect-run": "off",
+        "dados-publicos/no-extra-managed-runtime": "off"
+      }
+    },
+    {
+      "files": [
+        "**/infra/**/*.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-process-env-in-alchemy-run": "error"
+      }
+    },
+    {
+      "files": [
+        "**/infra/alchemy.run.ts",
+        "**/infra/**/*.run.ts"
+      ],
+      "rules": {
+        "dados-publicos/no-yield-resource-constructor": "error",
+        "dados-publicos/no-stack-as-void": "error"
+      }
+    },
+    {
+      "files": [
+        "**/tests/**/*.ts",
+        "**/tooling/lint/__tests__/**/*.ts",
+        "__tests__/**/*.ts",
+        "**/*.test.ts"
+      ],
+      "rules": {
+        "dados-publicos/require-test-assertion": "error",
+        "dados-publicos/no-test-in-loop": "error",
+        "dados-publicos/no-test-timeout-or-skip": "error",
+        "dados-publicos/no-real-time-wait-in-tests": "error",
+        "dados-publicos/no-manual-effect-runtime-in-tests": "error",
+        "dados-publicos/no-module-mocking": "error",
+        "dados-publicos/no-tautological-assertion": "error",
+        "eslint/no-await-in-loop": "off",
+        "typescript/no-non-null-assertion": "off",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": []
+          }
+        ],
+        "vitest/no-standalone-expect": "off"
+      }
+    },
+    {
+      "files": [
+        "**/tooling/**/*.ts",
+        "plugin/**/*.ts",
+        "__tests__/**/*.ts",
+        "../bench/**/*.ts",
+        "knip.ts",
+        "lint-runner.ts",
+        "reuse-policy.ts",
+        "source-policy.ts"
+      ],
+      "rules": {
+        "typescript/consistent-type-assertions": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-non-null-assertion": "off",
+        "eslint/no-console": "off",
+        "eslint/no-await-in-loop": "off",
+        "eslint/no-plusplus": "off",
+        "eslint/no-param-reassign": "off",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": []
+          }
+        ],
+        "effecttsgo/unstable-api-usage": "off"
+      }
+    }
+  ]
+}

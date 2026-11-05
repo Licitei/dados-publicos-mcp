@@ -1,46 +1,85 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { municipioEconomia } from "../../kernel/db/schemas/municipio-economia";
+import { Context, Effect, Layer, Match, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Str from "effect/String";
+import {
+  bm25,
+  Duck,
+  type DuckParam,
+  type DuckTable,
+  idsParam,
+  inIds,
+} from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import { defaultAno } from "./catalog";
-import { indexAno } from "./indexer";
+import { fetchAno } from "./indexer";
+import { clamp, preferExact } from "../../kernel/duck/search";
 
-const economiaView = sql`
-  cod_ibge as "codIbge", nome, uf, ano, populacao,
-  pib_mil_reais as "pibMilReais",
-  case
-    when pib_mil_reais is not null and populacao is not null and populacao > 0
-    then round((pib_mil_reais * 1000.0 / populacao)::numeric, 2)
-    else null
-  end as "pibPerCapita"
-`;
+export const municipioEconomiaTable: DuckTable = {
+  name: "municipio_economia",
+  key: "codIbge",
+  columns: {
+    codIbge: "VARCHAR",
+    nome: "VARCHAR",
+    uf: "VARCHAR",
+    ano: "INTEGER",
+    populacao: "BIGINT",
+    pibMilReais: "DOUBLE",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const EconomiaRow = Schema.Struct({
+  codIbge: Schema.String,
+  nome: Schema.NullOr(Schema.String),
+  uf: Schema.NullOr(Schema.String),
+  ano: Schema.Finite,
+  populacao: Schema.NullOr(Schema.Finite),
+  pibMilReais: Schema.NullOr(Schema.Finite),
+  pibPerCapita: Schema.NullOr(Schema.Finite),
+});
+
+const EconomiaScored = Schema.Struct({ ...EconomiaRow.fields, score: Schema.Finite });
+
+const economiaColumns = `"codIbge", nome, uf, ano::INTEGER AS ano, populacao::DOUBLE AS populacao,
+  "pibMilReais",
+  CASE WHEN "pibMilReais" IS NOT NULL AND populacao IS NOT NULL AND populacao > 0
+    THEN round("pibMilReais" * 1000.0 / populacao, 2)::DOUBLE ELSE NULL END AS "pibPerCapita"`;
 
 const makeIbgeEconomia = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
   const economiaPorCodigo = (codIbgeInput: string) =>
-    db.execute(sql`
-      select ${economiaView}
-      from ${municipioEconomia}
-      where cod_ibge = ${onlyDigits(codIbgeInput)}
-      order by ano desc
-      limit 1
-    `);
+    duck.query(
+      EconomiaRow,
+      `SELECT ${economiaColumns} FROM municipio_economia WHERE "codIbge" = ? ORDER BY ano DESC LIMIT 1`,
+      [onlyDigits(codIbgeInput)]
+    );
 
   const buscarMunicipio = (nome: string, limit: number) =>
-    db.execute(sql`
-      select ${economiaView}, word_similarity(${normalize(nome)}, busca) as score
-      from ${municipioEconomia}
-      where word_similarity(${normalize(nome)}, busca) >= 0.2
-      order by score desc, ano desc, cod_ibge
-      limit ${sql.raw(String(limit))}
-    `);
+    Effect.gen(function* () {
+      const exact = yield* duck.query(
+        EconomiaScored,
+        `SELECT ${economiaColumns}, score
+         FROM (SELECT *, ${bm25(municipioEconomiaTable)} AS score FROM municipio_economia)
+         WHERE score IS NOT NULL ORDER BY score DESC, "codIbge" LIMIT ?`,
+        [normalize(nome), limit]
+      );
+      const ids = Arr.isReadonlyArrayNonEmpty(exact)
+        ? []
+        : yield* fuzzy.match("municipio_economia", normalize(nome), { limit });
+      const approximate = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            EconomiaScored,
+            `SELECT ${economiaColumns}, 0::DOUBLE AS score FROM municipio_economia WHERE ${inIds("codIbge")}`,
+            [idsParam(ids)]
+          )
+        : [];
+      return preferExact(exact, ids, approximate, (row) => row.codIbge);
+    });
 
   const rankingPib = (options: {
     readonly uf?: string;
@@ -49,49 +88,50 @@ const makeIbgeEconomia = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const limit = clamp(options.limit, 20, 100);
-      const ufWhere: SQL = Match.value(options.uf).pipe(
-        Match.when(Match.string, (uf) => sql`and uf = ${uf.toUpperCase()}`),
-        Match.orElse(() => sql``)
+      const ufFilter = Match.value(options.uf).pipe(
+        Match.when(Match.string, (uf): readonly [string, readonly DuckParam[]] => [
+          `AND uf = ?`,
+          [pipe(uf, Str.toUpperCase)],
+        ]),
+        Match.orElse((): readonly [string, readonly DuckParam[]] => ["", []])
       );
-      const anoWhere: SQL = Match.value(options.ano).pipe(
-        Match.when(Match.number, (ano) => sql`and ano = ${ano}`),
-        Match.orElse(() => sql``)
+      const anoFilter = Match.value(options.ano).pipe(
+        Match.when(Match.number, (ano): readonly [string, readonly DuckParam[]] => [
+          `AND ano = ?`,
+          [ano],
+        ]),
+        Match.orElse((): readonly [string, readonly DuckParam[]] => ["", []])
       );
-      return yield* db.execute(sql`
-        select ${economiaView}
-        from ${municipioEconomia}
-        where pib_mil_reais is not null ${ufWhere} ${anoWhere}
-        order by pib_mil_reais desc, cod_ibge
-        limit ${sql.raw(String(limit))}
-      `);
+      return yield* duck.query(
+        EconomiaRow,
+        `SELECT ${economiaColumns} FROM municipio_economia
+         WHERE "pibMilReais" IS NOT NULL ${ufFilter[0]} ${anoFilter[0]}
+         ORDER BY "pibMilReais" DESC, "codIbge" LIMIT ?`,
+        [...ufFilter[1], ...anoFilter[1], limit]
+      );
     });
 
-  const index = Effect.gen(function* () {
-    yield* db.delete(municipioEconomia);
-    const inserted = yield* indexAno(defaultAno);
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${municipioEconomia}`
-    );
-    return { inserted, total: Number(rows[0].count) };
-  });
+  const load = (ano: number) =>
+    Effect.gen(function* () {
+      const rows = yield* fetchAno(ano);
+      const inserted = yield* duck.replace(municipioEconomiaTable, rows);
+      yield* fuzzy.write(
+        "municipio_economia",
+        Arr.map(rows, (row): readonly [string, string] => [row.codIbge, row.busca])
+      );
+      return inserted;
+    });
 
-  return {
-    index,
-    indexAno: (ano: number) =>
-      Effect.gen(function* () {
-        yield* db.delete(municipioEconomia);
-        const inserted = yield* indexAno(ano);
-        return { inserted };
-      }),
-    economiaPorCodigo,
-    buscarMunicipio,
-    rankingPib,
-  };
+  const index = load(defaultAno).pipe(Effect.map((inserted) => ({ inserted, total: inserted })));
+
+  const indexAno = (ano: number) => load(ano).pipe(Effect.map((inserted) => ({ inserted })));
+
+  return { index, indexAno, economiaPorCodigo, buscarMunicipio, rankingPib };
 });
 
 export class IbgeEconomia extends Context.Service<
   IbgeEconomia,
   Effect.Success<typeof makeIbgeEconomia>
->()("dados-publicos-mcp/IbgeEconomia") {}
+>()("dados-publicos-mcp/sources/ibge-economia/store/IbgeEconomia") {}
 
 export const IbgeEconomiaLive = Layer.effect(IbgeEconomia)(makeIbgeEconomia);

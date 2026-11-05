@@ -1,25 +1,38 @@
-import { createHash } from "node:crypto";
-import { describe, it, expect } from "@effect/vitest";
-import { schemaDdl, schemaHash } from "../../infra/local-database";
+import { describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { tablesHash, tablesText } from "../../infra/schema-hash";
+import type { DuckTable } from "../../src/kernel/duck/duck";
 
-describe("schemaHash", () => {
-  it("is a stable 64-hex digest", () => {
-    expect(schemaHash()).toMatch(/^[0-9a-f]{64}$/);
-    expect(schemaHash()).toEqual(schemaHash());
-  });
+const base: DuckTable = {
+  name: "cnae",
+  key: "id",
+  columns: { id: "VARCHAR", descricao: "VARCHAR" },
+  search: ["descricao"],
+};
 
-  it("hashes the full rendered DDL, including index method/opclass/with", () => {
-    const ddl = schemaDdl();
-    expect(ddl).toContain("create table");
-    expect(ddl).toContain("create index");
-    expect(ddl).toContain("using bm25");
-    expect(ddl).toContain("text_config");
-    expect(ddl).toContain("vector_cosine_ops");
-  });
+describe("tablesHash", () => {
+  it.effect("is a stable 64-hex digest of the declared tables", () =>
+    Effect.gen(function* () {
+      const first = yield* tablesHash([base]);
+      const second = yield* tablesHash([base]);
+      expect(first).toMatch(/^[0-9a-f]{64}$/);
+      expect(first).toEqual(second);
+    })
+  );
 
-  it("the digest is a function of the rendered DDL", () => {
-    expect(schemaHash()).toEqual(
-      createHash("sha256").update(schemaDdl()).digest("hex")
-    );
+  it.effect("changes when a column, its type or the search columns change", () =>
+    Effect.gen(function* () {
+      const original = yield* tablesHash([base]);
+      const added = yield* tablesHash([{ ...base, columns: { ...base.columns, uf: "VARCHAR" } }]);
+      const retyped = yield* tablesHash([
+        { ...base, columns: { ...base.columns, descricao: "JSON" } },
+      ]);
+      const research = yield* tablesHash([{ ...base, search: [] }]);
+      expect(new Set([original, added, retyped, research]).size).toBe(4);
+    })
+  );
+
+  it("renders every table, key, search column and typed column", () => {
+    expect(tablesText([base])).toBe("cnae(id)[descricao]{id:VARCHAR,descricao:VARCHAR}");
   });
 });

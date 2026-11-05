@@ -1,46 +1,35 @@
-import { Effect, Match, Option, Stream } from "effect";
-import { Db } from "../../kernel/db/client";
-import { fornecedor } from "../../kernel/db/schemas/fornecedor";
-import { getJson } from "../../kernel/http/client";
+import { Effect, Stream } from "effect";
+import * as Arr from "effect/Array";
+import { appendRows } from "../../kernel/duck/append";
+import { Http } from "../../kernel/http/client";
+import { pageStep, type PageState } from "../../kernel/http/paging";
 import {
   ConsultarPayload,
   ativoFlags,
   flatten,
+  fornecedorTable,
   pageSizes,
   pageUrl,
-  type FornecedorFlat,
 } from "./catalog";
 
-const maxPaginas = 5_000;
-
-const insertPage = (rows: readonly FornecedorFlat[]) =>
-  Match.value(rows.length).pipe(
-    Match.when(0, () => Effect.void),
-    Match.orElse(() =>
-      Effect.flatMap(Db, (db) =>
-        db.insert(fornecedor).values([...rows])
-      ).pipe(Effect.asVoid)
-    )
-  );
-
-type PageState = { readonly pagina: number };
+const flagStride = 10_000_000;
 
 const fetchAndStore = (ativo: boolean) => (state: PageState) =>
-  getJson(
-    pageUrl({ pagina: state.pagina, tamanhoPagina: pageSizes.max, ativo }),
-    ConsultarPayload
+  Effect.flatMap(Http, (http) =>
+    http.json(
+      pageUrl({ pagina: state.pagina, tamanhoPagina: pageSizes.max, ativo }),
+      ConsultarPayload
+    )
   ).pipe(
     Effect.flatMap((page) => {
-      const stop =
-        page.resultado.length === 0 ||
-        state.pagina >= page.totalPaginas ||
-        state.pagina >= maxPaginas;
-      const next = Match.value(stop).pipe(
-        Match.when(true, () => Option.none<PageState>()),
-        Match.orElse(() => Option.some<PageState>({ pagina: state.pagina + 1 }))
-      );
-      return insertPage(flatten(page.resultado)).pipe(
-        Effect.as([[], next] as const)
+      const base = (ativo ? 0 : flagStride) + (state.pagina - 1) * pageSizes.max;
+      return appendRows(
+        fornecedorTable,
+        Arr.map(flatten(page.resultado), (row, position) => ({ id: base + position, ...row }))
+      ).pipe(
+        Effect.as(
+          pageStep(state, { count: page.resultado.length, totalPaginas: page.totalPaginas })
+        )
       );
     })
   );

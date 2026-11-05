@@ -1,30 +1,27 @@
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Struct } from "effect";
 import { TransparenciaDespesas } from "../../sources/transparencia-despesas/store";
-import { NonEmptyString, positiveIntMax, Uf } from "../checks";
+import { BuscarTermoUfInput, NonEmptyString, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
-
-const BuscarInput = Schema.Struct({
-  termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  uf: Schema.optional(Uf),
-  limite: Schema.optional(positiveIntMax(200)),
-});
 
 const buscarDespesaFederal = defineTool({
   name: "buscar_despesa_federal",
   description:
-    "Busca despesas da execucao orcamentaria federal (Portal da Transparencia) por acao/programa/elemento usando BM25, opcionalmente filtrando por UF.",
-  input: BuscarInput,
+    "Busca despesas da execucao orcamentaria federal (Portal da Transparencia) por acao/programa/elemento, opcionalmente filtrando por UF.",
+  input: BuscarTermoUfInput,
   run: (args) =>
     TransparenciaDespesas.pipe(
       Effect.flatMap((service) =>
-        service.buscarDespesa(args.termo, { uf: args.uf, limit: args.limite })
+        service.buscarDespesa(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const OrgaoInput = Schema.Struct({
   codigoOrgaoSuperior: NonEmptyString,
-  limite: Schema.optional(positiveIntMax(200)),
+  limite: Schema.optionalKey(positiveIntMax(200)),
 });
 
 const despesasPorOrgao = defineTool({
@@ -40,7 +37,4 @@ const despesasPorOrgao = defineTool({
     ),
 });
 
-export const transparenciaDespesasTools = [
-  buscarDespesaFederal,
-  despesasPorOrgao,
-] as const;
+export const transparenciaDespesasTools = [buscarDespesaFederal, despesasPorOrgao] as const;

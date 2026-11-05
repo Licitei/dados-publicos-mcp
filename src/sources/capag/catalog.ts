@@ -1,15 +1,21 @@
 import { Match, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { dual, pipe } from "effect/Function";
+import * as Option from "effect/Option";
+import * as Order from "effect/Order";
+import * as Str from "effect/String";
+import type { CsvRecord } from "../../kernel/csv/parse";
+import { indexByKey, pickFirst } from "../../kernel/csv/fields";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
-export const ckanBase = "https://www.tesourotransparente.gov.br/ckan";
+const ckanBase = "https://www.tesourotransparente.gov.br/ckan";
 
 export const packageShowUrl = {
   estados: `${ckanBase}/api/3/action/package_show?id=capag-estados`,
   municipios: `${ckanBase}/api/3/action/package_show?id=capag-municipios`,
 } as const;
 
-export const siconfiEntesUrl =
-  "https://apidatalake.tesouro.gov.br/ords/siconfi/tt/entes";
+export const siconfiEntesUrl = "https://apidatalake.tesouro.gov.br/ords/siconfi/tt/entes";
 
 export const siconfiPageSize = 6_000;
 
@@ -17,9 +23,7 @@ export const csvOptions = { encoding: "utf-8", delimiter: ";" } as const;
 
 export const codigoIbgeLength = 7;
 
-const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))
-);
+const looseText = Schema.optional(Schema.NullOr(Schema.Union([Schema.String, Schema.Finite])));
 
 const CkanResource = Schema.Struct({
   name: looseText,
@@ -28,15 +32,11 @@ const CkanResource = Schema.Struct({
   last_modified: looseText,
   created: looseText,
 });
-export type CkanResource = (typeof CkanResource)["Type"];
+type CkanResource = (typeof CkanResource)["Type"];
 
 export const PackageShowPayload = Schema.Struct({
   success: Schema.optional(Schema.NullOr(Schema.Boolean)),
-  result: Schema.optional(
-    Schema.NullOr(
-      Schema.Struct({ resources: Schema.Array(CkanResource) })
-    )
-  ),
+  result: Schema.optional(Schema.NullOr(Schema.Struct({ resources: Schema.Array(CkanResource) }))),
 });
 export type PackageShowPayload = (typeof PackageShowPayload)["Type"];
 
@@ -60,15 +60,19 @@ export const SiconfiEntesPayload = Schema.Struct({
 });
 export type SiconfiEntesPayload = (typeof SiconfiEntesPayload)["Type"];
 
+export const Indicadores = Schema.Struct({
+  indicador1: Schema.NullOr(Schema.Finite),
+  nota1: Schema.NullOr(Schema.String),
+  indicador2: Schema.NullOr(Schema.Finite),
+  nota2: Schema.NullOr(Schema.String),
+  indicador3: Schema.NullOr(Schema.Finite),
+  nota3: Schema.NullOr(Schema.String),
+});
+
 export const EstadoFlat = Schema.Struct({
   uf: Schema.String,
-  ano: Schema.Number,
-  indicador1: Schema.NullOr(Schema.Number),
-  nota1: Schema.NullOr(Schema.String),
-  indicador2: Schema.NullOr(Schema.Number),
-  nota2: Schema.NullOr(Schema.String),
-  indicador3: Schema.NullOr(Schema.Number),
-  nota3: Schema.NullOr(Schema.String),
+  ano: Schema.Finite,
+  ...Indicadores.fields,
   capag: Schema.NullOr(Schema.String),
   qualidadeInfo: Schema.NullOr(Schema.String),
   observacao: Schema.NullOr(Schema.String),
@@ -80,14 +84,9 @@ export const MunicipioFlat = Schema.Struct({
   nome: Schema.String,
   nomeNorm: Schema.String,
   uf: Schema.String,
-  anoBase: Schema.Number,
+  anoBase: Schema.Finite,
   posicao: Schema.NullOr(Schema.String),
-  indicador1: Schema.NullOr(Schema.Number),
-  nota1: Schema.NullOr(Schema.String),
-  indicador2: Schema.NullOr(Schema.Number),
-  nota2: Schema.NullOr(Schema.String),
-  indicador3: Schema.NullOr(Schema.Number),
-  nota3: Schema.NullOr(Schema.String),
+  ...Indicadores.fields,
   capag: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
@@ -99,22 +98,22 @@ export const EnteFlat = Schema.Struct({
   uf: Schema.NullOr(Schema.String),
   esfera: Schema.NullOr(Schema.String),
   regiao: Schema.NullOr(Schema.String),
-  populacao: Schema.NullOr(Schema.Number),
+  populacao: Schema.NullOr(Schema.Finite),
   cnpj: Schema.NullOr(Schema.String),
-  exercicio: Schema.NullOr(Schema.Number),
+  exercicio: Schema.NullOr(Schema.Finite),
   busca: Schema.String,
 });
 export type EnteFlat = (typeof EnteFlat)["Type"];
 
-export const CapagErrorCode = Schema.Literals([
+const CapagErrorCode = Schema.Literals([
   "capag.RESOURCE_MISSING",
   "capag.ENTE_NOT_FOUND",
   "capag.CNPJ_NOT_FOUND",
   "capag.MISSING_IDENTIFIER",
 ]);
-export type CapagErrorCode = (typeof CapagErrorCode)["Type"];
+type CapagErrorCode = (typeof CapagErrorCode)["Type"];
 
-export class CapagError extends Schema.TaggedErrorClass<CapagError>()(
+export class CapagError extends Schema.TaggedError<CapagError, { readonly brand: unique symbol }>()(
   "CapagError",
   {
     code: CapagErrorCode,
@@ -138,28 +137,32 @@ export class CapagError extends Schema.TaggedErrorClass<CapagError>()(
 }
 
 const toText = (value: string | number | null | undefined) =>
-  value === null || value === undefined ? "" : String(value).trim();
+  pipe(
+    Option.fromNullishOr(value),
+    Option.map((present) => pipe(String(present), Str.trim)),
+    Option.getOrElse(() => "")
+  );
 
-const toTextOrNull = (value: string | number | null | undefined) =>
-  toText(value) || null;
+const toTextOrNull = (value: string | number | null | undefined) => {
+  const text = toText(value);
+  return text === "" ? null : text;
+};
 
-export const parseIndicador = (raw: string | number | null | undefined) =>
+const parseIndicador = (raw: string | number | null | undefined) =>
   Match.value(raw).pipe(
-    Match.when(Match.number, (value) =>
-      Number.isFinite(value) ? value : null
-    ),
+    Match.when(Match.number, (value) => (Number.isFinite(value) ? value : null)),
     Match.orElse(() => {
       const trimmed = toText(raw);
-      return Match.value(
-        trimmed === "" || /^n\.?[de]\.?$/i.test(trimmed)
-      ).pipe(
+      return Match.value(trimmed === "" || /^n\.?[de]\.?$/i.test(trimmed)).pipe(
         Match.when(true, () => null),
         Match.orElse(() => {
-          const hasPercent = trimmed.includes("%");
-          const cleaned = trimmed
-            .replace(/%/g, "")
-            .replace(/\s/g, "")
-            .replace(/,/g, ".");
+          const hasPercent = pipe(trimmed, Str.includes("%"));
+          const cleaned = pipe(
+            trimmed,
+            Str.replace(/%/g, ""),
+            Str.replace(/\s/g, ""),
+            Str.replace(/,/g, ".")
+          );
           const value = Number(cleaned);
           return Match.value(Number.isFinite(value)).pipe(
             Match.when(false, () => null),
@@ -170,20 +173,11 @@ export const parseIndicador = (raw: string | number | null | undefined) =>
     })
   );
 
-const notasValidas = new Set([
-  "A+",
-  "A",
-  "B+",
-  "B",
-  "C",
-  "D",
-  "n.d.",
-  "n.e.",
-]);
+const notasValidas = new Set(["A+", "A", "B+", "B", "C", "D", "n.d.", "n.e."]);
 
-export const parseNota = (raw: string | number | null | undefined) => {
+const parseNota = (raw: string | number | null | undefined) => {
   const trimmed = toText(raw);
-  const lower = trimmed.toLowerCase();
+  const lower = pipe(trimmed, Str.toLowerCase);
   return Match.value(notasValidas.has(trimmed)).pipe(
     Match.when(true, () => trimmed),
     Match.orElse(() =>
@@ -196,37 +190,47 @@ export const parseNota = (raw: string | number | null | undefined) => {
   );
 };
 
-export const extractYear = (name: string) => {
-  const match = name.match(/\b(20\d{2})\b/);
-  return match ? Number(match[1]) : null;
-};
+const extractYear = (name: string) =>
+  pipe(
+    name,
+    Str.match(/\b(20\d{2})\b/),
+    Option.flatMap(Arr.get(1)),
+    Option.map(Number),
+    Option.getOrNull
+  );
 
-export const extractPosicao = (name: string) => {
-  const br = name.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
-  const iso = name.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  return br
-    ? `${br[3]}-${br[2]}-${br[1]}`
-    : iso
-      ? `${iso[1]}-${iso[2]}-${iso[3]}`
-      : null;
-};
+const dateParts = (name: string, pattern: RegExp) =>
+  pipe(
+    name,
+    Str.match(pattern),
+    Option.flatMap((found) => Option.all([Arr.get(found, 1), Arr.get(found, 2), Arr.get(found, 3)]))
+  );
+
+export const extractPosicao = (name: string) =>
+  pipe(
+    dateParts(name, /\b(\d{2})\/(\d{2})\/(\d{4})\b/),
+    Option.map(([day, month, year]) => `${year}-${month}-${day}`),
+    Option.orElse(() =>
+      pipe(
+        dateParts(name, /\b(\d{4})-(\d{2})-(\d{2})\b/),
+        Option.map(([year, month, day]) => `${year}-${month}-${day}`)
+      )
+    ),
+    Option.getOrNull
+  );
 
 const resourceTime = (resource: CkanResource) => {
-  const value = toText(resource.last_modified) || toText(resource.created);
+  const modified = toText(resource.last_modified);
+  const value = modified === "" ? toText(resource.created) : modified;
   const parsed = value === "" ? Number.NaN : Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
 const hasExtension = (resource: CkanResource, extension: string) =>
-  toText(resource.url).toLowerCase().endsWith(`.${extension}`);
+  pipe(toText(resource.url), Str.toLowerCase, Str.endsWith(`.${extension}`));
 
-const matchesFormat = (
-  resource: CkanResource,
-  format: string,
-  extension: string
-) =>
-  toText(resource.format).toUpperCase() === format ||
-  hasExtension(resource, extension);
+const matchesFormat = (resource: CkanResource, format: string, extension: string) =>
+  pipe(toText(resource.format), Str.toUpperCase) === format || hasExtension(resource, extension);
 
 const resourcesByFormat = (
   payload: PackageShowPayload,
@@ -234,58 +238,47 @@ const resourcesByFormat = (
   format: string,
   extension: string
 ) =>
-  (payload.result?.resources ?? [])
-    .filter((resource) => matchesFormat(resource, format, extension))
-    .map((resource) => {
+  pipe(
+    payload.result?.resources ?? [],
+    Arr.filter((resource) => matchesFormat(resource, format, extension)),
+    Arr.map((resource) => {
       const name = toText(resource.name);
       const year = extractYear(name);
       return { resource, name, year };
-    })
-    .filter((entry) => entry.year === null || entry.year <= ceilingYear);
-
-const latestResource = (
-  candidates: ReturnType<typeof resourcesByFormat>
-) =>
-  [...candidates].sort((a, b) => {
-    const ya = a.year ?? 0;
-    const yb = b.year ?? 0;
-    return yb !== ya
-      ? yb - ya
-      : (extractPosicao(b.name) ?? "").localeCompare(
-          extractPosicao(a.name) ?? ""
-        ) ||
-        resourceTime(b.resource) - resourceTime(a.resource);
-  })[0];
-
-export const latestCsvResource = (
-  payload: PackageShowPayload,
-  ceilingYear: number
-) => latestResource(resourcesByFormat(payload, ceilingYear, "CSV", "csv"));
-
-export const latestXlsxResource = (
-  payload: PackageShowPayload,
-  ceilingYear: number
-) => latestResource(resourcesByFormat(payload, ceilingYear, "XLSX", "xlsx"));
-
-const headerKey = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-const headerLookup = (record: Record<string, string>) =>
-  new Map(
-    Object.entries(record).map(([key, value]) => [
-      headerKey(key),
-      (value ?? "").trim(),
-    ])
+    }),
+    Arr.filter((entry) => entry.year === null || entry.year <= ceilingYear)
   );
 
-const field = (lookup: Map<string, string>, keys: readonly string[]) =>
-  keys.map((key) => lookup.get(headerKey(key)) ?? "").find((v) => v !== "") ??
-  "";
+const Candidate = Schema.Struct({
+  resource: CkanResource,
+  name: Schema.String,
+  year: Schema.NullOr(Schema.Finite),
+});
+type Candidate = (typeof Candidate)["Type"];
+
+const candidateOrder = Order.combineAll([
+  Order.flip(Order.mapInput(Order.Number, (entry: Candidate) => entry.year ?? 0)),
+  Order.flip(Order.mapInput(Order.String, (entry: Candidate) => extractPosicao(entry.name) ?? "")),
+  Order.flip(Order.mapInput(Order.Number, (entry: Candidate) => resourceTime(entry.resource))),
+]);
+
+const latestResource = (candidates: readonly Candidate[]) =>
+  pipe(candidates, Arr.sort(candidateOrder), Arr.head, Option.getOrUndefined);
+
+const resourceLookup = (
+  format: string,
+  extension: string
+): {
+  (ceilingYear: number): (payload: PackageShowPayload) => Candidate | undefined;
+  (payload: PackageShowPayload, ceilingYear: number): Candidate | undefined;
+} =>
+  dual(2, (payload: PackageShowPayload, ceilingYear: number) =>
+    latestResource(resourcesByFormat(payload, ceilingYear, format, extension))
+  );
+
+export const latestCsvResource = resourceLookup("CSV", "csv");
+
+export const latestXlsxResource = resourceLookup("XLSX", "xlsx");
 
 const estadoKeys = {
   uf: ["UF", "Sigla", "Ente"],
@@ -302,37 +295,41 @@ const estadoKeys = {
 
 const isUf = (value: string) => /^[A-Z]{2}$/.test(value);
 
-export const mapEstados = (
-  records: readonly Record<string, string>[],
-  ano: number
-) =>
-  records.flatMap((record) => {
-    const lookup = headerLookup(record);
-    const uf = field(lookup, estadoKeys.uf).toUpperCase();
-    return Match.value(isUf(uf)).pipe(
-      Match.when(false, () => []),
-      Match.orElse(() => [
-        {
-          uf,
-          ano,
-          indicador1: parseIndicador(field(lookup, estadoKeys.indicador1)),
-          nota1: parseNota(field(lookup, estadoKeys.nota1)),
-          indicador2: parseIndicador(field(lookup, estadoKeys.indicador2)),
-          nota2: parseNota(field(lookup, estadoKeys.nota2)),
-          indicador3: parseIndicador(field(lookup, estadoKeys.indicador3)),
-          nota3: parseNota(field(lookup, estadoKeys.nota3)),
-          capag: parseNota(field(lookup, estadoKeys.capag)),
-          qualidadeInfo: toTextOrNull(field(lookup, estadoKeys.qualidadeInfo)),
-          observacao: toTextOrNull(field(lookup, estadoKeys.observacao)),
-        } satisfies EstadoFlat,
-      ])
-    );
-  });
+export const mapEstados: {
+  (ano: number): (records: readonly CsvRecord[]) => EstadoFlat[];
+  (records: readonly CsvRecord[], ano: number): EstadoFlat[];
+} = dual(2, (records: readonly CsvRecord[], ano: number): EstadoFlat[] =>
+  pipe(
+    records,
+    Arr.flatMap((record) => {
+      const lookup = indexByKey(record);
+      const uf = pipe(pickFirst(lookup, estadoKeys.uf), Str.toUpperCase);
+      return Match.value(isUf(uf)).pipe(
+        Match.when(false, (): EstadoFlat[] => []),
+        Match.orElse((): EstadoFlat[] => [
+          {
+            uf,
+            ano,
+            indicador1: parseIndicador(pickFirst(lookup, estadoKeys.indicador1)),
+            nota1: parseNota(pickFirst(lookup, estadoKeys.nota1)),
+            indicador2: parseIndicador(pickFirst(lookup, estadoKeys.indicador2)),
+            nota2: parseNota(pickFirst(lookup, estadoKeys.nota2)),
+            indicador3: parseIndicador(pickFirst(lookup, estadoKeys.indicador3)),
+            nota3: parseNota(pickFirst(lookup, estadoKeys.nota3)),
+            capag: parseNota(pickFirst(lookup, estadoKeys.capag)),
+            qualidadeInfo: toTextOrNull(pickFirst(lookup, estadoKeys.qualidadeInfo)),
+            observacao: toTextOrNull(pickFirst(lookup, estadoKeys.observacao)),
+          },
+        ])
+      );
+    })
+  )
+);
 
 const normalizeCodIbge = (raw: string) => {
   const digits = onlyDigits(raw);
   return digits.length >= 6 && digits.length <= codigoIbgeLength
-    ? digits.padStart(codigoIbgeLength, "0")
+    ? pipe(digits, Str.padStart(codigoIbgeLength, "0"))
     : null;
 };
 
@@ -342,15 +339,15 @@ const enteCodIbge = (raw: string) => {
     ? null
     : digits.length <= 2
       ? digits
-      : digits.padStart(codigoIbgeLength, "0");
+      : pipe(digits, Str.padStart(codigoIbgeLength, "0"));
 };
 
-export const municipiosSheetPrefix = "CAPAG Ano Base";
+const municipiosSheetPrefix = "CAPAG Ano Base";
 
 export const matchMunicipiosSheet = (name: string) =>
-  normalize(name).startsWith(normalize(municipiosSheetPrefix));
+  pipe(normalize(name), Str.startsWith(normalize(municipiosSheetPrefix)));
 
-export const municipiosXlsxColumns = {
+const municipiosXlsxColumns = {
   codIbge: 0,
   nome: 1,
   uf: 2,
@@ -363,43 +360,54 @@ export const municipiosXlsxColumns = {
   capag: 69,
 } as const;
 
-const cell = (row: readonly string[], index: number) =>
-  (row[index] ?? "").trim();
+const cell = (row: readonly string[], index: number) => pipe(row[index] ?? "", Str.trim);
 
-export const mapMunicipiosRows = (
-  rows: readonly (readonly string[])[],
-  anoBase: number,
-  posicao: string | null
-) =>
-  rows.flatMap((row) => {
-    const codIbge = normalizeCodIbge(cell(row, municipiosXlsxColumns.codIbge));
-    const uf = cell(row, municipiosXlsxColumns.uf).toUpperCase();
-    return Match.value(codIbge === null || !isUf(uf)).pipe(
-      Match.when(true, () => []),
-      Match.orElse(() => {
-        const nome = cell(row, municipiosXlsxColumns.nome);
-        const nomeNorm = normalize(nome);
-        return [
-          {
-            codIbge: codIbge ?? "",
-            nome,
-            nomeNorm,
-            uf,
-            anoBase,
-            posicao,
-            indicador1: parseIndicador(cell(row, municipiosXlsxColumns.indicador1)),
-            nota1: parseNota(cell(row, municipiosXlsxColumns.nota1)),
-            indicador2: parseIndicador(cell(row, municipiosXlsxColumns.indicador2)),
-            nota2: parseNota(cell(row, municipiosXlsxColumns.nota2)),
-            indicador3: parseIndicador(cell(row, municipiosXlsxColumns.indicador3)),
-            nota3: parseNota(cell(row, municipiosXlsxColumns.nota3)),
-            capag: parseNota(cell(row, municipiosXlsxColumns.capag)),
-            busca: nomeNorm,
-          } satisfies MunicipioFlat,
-        ];
+export const mapMunicipiosRows: {
+  (
+    anoBase: number,
+    posicao: string | null
+  ): (rows: readonly (readonly string[])[]) => MunicipioFlat[];
+  (rows: readonly (readonly string[])[], anoBase: number, posicao: string | null): MunicipioFlat[];
+} = dual(
+  3,
+  (
+    rows: readonly (readonly string[])[],
+    anoBase: number,
+    posicao: string | null
+  ): MunicipioFlat[] =>
+    pipe(
+      rows,
+      Arr.flatMap((row) => {
+        const codIbge = normalizeCodIbge(cell(row, municipiosXlsxColumns.codIbge));
+        const uf = pipe(cell(row, municipiosXlsxColumns.uf), Str.toUpperCase);
+        return Match.value(codIbge === null || !isUf(uf)).pipe(
+          Match.when(true, (): MunicipioFlat[] => []),
+          Match.orElse((): MunicipioFlat[] => {
+            const nome = cell(row, municipiosXlsxColumns.nome);
+            const nomeNorm = normalize(nome);
+            return [
+              {
+                codIbge: codIbge ?? "",
+                nome,
+                nomeNorm,
+                uf,
+                anoBase,
+                posicao,
+                indicador1: parseIndicador(cell(row, municipiosXlsxColumns.indicador1)),
+                nota1: parseNota(cell(row, municipiosXlsxColumns.nota1)),
+                indicador2: parseIndicador(cell(row, municipiosXlsxColumns.indicador2)),
+                nota2: parseNota(cell(row, municipiosXlsxColumns.nota2)),
+                indicador3: parseIndicador(cell(row, municipiosXlsxColumns.indicador3)),
+                nota3: parseNota(cell(row, municipiosXlsxColumns.nota3)),
+                capag: parseNota(cell(row, municipiosXlsxColumns.capag)),
+                busca: nomeNorm,
+              },
+            ];
+          })
+        );
       })
-    );
-  });
+    )
+);
 
 const toIntOrNull = (raw: string | number | null | undefined) => {
   const value = parseIndicador(raw);
@@ -411,35 +419,42 @@ const cnpjOrNull = (raw: string | number | null | undefined) => {
   return digits.length === 14 ? digits : null;
 };
 
+const upperOrNull = (raw: string | null | undefined) => {
+  const text = toTextOrNull(raw);
+  return text === null ? null : pipe(text, Str.toUpperCase);
+};
+
 export const mapEntes = (raws: readonly SiconfiEnteRaw[]) => {
-  const byCod = raws.reduce<Map<string, EnteFlat>>((acc, raw) => {
-    const codIbge = enteCodIbge(toText(raw.cod_ibge));
-    const ente = toText(raw.ente);
-    return Match.value(codIbge === null || ente === "").pipe(
-      Match.when(true, () => acc),
-      Match.orElse(() => {
-        const exercicio = toIntOrNull(raw.exercicio);
-        const prev = acc.get(codIbge ?? "");
-        const keep =
-          prev === undefined || (exercicio ?? 0) >= (prev.exercicio ?? 0);
-        return Match.value(keep).pipe(
-          Match.when(false, () => acc),
-          Match.orElse(() =>
-            acc.set(codIbge ?? "", {
-              codIbge: codIbge ?? "",
-              ente,
-              uf: toTextOrNull(raw.uf)?.toUpperCase() ?? null,
-              esfera: toTextOrNull(raw.esfera),
-              regiao: toTextOrNull(raw.regiao)?.toUpperCase() ?? null,
-              populacao: toIntOrNull(raw.populacao),
-              cnpj: cnpjOrNull(raw.cnpj),
-              exercicio,
-              busca: normalize(ente),
-            })
-          )
-        );
-      })
-    );
-  }, new Map());
+  const byCod = pipe(
+    raws,
+    Arr.reduce(new Map<string, EnteFlat>(), (acc, raw) => {
+      const codIbge = enteCodIbge(toText(raw.cod_ibge));
+      const ente = toText(raw.ente);
+      return Match.value(codIbge === null || ente === "").pipe(
+        Match.when(true, () => acc),
+        Match.orElse(() => {
+          const exercicio = toIntOrNull(raw.exercicio);
+          const prev = acc.get(codIbge ?? "");
+          const keep = prev === undefined || (exercicio ?? 0) >= (prev.exercicio ?? 0);
+          return Match.value(keep).pipe(
+            Match.when(false, () => acc),
+            Match.orElse(() =>
+              acc.set(codIbge ?? "", {
+                codIbge: codIbge ?? "",
+                ente,
+                uf: upperOrNull(raw.uf),
+                esfera: toTextOrNull(raw.esfera),
+                regiao: upperOrNull(raw.regiao),
+                populacao: toIntOrNull(raw.populacao),
+                cnpj: cnpjOrNull(raw.cnpj),
+                exercicio,
+                busca: normalize(ente),
+              })
+            )
+          );
+        })
+      );
+    })
+  );
   return [...byCod.values()];
 };
