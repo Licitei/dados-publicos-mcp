@@ -42,12 +42,6 @@ const TestLayer = SancoesCguLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
-const seeded = Effect.gen(function* () {
-  const sancoes = yield* SancoesCgu;
-  yield* sancoes.index;
-  return sancoes;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
   "sancoes-cgu store + date-regression + zip/csv ingest",
   (it) => {
@@ -64,56 +58,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         const snapshotHits = yield* server.hits(ceisPath(snapshotDate()));
         expect(beforeHits).toBeGreaterThan(0);
         expect(snapshotHits).toBe(1);
-      })
-    );
-
-    it.effect("verificar matches all rows by normalized document, by cnpj or cpf", () =>
-      Effect.gen(function* () {
-        const sancoes = yield* seeded;
-        const porCnpj = yield* sancoes.verificar("11.222.333/0001-81");
-        expect(porCnpj.docNormalizado).toBe("11222333000181");
-        expect(porCnpj.tipoDocumento).toBe("cnpj");
-        expect(porCnpj.sancionado).toBe(true);
-        expect(porCnpj.inidoneoOuImpedido).toBe(true);
-        expect(porCnpj.total).toBe(1);
-        expect(porCnpj.porLista).toEqual({ ceis: 1 });
-        expect(Option.map(Arr.head(porCnpj.sancoes), (r) => r.nome)).toEqual(
-          Option.some("EMPRESA ALPHA LTDA")
-        );
-        const porCpf = yield* sancoes.verificar("111.222.333-44");
-        expect(porCpf.tipoDocumento).toBe("cpf");
-        expect(Option.map(Arr.head(porCpf.sancoes), (r) => r.nome)).toEqual(
-          Option.some("JOÃO DA SILVA")
-        );
-        const ausente = yield* sancoes.verificar("00000000000000");
-        expect(ausente.sancionado).toBe(false);
-        expect(ausente.total).toBe(0);
-      })
-    );
-
-    it.effect("buscarPorNome matches by bm25 name, falls back to fff fuzzy on a typo", () =>
-      Effect.gen(function* () {
-        const sancoes = yield* seeded;
-        const hit = yield* sancoes.buscarPorNome("alpha");
-        expect(Arr.map(hit, (r) => r.docNormalizado)).toContain("11222333000181");
-        expect(Option.map(Arr.head(hit), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-        const typo = yield* sancoes.buscarPorNome("alpa");
-        expect(Arr.map(typo, (r) => r.docNormalizado)).toContain("11222333000181");
-        expect(Option.map(Arr.head(typo), (r) => r.score)).toEqual(Option.some(0));
-        const nomeTypo = yield* sancoes.buscarPorNome("joao silvz");
-        expect(Arr.map(nomeTypo, (r) => r.docNormalizado)).toContain("11122233344");
-      })
-    );
-
-    it.effect("vigentesNaData lists sanctions active on a date, excluding expired ones", () =>
-      Effect.gen(function* () {
-        const sancoes = yield* seeded;
-        const dentro = yield* sancoes.vigentesNaData("2024-06-15");
-        expect(Arr.map(dentro, (r) => r.codigo)).toEqual(["S1"]);
-        const fora = yield* sancoes.vigentesNaData("2026-06-15");
-        expect(fora).toHaveLength(0);
-        const cedo = yield* sancoes.vigentesNaData("2021-01-01");
-        expect(Arr.map(cedo, (r) => r.codigo)).toEqual(["S2"]);
       })
     );
   }

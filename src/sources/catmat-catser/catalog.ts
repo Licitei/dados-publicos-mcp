@@ -26,7 +26,7 @@ export const pageUrl = (opts: {
   readonly tamanhoPagina: number;
 }) => `${opts.endpoint}?${pagedParams({ ...opts, ...pageSizes }).toString()}`;
 
-export const CatmatItemRaw = Schema.Struct({
+const CatmatItemRaw = Schema.Struct({
   codigoItem: looseText,
   codigoGrupo: looseText,
   nomeGrupo: looseString,
@@ -39,9 +39,9 @@ export const CatmatItemRaw = Schema.Struct({
   descricao_ncm: looseString,
   statusItem: looseFlag,
 });
-export type CatmatItemRaw = (typeof CatmatItemRaw)["Type"];
+type CatmatItemRaw = (typeof CatmatItemRaw)["Type"];
 
-export const CatserItemRaw = Schema.Struct({
+const CatserItemRaw = Schema.Struct({
   codigoServico: looseText,
   nomeServico: looseString,
   codigoSecao: looseText,
@@ -56,7 +56,7 @@ export const CatserItemRaw = Schema.Struct({
   nomeSubclasse: looseString,
   statusServico: looseFlag,
 });
-export type CatserItemRaw = (typeof CatserItemRaw)["Type"];
+type CatserItemRaw = (typeof CatserItemRaw)["Type"];
 
 export const CatmatItemPayload = Schema.Struct({
   resultado: Schema.Array(CatmatItemRaw),
@@ -143,27 +143,6 @@ export const catserServiceTable: DuckTable = {
   },
   search: ["busca"],
 };
-
-const CatmatCatserErrorCode = Schema.Literals(["catmat.NOT_FOUND", "catmat.LEVEL_UNRECOGNIZED"]);
-type CatmatCatserErrorCode = (typeof CatmatCatserErrorCode)["Type"];
-
-export class CatmatCatserError extends Schema.TaggedError<
-  CatmatCatserError,
-  { readonly brand: unique symbol }
->()("CatmatCatserError", {
-  code: CatmatCatserErrorCode,
-  codigo: Schema.optional(Schema.String),
-  nivel: Schema.optional(Schema.String),
-}) {
-  override get message() {
-    switch (this.code) {
-      case "catmat.NOT_FOUND":
-        return `Codigo CATMAT/CATSER nao encontrado: ${this.codigo}.`;
-      case "catmat.LEVEL_UNRECOGNIZED":
-        return `Nivel de hierarquia CATMAT/CATSER nao reconhecido: ${this.nivel}.`;
-    }
-  }
-}
 
 const flattenMaterial = (raw: CatmatItemRaw) => {
   const codigoItem = toIntOrNull(raw.codigoItem);

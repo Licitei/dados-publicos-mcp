@@ -6,7 +6,7 @@ import * as Path from "effect/Path";
 import * as Rec from "effect/Record";
 import * as Str from "effect/String";
 import { BunServices } from "@effect/platform-bun";
-import { DuckDBInstance } from "@duckdb/node-api";
+import { DuckDBInstance, StatementType } from "@duckdb/node-api";
 import { dataDirPath } from "../data-dir";
 import { normalize } from "../text/normalize";
 
@@ -54,7 +54,7 @@ const InTransaction = Context.Reference<boolean>(
   }
 );
 
-export type DuckParam = null | boolean | number | bigint | string;
+type DuckParam = null | boolean | number | bigint | string;
 
 const DuckType = Schema.Literals([
   "VARCHAR",
@@ -92,14 +92,14 @@ const duckFileName = "dados.duckdb";
 
 const NdJson = Schema.fromJsonString(Schema.Unknown);
 
-const identifier = (name: string) => `"${Str.replaceAll('"', '""')(name)}"`;
+export const quoteIdentifier = (name: string) => `"${Str.replaceAll('"', '""')(name)}"`;
 
 const literal = (value: string) => `'${Str.replaceAll("'", "''")(value)}'`;
 
 const columnList = (table: DuckTable) =>
   pipe(
     Rec.toEntries(table.columns),
-    Arr.map(([column, type]) => `${identifier(column)} ${type}`),
+    Arr.map(([column, type]) => `${quoteIdentifier(column)} ${type}`),
     Arr.join(", ")
   );
 
@@ -113,13 +113,13 @@ const jsonColumns = (table: DuckTable) =>
 const idSeparator = "\u001f";
 
 export const inIds = (column: string) =>
-  `${identifier(column)} IN (SELECT unnest(string_split(?, chr(31))))`;
+  `${quoteIdentifier(column)} IN (SELECT unnest(string_split(?, chr(31))))`;
 
 export const idsParam = (ids: readonly (string | number)[]) =>
   Arr.join(Arr.map(ids, String), idSeparator);
 
 export const bm25 = (table: DuckTable) =>
-  `fts_main_${table.name}.match_bm25(${identifier(table.key)}, ?)`;
+  `fts_main_${table.name}.match_bm25(${quoteIdentifier(table.key)}, ?)`;
 
 const makeDuck = Effect.gen(function* () {
   const cfg = yield* DuckConfig;
@@ -190,7 +190,7 @@ const makeDuck = Effect.gen(function* () {
       ? query(
           schema,
           `SELECT ${spec.select}, score
-           FROM (SELECT *, ${bm25(table)} AS score FROM ${identifier(table.name)})
+           FROM (SELECT *, ${bm25(table)} AS score FROM ${quoteIdentifier(table.name)})
            WHERE score IS NOT NULL${Option.isSome(uf) ? " AND uf = ?" : ""}
            ORDER BY score DESC, ${spec.tie} LIMIT ?`,
           [
@@ -226,10 +226,10 @@ const makeDuck = Effect.gen(function* () {
     );
 
   const ensure = (table: DuckTable) =>
-    run(`CREATE TABLE IF NOT EXISTS ${identifier(table.name)} (${columnList(table)})`);
+    run(`CREATE TABLE IF NOT EXISTS ${quoteIdentifier(table.name)} (${columnList(table)})`);
 
   const create = (table: DuckTable) =>
-    run(`CREATE OR REPLACE TABLE ${identifier(table.name)} (${columnList(table)})`);
+    run(`CREATE OR REPLACE TABLE ${quoteIdentifier(table.name)} (${columnList(table)})`);
 
   const append = (table: DuckTable, rows: ReadonlyArray<DuckRow>) =>
     Arr.isReadonlyArrayNonEmpty(rows)
@@ -237,7 +237,7 @@ const makeDuck = Effect.gen(function* () {
           stage(rows).pipe(
             Effect.flatMap((file) =>
               run(
-                `INSERT INTO ${identifier(table.name)} SELECT * FROM read_json(?, format = 'newline_delimited', columns = ${jsonColumns(table)})`,
+                `INSERT INTO ${quoteIdentifier(table.name)} SELECT * FROM read_json(?, format = 'newline_delimited', columns = ${jsonColumns(table)})`,
                 [file]
               )
             )
@@ -266,7 +266,7 @@ const makeDuck = Effect.gen(function* () {
   const count = (table: DuckTable) =>
     query(
       Schema.Struct({ count: Schema.Finite }),
-      `SELECT count(*)::INTEGER AS count FROM ${identifier(table.name)}`
+      `SELECT count(*)::INTEGER AS count FROM ${quoteIdentifier(table.name)}`
     ).pipe(
       Effect.map((rows) =>
         Option.getOrElse(
@@ -277,7 +277,91 @@ const makeDuck = Effect.gen(function* () {
       Effect.orElseSucceed(() => 0)
     );
 
-  return { dir, run, query, ranked, transaction, ensure, create, append, replace, reindex, count };
+  const readOnly = (sql: string, limit = 200, timeoutMs = 5000) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const native = <A>(operation: () => Promise<A>) =>
+          Effect.tryPromise({
+            try: operation,
+            catch: (cause) => DuckError.make({ code: "duck.QUERY", cause: String(cause) }),
+          });
+        const sandbox = yield* Effect.acquireRelease(
+          native(() =>
+            DuckDBInstance.create(":memory:", {
+              threads: "1",
+              memory_limit: "128MB",
+              max_temp_directory_size: "0B",
+            })
+          ),
+          (opened) => Effect.sync(() => opened.closeSync())
+        );
+        const reader = yield* Effect.acquireRelease(
+          native(() => sandbox.connect()),
+          (opened) => Effect.sync(() => opened.closeSync())
+        );
+        yield* native(() =>
+          reader.run(`ATTACH ${literal(path.join(dir, duckFileName))} AS source (READ_ONLY)`)
+        );
+        yield* native(() =>
+          reader.run(
+            "SET enable_external_access=false; SET autoinstall_known_extensions=false; SET autoload_known_extensions=false; SET lock_configuration=true; USE source; BEGIN TRANSACTION"
+          )
+        );
+        yield* Effect.addFinalizer(() => native(() => reader.run("ROLLBACK")).pipe(Effect.orDie));
+        yield* Effect.sleep(Math.min(Math.max(timeoutMs, 1), 5000)).pipe(
+          Effect.andThen(Effect.sync(() => reader.interrupt())),
+          Effect.forkScoped
+        );
+        const statements = yield* native(() => reader.extractStatements(sql));
+        yield* statements.count === 1
+          ? Effect.void
+          : Effect.fail(
+              DuckError.make({
+                code: "duck.QUERY",
+                cause: "Informe exatamente uma consulta SELECT ou WITH.",
+              })
+            );
+        const statement = yield* Effect.acquireRelease(
+          native(() => statements.prepare(0)),
+          (prepared) => Effect.sync(() => prepared.destroySync())
+        );
+        yield* statement.statementType === StatementType.SELECT
+          ? Effect.void
+          : Effect.fail(
+              DuckError.make({
+                code: "duck.QUERY",
+                cause: "Somente SELECT ou WITH são permitidos.",
+              })
+            );
+        const capped = Math.min(Math.max(Math.trunc(limit), 1), 1000);
+        const result = yield* Effect.acquireRelease(
+          native(() => statement.streamAndReadUntil(capped)),
+          (opened) => Effect.sync(() => opened.closeSync())
+        );
+        return {
+          colunas: Arr.map(result.columnNames(), (name, index) => ({
+            name,
+            type: result.columnType(index).toString(),
+          })),
+          linhas: Arr.take(result.getRowsJson(), capped),
+        };
+      })
+    );
+
+  return {
+    dir,
+    run,
+    query,
+    ranked,
+    transaction,
+    ensure,
+    create,
+    append,
+    replace,
+    reindex,
+    count,
+    readOnly,
+  };
 });
 
 export class Duck extends Context.Service<Duck, Effect.Success<typeof makeDuck>>()(

@@ -56,7 +56,7 @@ const PropostaEnrich = Schema.Struct({
   nomeProponente: Schema.NullOr(Schema.String),
   objeto: Schema.NullOr(Schema.String),
 });
-export type PropostaEnrich = (typeof PropostaEnrich)["Type"];
+type PropostaEnrich = (typeof PropostaEnrich)["Type"];
 
 export const mapPropostas = (records: readonly CsvRecord[]): Map<string, PropostaEnrich> =>
   new Map(

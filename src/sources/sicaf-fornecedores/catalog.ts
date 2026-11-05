@@ -42,7 +42,7 @@ const consultarUrl = "https://dadosabertos.compras.gov.br/modulo-fornecedor/1_co
 export const pageSizes = { min: 10, max: 500 } as const;
 export const ativoFlags = [true, false] as const;
 
-export const FornecedorRaw = Schema.Struct({
+const FornecedorRaw = Schema.Struct({
   cnpj: looseText,
   cpf: looseString,
   nomeRazaoSocialFornecedor: looseString,
@@ -55,7 +55,7 @@ export const FornecedorRaw = Schema.Struct({
   naturezaJuridicaNome: looseString,
   porteEmpresaNome: looseString,
 });
-export type FornecedorRaw = (typeof FornecedorRaw)["Type"];
+type FornecedorRaw = (typeof FornecedorRaw)["Type"];
 
 export const ConsultarPayload = Schema.Struct({
   resultado: Schema.Array(FornecedorRaw),
@@ -63,7 +63,7 @@ export const ConsultarPayload = Schema.Struct({
 });
 export type ConsultarPayload = (typeof ConsultarPayload)["Type"];
 
-export const FornecedorFlat = Schema.Struct({
+const FornecedorFlat = Schema.Struct({
   cnpj: Schema.NullOr(Schema.String),
   cpf: Schema.NullOr(Schema.String),
   nomeRazaoSocial: Schema.NullOr(Schema.String),

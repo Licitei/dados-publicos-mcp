@@ -1,11 +1,12 @@
 import { BunRuntime } from "@effect/platform-bun";
-import { Clock, Console, Effect, Option } from "effect";
+import { Clock, Console, Effect, Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import { runtime } from "../../src/runtime";
 import { Search } from "../../src/kernel/search/search";
-import { Cnae } from "../../src/sources/cnae/store";
-import { ReceitaCnpj } from "../../src/sources/receita-cnpj/store";
+import { cnaeTable } from "../../src/sources/cnae/store";
+import { Duck } from "../../src/kernel/duck/duck";
+import { Fuzzy } from "../../src/kernel/search/fuzzy";
 
 const runs = 20;
 
@@ -38,8 +39,8 @@ const measure = <A, E, R>(label: string, effect: Effect.Effect<A, E, R>) =>
 
 const bench = Effect.gen(function* () {
   const search = yield* Search;
-  const cnae = yield* Cnae;
-  const receita = yield* ReceitaCnpj;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
   yield* measure(
     "fff grep leis 'dispensa de licitacao'",
     search.grep("leis", ["dispensa de licitação"], { limit: 20 })
@@ -53,12 +54,17 @@ const bench = Effect.gen(function* () {
     "fff grep precedentes 'sumula'",
     search.grep("precedentes", ["licitação"], { limit: 20 })
   );
-  yield* measure("sqlite fts5 cnae 'transporte rodoviario'", cnae.search("transporte rodoviario"));
-  yield* measure("duckdb lake consultar_cnpj", receita.consultarCnpj("00000000000191"));
   yield* measure(
-    "duckdb lake buscar_empresa_por_nome 'banco do brasil'",
-    receita.buscarEmpresaPorNome("banco do brasil")
+    "duckdb bm25 cnae 'transporte rodoviario'",
+    duck.ranked(Schema.Record(Schema.String, Schema.Unknown), cnaeTable, {
+      select: "id, descricao",
+      tie: "id",
+      termo: "transporte rodoviario",
+      limit: 20,
+    })
   );
+  yield* measure("fff fuzzy cnae 'transprte'", fuzzy.match("cnae", "transprte", { limit: 20 }));
+  yield* measure("duckdb SQL empresa", duck.readOnly("SELECT * FROM empresa LIMIT 20", 20));
 });
 
 BunRuntime.runMain(

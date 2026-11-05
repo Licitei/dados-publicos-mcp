@@ -57,6 +57,18 @@ const response = (url: string, opts?: { readonly timeoutMs: number }) =>
   Effect.flatMap(Http, (http) => http.response(url, opts));
 
 layer(HttpFixture, { excludeTestServices: true })("Http.json", (it) => {
+  it.effect("HEAD probes metadata and preserves classified HTTP errors", () =>
+    Effect.gen(function* () {
+      const http = yield* Http;
+      const metadata = yield* http.head(at("/json"));
+      expect(metadata.status).toBe(200);
+      expect(metadata).not.toHaveProperty("bytes");
+      const missing = yield* Effect.flip(http.head(at("/not-found")));
+      expect(missing.code).toBe("http.STATUS");
+      expect(missing.status).toBe(404);
+    })
+  );
+
   it.effect("decodes the body against the schema", () =>
     Effect.gen(function* () {
       const value = yield* getJson(at("/json"), BodySchema);

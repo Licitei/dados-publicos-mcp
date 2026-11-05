@@ -1,163 +1,51 @@
 import { Effect, Schema } from "effect";
 import { defineTool } from "./tool";
 
-const NoInput = Schema.Struct({});
+const recipes = {
+  uso: `# Uso geral
+Comece por fontes: descubra tabelas, colunas, campos de busca, volumes e acervos disponíveis. Use buscar para resolver nomes; confirme chaves exatas com consultar_sql. Use indexar apenas para fontes leves; para pesadas, indique a CLI e o escopo necessário. Consultas SQL são locais, somente leitura, com prazo de 5 segundos e limite padrão de 200 linhas (máximo 1000). Use agregações para não confundir resultados truncados com totais.
+Nada que o usuário pergunte é enviado a terceiros. A indexação baixa conjuntos oficiais públicos; não envia o objeto da pesquisa. Toda análise deve informar privacidade: { modo: "local", dadosEnviadosParaTerceiros: false }, fontes: [tabela ou caminho, data e recorte], limitacoes: [ausências, defasagens, cobertura e truncamento], confianca: "baixa" | "media" | "alta". Match aproximado indica confiança baixa; cruzamentos por chaves exatas sustentam confiança maior, mas não provam ausência de irregularidades. Não apresente uma conclusão preliminar como parecer final.
+Exemplo: consultar_sql({ sql: 'SELECT "ufSigla", count(*) AS municipios FROM municipio GROUP BY "ufSigla" ORDER BY "ufSigla"' }).`,
+  juridico: `# Jurídico lite e checklist de edital
+Use acervo_buscar({ acervo: "leis", termos: ["14.133"] }) e acervo_localizar para encontrar a norma. Leia os arquivos com acervo_ler antes de citar artigos. Busque o objeto e as exigências no acervo precedentes, restringindo dentro: "tribunais/TCU/" quando pertinente. Cite caminho e trecho de cada evidência. Para checklist, relacione exigência, artigo, precedente, aplicabilidade e pendência de confirmação. Preserve variantes e cancelamentos; não infira vigência pela presença do arquivo. Informe fontes, limitacoes e confianca.`,
+  pesquisa_preco: `# Pesquisa de preço lite
+No espírito da IN SEGES 65/2021, resolva o item e sua unidade em buscar, conferindo CATMAT/CATSER. Descubra em fontes as amostras disponíveis em PNCP, Compras.gov.br, Painel de Preços e fontes setoriais SINAPI/CMED. Uma fonte ausente é limitação explícita. Restrinja período, unidade, especificação e localidade antes de comparar. Preserve fonte, identificador, data, quantidade e valor de cada amostra. Evite duplicar o mesmo registro entre bases.
+Exemplo de preço homologado no Compras.gov.br: SELECT "niFornecedor", "valorUnitarioHomologado", "dataResultadoPncp", "numeroControlePNCPCompra" FROM compras_resultado WHERE "valorUnitarioHomologado" > 0. Os valores de pncp_item são estimados; não os misture com homologados sem rotular essa diferença.
+Exemplo real no Painel: SELECT "codigoItemCatalogo", "unidadeFornecimento", count(*) AS n, median("precoUnitario") AS mediana, quantile_cont("precoUnitario", 0.25) AS q1, quantile_cont("precoUnitario", 0.75) AS q3 FROM preco_praticado WHERE "precoUnitario" > 0 GROUP BY "codigoItemCatalogo", "unidadeFornecimento".
+Examine outliers pelo intervalo interquartil (q1 − 1,5 × IQR; q3 + 1,5 × IQR), registrando justificativa e resultados antes/depois da exclusão. Corrija valores para a mesma data usando série oficial e fórmula adequada ao contrato; não misture variação percentual e número-índice. Não apresente a amostra local como pesquisa formal completa. Retorne fontes, limitacoes e confianca.`,
+  score_orgao: `# Score do órgão lite
+Resolva o ente em buscar e confirme CNPJ/código IBGE. Cruze CAPAG e SICONFI com volume, recorrência e execução de compras no PNCP/Compras.gov.br e ocorrências TCE disponíveis. Descubra cobertura em fontes. Declare pesos, denominadores, período e dados ausentes; não atribua zero a fonte não indexada. Não transforme CAPAG em diagnóstico de integridade.
+Exemplo: SELECT e.ente, e.cnpj, c.capag, c."anoBase" FROM siconfi_ente e LEFT JOIN capag_municipio c ON c."codIbge" = e."codIbge" WHERE e.uf = 'RS'.
+Exemplo de volume: SELECT "orgaoCnpj", count(*) AS contratos, sum("valorGlobal") AS valor FROM contrato GROUP BY "orgaoCnpj". Prazo entre homologação e contrato só pode ser calculado com datas correspondentes e vínculo confirmado, nunca por aproximação. Retorne fontes, limitacoes e confianca.`,
+  analise_cnpj: `# Análise de CNPJ lite
+Comece por fontes e descubra o esquema. Confirme CNPJ completo, matriz/filial, razão social e sócios na Receita. Cruze sanções CGU, TCU, SICAF, PGFN, Lista Suja, IBAMA e CVM; confira situação, cancelamento e datas. No IBAMA, confira também desembargado e dataDesembargo antes de tratar um termo como impedimento atual. Compare sócios com PEP e doações TSE apenas quando as chaves e a identificação permitirem. CPFs mascarados e homônimos não autorizam associação inequívoca. Na CVM, companhias e fundos têm CNPJ; processos e acusados do ZIP sancionador se vinculam por NUP e não publicam CNPJ de acusados. Um nome semelhante entre cadastro e processo não prova identidade. Examine contratos PNCP/Compras.gov.br e sócios em comum sem inferir culpa de uma relação societária.
+Exemplo: SELECT lista, nome, categoria, "dataInicio", "dataFinal" FROM sancao WHERE "docNormalizado" = '00000000000191'.
+Exemplo: SELECT "niFornecedor", "nomeRazaoSocialFornecedor", "orgaoCnpj", "valorGlobal", "dataAssinatura" FROM contrato WHERE "niFornecedor" = '00000000000191'.
+Ausência de registro não é certidão negativa. Registre separadamente fonte ausente, match aproximado e registro exato. Informe fontes, limitacoes e confianca.`,
+  mapa_mercado: `# Mapa de mercado lite
+Resolva item/CNAE com buscar, confirme unidade e recorte em consultar_sql, e cruze compradores/fornecedores de PNCP, Compras.gov.br, Painel e Receita disponíveis. Separe volume contratado, preço unitário e quantidade. Evite dupla contagem entre bases. Calcule participação e HHI por segmento e período, explicitando a cobertura local.
+Exemplo: WITH vendas AS (SELECT "niFornecedor", sum("valorGlobal") AS valor FROM contrato WHERE "valorGlobal" > 0 GROUP BY "niFornecedor"), parcelas AS (SELECT *, valor / sum(valor) OVER () AS participacao FROM vendas) SELECT sum(participacao * participacao) * 10000 AS hhi FROM parcelas.
+Esse exemplo mede apenas os contratos locais: acrescente o recorte do segmento antes de usá-lo. Retorne fontes, limitacoes e confianca.`,
+  reajuste_contrato: `# Reajuste de contrato lite
+Leia a cláusula de reajuste e confirme índice, data-base, período e regra de aniversário; não presuma autorização jurídica. Descubra em fontes a série oficial disponível: SGS 433 IPCA, 188 INPC, 189 IGP-M, 190 IGP-DI, 192 INCC-M, 7478 IPCA-15 ou SIDRA t1737 v2266 para número-índice IPCA. Fonte não indexada impede cálculo verificável.
+Para taxas mensais, fator = produto(1 + taxa/100); para números-índice, fator = índice final / índice da data-base. Valor reajustado = valor-base × fator. Confira lacunas, periodicidade, publicação e revisões; não invente observações. Retorne a série, meses, fórmula, arredondamento e fontes, limitacoes e confianca.
+Exemplo com a série local: SELECT serie, min(mes) AS inicio, max(mes) AS fim, count(*) AS meses, product(1 + valor/100) AS fator FROM indice_reajuste WHERE codigo = '433' AND tipo = 'taxa_mensal' AND mes BETWEEN '2025-01' AND '2025-12' GROUP BY serie. Confirme doze observações antes de usar esse intervalo anual.`,
+};
 
-const guiaUso = `# Guia de uso — dados-publicos-mcp (local-first, privacy-first)
-
-Este MCP expoe ferramentas locais sobre dados publicos brasileiros: fontes tabulares em SQLite local, CNPJ em um lake local (DuckDB), e os acervos de leis e precedentes em Markdown (buscar_/localizar_/ler_ leis|precedentes). Nao ha API ao vivo nem nuvem: toda resposta vem de indices locais. Fontes leves indexam sozinhas na primeira consulta.
-
-## Dois contratos inegociaveis
-- Local-first: nada que o usuario pergunte (um CNPJ, um item de edital, uma consulta) sai da maquina. Indice vazio => responda "fonte ainda nao indexada; rode indexar({ fonte })", nunca um chute e nunca uma chamada remota.
-- Privacy-first, evidence-first: estas ferramentas produzem inteligencia preliminar, explicavel e verificavel — nunca parecer juridico, relatorio formal ou veredito final. Toda resposta de inteligencia carrega:
-  privacidade: { modo: "local", dadosEnviadosParaTerceiros: false }
-  fontes: [...]      # quais tools/indices originaram a resposta
-  limitacoes: [...]  # o que falta, esta defasado ou nao foi verificado
-  confianca: "baixa" | "media" | "alta"
-  confianca baixa = uma fonte ou match fuzzy; media = corroboracao em duas fontes; alta = join por chave exata (CNPJ, codigo IBGE, numero PNCP) em multiplas fontes.
-
-## Resolva antes de buscar
-Texto livre e ambiguo; codigos nao. Resolva nomes para chaves estaveis e busque por chave:
-- municipio => resolver_municipio / resolver_codigo_ibge ; UF => validar_uf
-- CNAE => resolver_cnae ; item de edital => resolver_catmat_catser / normalizar_item_edital
-- ente federativo => resolver_ente_por_cnpj
-Depois os buscar_* e os lookups por chave (consultar_cnpj, contratos_do_fornecedor, capag_ente, ...) casam limpo.
-
-## Fluxos compostos (carregue o guia especifico antes de responder)
-- guia_pesquisar_preco — pesquisa preliminar de precos de compras publicas.
-- guia_triagem_fornecedor — due diligence de fornecedor por CNPJ. Comece por perfil_fornecedor (Receita ⊕ sancoes ⊕ TCU ⊕ SICAF em uma chamada).
-- Base legal: buscar_leis / buscar_precedentes para fundamentar (cite o caminho do arquivo como fonte).
-- guia_mapear_mercado — visao de mercado por termo / categoria / UF / orgao / fornecedor.
-- guia_due_diligence_eleitoral — candidato e rastreio de doadores (TSE).
-
-## Em duvida, status primeiro
-Chame status_indices para ver quais fontes estao indexadas e quao frescas antes de prometer uma resposta. Fonte vazia e uma limitacao, nao uma falha.`;
-
-const guiaPesquisarPreco = `# Guia: pesquisar preco publico (lite)
-
-Objetivo: uma faixa de referencia PRELIMINAR para um item, ancorada em contratacoes publicas reais indexadas localmente. Nunca a pesquisa de precos final.
-
-## Receita
-1. Normalize o item. resolver_catmat_catser (ou normalizar_item_edital) transforma o texto livre em codigo CATMAT/CATSER + descricao canonica. Se nada resolver, diga — item fuzzy derruba a confianca para baixa.
-2. Recorte (opcional). resolver_municipio / validar_uf para limitar por localidade; capture ano/mes do periodo.
-3. Ache compras similares. buscar_pncp_local com a descricao normalizada (+ filtros UF/municipio/periodo). Para fornecedor conhecido, tambem contratos_do_fornecedor.
-4. Resuma como amostras, nao veredito. N itens similares, min / mediana / max do valor unitario, periodo e localidades cobertos, e um identificador (numero PNCP) por amostra.
-
-## Formato de saida
-amostras: [{ pncp, orgao, uf, item, valorUnitario, data }]
-estatistica: { n, min, mediana, max }
-fontes: ["catmat-catser", "pncp"]
-limitacoes: ["amostra pequena", "periodo X-Y", "nao ajustado por inflacao/quantidade/marca"]
-confianca: baixa | media | alta
-
-- confianca baixa se n < 5 ou item resolvido so fuzzy.
-- Sempre diga que preco varia por quantidade, marca, regiao e prazo — ponto de partida, nao a pesquisa em si.
-- Nunca invente valor sem amostras: retorne n: 0 com limitacao e sugira indexar PNCP para o periodo/UF.`;
-
-const guiaTriagemFornecedor = `# Guia: triagem de fornecedor (local)
-
-Objetivo: triagem de risco rapida e local de uma empresa antes de analise mais profunda. Nunca decisao final de habilitacao/inabilitacao.
-
-## Receita
-1. Ancore no CNPJ. Se vier nome, buscar_empresa_por_nome (Receita) ou fornecedor_pncp_por_nome / buscar_fornecedor_sicaf para achar o CNPJ. CNPJ exato => confianca pode chegar a alta; so nome fica media no maximo.
-2. Cadastro. consultar_cnpj — razao social, situacao cadastral, CNAE, porte, socios. Situacao != "ATIVA" e uma limitacao/risco de destaque.
-3. Sancoes. verificar_sancoes (por CNPJ) e, para data de contrato especifica, sancoes_vigentes_na_data. Qualquer hit e o sinal mais importante — mostre primeiro.
-4. Habilitacao. fornecedor_habilitado / buscar_fornecedor_sicaf (SICAF) — registrado e em quais linhas.
-5. Historico publico. contratos_do_fornecedor (PNCP) — volume e contrapartes de contratos passados.
-6. Rede societaria. socios_em_comum / buscar_socio_por_nome — socios compartilhados com outras firmas (pista de direcionamento/conluio a investigar, nao a concluir).
-
-## Formato de saida
-empresa: { cnpj, razaoSocial, situacao, cnaePrincipal, porte }
-sancoes: [{ tipo, orgao, vigencia, fonte }]   # vazio = nada indexado, NAO "limpo"
-sicaf: { habilitado, linhas }
-historico: { contratosPNCP: n, orgaos: [...] }
-socios: [...]
-fontes: ["receita-cnpj", "sancoes-cgu", "sicaf-fornecedores", "pncp"]
-limitacoes: ["fontes nao indexadas: ...", "sancao ausente != idoneidade comprovada"]
-confianca: baixa | media | alta
-
-- Resultado de sancoes vazio significa "nada indexado/encontrado", NAO "idoneo" — diga explicitamente. Nunca implique ficha limpa a partir de ausencia de dado.
-- confianca alta so com CNPJ exato e >=2 fontes corroborando; senao media/baixa.
-- E triagem para decidir onde olhar mais de perto, nao um parecer de habilitacao.`;
-
-const guiaMapearMercado = `# Guia: mapear mercado publico (lite)
-
-Objetivo: um retrato PRELIMINAR de quem compra, quem vende e quanto em torno de um termo/categoria/localidade.
-
-## Receita
-1. Fixe os eixos. Resolva o que o usuario nomeou:
-   - categoria => resolver_catmat_catser (item) ou resolver_cnae (atividade)
-   - localidade => resolver_municipio / validar_uf (codigo IBGE)
-2. Demanda (compras). buscar_pncp_local filtrado por categoria + localidade + periodo => quais orgaos contrataram, volumes, faixas de valor.
-3. Oferta (fornecedores). listar_fornecedores_uf_cnae (SICAF) e fornecedor_pncp_por_nome => quem esta registrado/ativo para fornecer naquela UF + CNAE.
-4. Sinal de concentracao. Agregue contratos_do_fornecedor nos principais fornecedores para mostrar se o mercado e concentrado ou fragmentado (sinal a investigar, nao conclusao).
-
-## Formato de saida
-recorte: { categoria, uf, municipio, periodo }
-demanda: { orgaos: [...], nContratacoes, faixaValor }
-oferta: { fornecedoresAtivos: n, topFornecedores: [...] }
-concentracao: { topNshare }   # share dos top fornecedores — descritivo
-fontes: ["pncp", "ibge-localidades", "cnae", "sicaf-fornecedores"]
-limitacoes: ["cobertura por fonte indexada", "periodo X-Y", "amostra parcial"]
-confianca: baixa | media | alta
-
-- Apresente como orientacao, nao estudo de mercado nem recomendacao de contratacao.
-- confianca acompanha quantas fontes retornaram dado para o recorte; lacunas viram limitacoes.`;
-
-const guiaDueDiligenceEleitoral = `# Guia: due diligence eleitoral (local)
-
-Objetivo: rastreio PRELIMINAR e ancorado em evidencia dos bens declarados e financas de campanha de um candidato, totalmente local (indices TSE). Nunca acusacao nem conclusao de irregularidade.
-
-## Receita
-1. Ancore o candidato. due_diligence_candidato => bens declarados, candidatura, perfil basico.
-2. Dinheiro que entra. buscar_doacoes => quem doou e quanto.
-3. Rastreie a origem real. rastrear_doador_originario => siga a doacao por intermediarios ate o doador originario (sinal anti-lavagem central).
-4. Dinheiro que sai. buscar_fornecedor_campanha => fornecedores de campanha; cruze com triagem de fornecedor (consultar_cnpj, verificar_sancoes, socios_em_comum) para sinalizar fornecedor sancionado, com socio em comum ou que tambem tem contrato publico.
-
-## Formato de saida
-candidato: { nome, cargo, ano, bensDeclarados }
-doacoes: { totalRecebido, principaisDoadores: [...] }
-origem: [{ doadorDeclarado -> doadorOriginario, valor }]
-fornecedores: [{ cnpj, valor, flags: ["sancionado","socio em comum","tem contrato publico"] }]
-fontes: ["tse-eleitoral", "receita-cnpj", "sancoes-cgu", "pncp"]
-limitacoes: ["apenas anos/UF indexados", "vinculo != irregularidade"]
-confianca: baixa | media | alta
-
-- Um vinculo (socio em comum, sancao, contrato publico) e uma pista a investigar, nunca prova — diga isso em limitacoes sempre.
-- Mantenha descritivo e com fontes; e reconhecimento sobre dados publicos do TSE, nao uma denuncia.`;
-
-const skill = (name: string, description: string, conteudo: string) =>
-  defineTool({
-    name,
-    description,
-    input: NoInput,
-    run: () => Effect.succeed(conteudo),
-  });
-
-export const skillTools = [
-  skill(
-    "guia_uso",
-    "Carrega o guia geral do MCP (local-first, privacy-first, envelope de privacidade, resolva-antes-de-buscar). Chame ANTES de responder qualquer pergunta sobre compras publicas, fornecedores, CNPJ, sancoes, legislacao ou inteligencia de mercado, e siga o contrato.",
-    guiaUso
-  ),
-  skill(
-    "guia_pesquisar_preco",
-    "Carrega o passo-a-passo de pesquisa preliminar de precos de compras publicas (CATMAT/CATSER + PNCP). Chame ANTES de responder sobre preco de referencia / quanto custa / se um preco esta caro.",
-    guiaPesquisarPreco
-  ),
-  skill(
-    "guia_triagem_fornecedor",
-    "Carrega o passo-a-passo de due diligence de fornecedor por CNPJ ou nome (Receita + sancoes + SICAF + PNCP + socios). Chame ANTES de responder se um fornecedor e confiavel, se tem sancao, se esta habilitado ou quem sao os socios.",
-    guiaTriagemFornecedor
-  ),
-  skill(
-    "guia_mapear_mercado",
-    "Carrega o passo-a-passo de visao de mercado publico por termo / categoria / UF / orgao / fornecedor (PNCP + IBGE + CNAE + SICAF). Chame ANTES de responder quem compra, quem vende ou quanto se gastou.",
-    guiaMapearMercado
-  ),
-  skill(
-    "guia_due_diligence_eleitoral",
-    "Carrega o passo-a-passo de due diligence eleitoral de candidato e rastreio de doadores (TSE + Receita + sancoes + PNCP). Chame ANTES de responder sobre financiamento de campanha, origem de doacoes ou bens declarados.",
-    guiaDueDiligenceEleitoral
-  ),
-];
+export const guia = defineTool({
+  name: "guia",
+  description:
+    "Receitas de composição com fontes, buscar, consultar_sql e acervos: uso, jurídico, preço, órgão, CNPJ, mercado e reajuste. Análises preliminares com fontes, limitações e confiança explícitas.",
+  input: Schema.Struct({
+    tema: Schema.Literals([
+      "uso",
+      "juridico",
+      "pesquisa_preco",
+      "score_orgao",
+      "analise_cnpj",
+      "mapa_mercado",
+      "reajuste_contrato",
+    ]),
+  }),
+  run: (args) => Effect.succeed(recipes[args.tema]),
+});

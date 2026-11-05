@@ -1,3 +1,4 @@
+import * as Chunk from "effect/Chunk";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 import * as Predicate from "effect/Predicate";
@@ -22,7 +23,7 @@ const quoteCount = (value: string) =>
   pipe(value, Str.match(/"/g), Option.match({ onNone: () => 0, onSome: (found) => found.length }));
 
 const Merge = Schema.Struct({
-  merged: Schema.Array(Schema.String),
+  merged: Schema.Chunk(Schema.String),
   pending: Schema.Option(Schema.String),
 });
 type Merge = (typeof Merge)["Type"];
@@ -33,24 +34,27 @@ export type CsvRecord = (typeof CsvRecord)["Type"];
 const mergeQuotedLines = (lines: readonly string[]) => {
   const state = pipe(
     lines,
-    Arr.reduce<Merge, string>({ merged: [], pending: Option.none() }, (acc, line) => {
-      const combined = pipe(
-        acc.pending,
-        Option.match({
-          onNone: () => line,
-          onSome: (pending) => `${pending}\n${line}`,
-        })
-      );
-      return quoteCount(combined) % 2 === 0
-        ? { merged: Arr.append(acc.merged, combined), pending: Option.none() }
-        : { merged: acc.merged, pending: Option.some(combined) };
-    })
+    Arr.reduce<Merge, string>(
+      { merged: Chunk.empty<string>(), pending: Option.none() },
+      (acc, line) => {
+        const combined = pipe(
+          acc.pending,
+          Option.match({
+            onNone: () => line,
+            onSome: (pending) => `${pending}\n${line}`,
+          })
+        );
+        return quoteCount(combined) % 2 === 0
+          ? { merged: Chunk.append(acc.merged, combined), pending: Option.none() }
+          : { merged: acc.merged, pending: Option.some(combined) };
+      }
+    )
   );
   return pipe(
     state.pending,
     Option.match({
-      onNone: () => state.merged,
-      onSome: (trailing) => Arr.append(state.merged, trailing),
+      onNone: () => Chunk.toReadonlyArray(state.merged),
+      onSome: (trailing) => Chunk.toReadonlyArray(Chunk.append(state.merged, trailing)),
     })
   );
 };
@@ -72,7 +76,7 @@ const CsvOptions = Schema.Struct({
 });
 type CsvOptions = (typeof CsvOptions)["Type"];
 
-const parseCsvRecordsImpl = (bytes: Uint8Array, options?: CsvOptions): readonly CsvRecord[] => {
+const parseCsvTableImpl = (bytes: Uint8Array, options?: CsvOptions) => {
   const encoding = options?.encoding ?? "utf-8";
   const delimiter = options?.delimiter ?? ",";
   const text = stripBom(new TextDecoder(encoding, { fatal: false }).decode(bytes));
@@ -87,7 +91,7 @@ const parseCsvRecordsImpl = (bytes: Uint8Array, options?: CsvOptions): readonly 
     Arr.head(rows),
     Option.getOrElse((): readonly string[] => [])
   );
-  return pipe(
+  const records = pipe(
     Arr.drop(rows, 1),
     Arr.map((cells) =>
       pipe(
@@ -103,6 +107,7 @@ const parseCsvRecordsImpl = (bytes: Uint8Array, options?: CsvOptions): readonly 
       )
     )
   );
+  return { columns: header, records };
 };
 
 export const parseCsvRecords: {
@@ -110,5 +115,13 @@ export const parseCsvRecords: {
   (bytes: Uint8Array, options?: CsvOptions): readonly CsvRecord[];
 } = dual(
   (args) => Predicate.isUint8Array(args[0]),
-  (bytes: Uint8Array, options?: CsvOptions) => parseCsvRecordsImpl(bytes, options)
+  (bytes: Uint8Array, options?: CsvOptions) => parseCsvTableImpl(bytes, options).records
+);
+
+export const parseCsvTable: {
+  (options?: CsvOptions): (bytes: Uint8Array) => ReturnType<typeof parseCsvTableImpl>;
+  (bytes: Uint8Array, options?: CsvOptions): ReturnType<typeof parseCsvTableImpl>;
+} = dual(
+  (args) => Predicate.isUint8Array(args[0]),
+  (bytes: Uint8Array, options?: CsvOptions) => parseCsvTableImpl(bytes, options)
 );

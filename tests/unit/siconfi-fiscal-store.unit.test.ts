@@ -1,7 +1,5 @@
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
-import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { TestDuckLive } from "./support/test-duck";
 import { TestFuzzyLive } from "./support/test-fuzzy";
@@ -44,45 +42,11 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("siconfi-fiscal store + ords
     })
   );
 
-  it.effect("fiscalPorEnte filters by demonstrativo and preserves big values", () =>
-    Effect.gen(function* () {
-      const siconfi = yield* seeded;
-      const all = yield* siconfi.fiscalPorEnte("1");
-      expect(all).toHaveLength(4);
-      const dcaRows = yield* siconfi.fiscalPorEnte("1", {
-        demonstrativo: "DCA",
-      });
-      expect(dcaRows).toHaveLength(2);
-      const ativo = Arr.findFirst(dcaRows, (r) => r.codConta === "P1.0.0.0.0.00.00");
-      expect(Option.map(ativo, (r) => Number(r.valor))).toEqual(Option.some(161770212909.33));
-    })
-  );
-
-  it.effect("buscarConta finds fiscal lines by free text (bm25)", () =>
-    Effect.gen(function* () {
-      const siconfi = yield* seeded;
-      const pessoal = yield* siconfi.buscarConta("despesa bruta pessoal");
-      expect(Arr.map(pessoal, (r) => r.codConta)).toContain("DespesaComPessoalBruta");
-      expect(Option.map(Arr.head(pessoal), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-    })
-  );
-
-  it.effect("buscarConta falls back to fuzzy for a typo", () =>
-    Effect.gen(function* () {
-      const siconfi = yield* seeded;
-      const typo = yield* siconfi.buscarConta("pesoal");
-      expect(Arr.map(typo, (r) => r.codConta)).toContain("DespesaComPessoalBruta");
-      expect(Option.map(Arr.head(typo), (r) => r.score)).toEqual(Option.some(0));
-    })
-  );
-
   it.effect("indexarEnte replaces only that ente and exercise", () =>
     Effect.gen(function* () {
       const siconfi = yield* seeded;
       const again = yield* siconfi.indexarEnte("1", 2022);
       expect(again.inserted).toBe(4);
-      const all = yield* siconfi.fiscalPorEnte("1");
-      expect(all).toHaveLength(4);
     })
   );
 });

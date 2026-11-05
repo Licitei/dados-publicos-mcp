@@ -142,7 +142,16 @@ const makeFuzzy = Effect.gen(function* () {
         : [];
     });
 
-  return { write, match };
+  const exists = (name: string) =>
+    fs
+      .exists(path.join(dirOf(name), rowsFile))
+      .pipe(
+        Effect.mapError((cause) =>
+          FuzzyError.make({ code: "fuzzy.OPEN", indice: name, cause: String(cause) })
+        )
+      );
+
+  return { write, match, exists };
 });
 
 export class Fuzzy extends Context.Service<Fuzzy, Effect.Success<typeof makeFuzzy>>()(

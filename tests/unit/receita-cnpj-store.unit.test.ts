@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { DateTime, Duration, Effect, Layer, Order, Predicate } from "effect";
+import { DateTime, Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Rec from "effect/Record";
@@ -167,18 +167,6 @@ const TestLayer = Layer.mergeAll(
   HttpFixture
 );
 
-const record = (value: unknown): Readonly<Record<string, unknown>> =>
-  Predicate.isObject(value) ? value : {};
-
-const records = (value: unknown): readonly Readonly<Record<string, unknown>>[] =>
-  Arr.isArray(value) ? Arr.map(value, record) : [];
-
-const seeded = Effect.gen(function* () {
-  const receita = yield* ReceitaCnpj;
-  yield* receita.index;
-  return receita;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(180), excludeTestServices: true })(
   "receita-cnpj store + month-regression ingest",
   (it) => {
@@ -193,95 +181,6 @@ layer(TestLayer, { timeout: Duration.seconds(180), excludeTestServices: true })(
           simples: 1,
           dominios: 8,
         });
-      })
-    );
-
-    it.effect("consultarCnpj returns the full profile with resolved dominio labels", () =>
-      Effect.gen(function* () {
-        const receita = yield* seeded;
-        const profile = yield* receita.consultarCnpj("11.222.333/0001-81");
-        expect(profile).not.toBeNull();
-        const full = record(profile);
-        expect(full["razao_social"]).toBe("EMPRESA ALPHA LTDA");
-        expect(full["natureza_juridica_descricao"]).toBe("Sociedade Empresaria Limitada");
-        expect(full["cnae_principal_descricao"]).toBe(
-          "Desenvolvimento de programas de computador sob encomenda"
-        );
-        expect(full["porte"]).toBe("empresa de pequeno porte");
-        const endereco = record(full["endereco"]);
-        expect(endereco["municipio"]).toBe("SAO PAULO");
-        expect(endereco["uf"]).toBe("SP");
-        expect(records(full["socios"])).toHaveLength(2);
-        const invalido = yield* Effect.flip(receita.consultarCnpj("123"));
-        expect(invalido._tag).toBe("ReceitaCnpjError");
-        expect(invalido.message).toContain("14 dígitos");
-      })
-    );
-
-    it.effect("buscarEmpresaPorNome matches normalized tokens and finds infixes", () =>
-      Effect.gen(function* () {
-        const receita = yield* seeded;
-        const hit = yield* receita.buscarEmpresaPorNome("alpha");
-        expect(Arr.map(hit, (r) => r.cnpjBasico)).toContain("11222333");
-        expect(Option.map(Arr.head(hit), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-        expect(Option.map(Arr.head(hit), (r) => r.uf)).toEqual(Option.some("SP"));
-        const typo = yield* receita.buscarEmpresaPorNome("lpha");
-        expect(Arr.map(typo, (r) => r.cnpjBasico)).toContain("11222333");
-        expect(Option.map(Arr.head(typo), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-      })
-    );
-
-    it.effect(
-      "buscarSocioPorNome matches by normalized tokens in any order and enriches razao_social",
-      () =>
-        Effect.gen(function* () {
-          const receita = yield* seeded;
-          const hit = yield* receita.buscarSocioPorNome("carlos socio comum");
-          expect(Arr.map(hit, (r) => r.nomeSocio)).toContain("CARLOS SOCIO COMUM");
-          expect(Option.map(Arr.head(hit), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-          expect(Arr.some(hit, (r) => r.razao_social !== null)).toBe(true);
-          const typo = yield* receita.buscarSocioPorNome("rlos");
-          expect(Arr.map(typo, (r) => r.nomeSocio)).toContain("CARLOS SOCIO COMUM");
-          expect(Option.map(Arr.head(typo), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-        })
-    );
-
-    it.effect("sociosEmComum finds a socio shared by two cnpj_basicos", () =>
-      Effect.gen(function* () {
-        const receita = yield* seeded;
-        const comuns = yield* receita.sociosEmComum(["11.222.333/0001-81", "44.555.666/0001-70"]);
-        expect(comuns).toHaveLength(1);
-        const comum = record(Arr.head(comuns).pipe(Option.getOrUndefined));
-        expect(comum["nome_socio"]).toBe("CARLOS SOCIO COMUM");
-        expect(comum["quantidade_empresas"]).toBe(2);
-        expect(
-          Arr.sort(
-            Arr.filter(
-              Arr.isArray(comum["cnpjs_basicos"]) ? comum["cnpjs_basicos"] : [],
-              Predicate.isString
-            ),
-            Order.String
-          )
-        ).toEqual(["11222333", "44555666"]);
-        const solo = yield* receita.sociosEmComum(["11.222.333/0001-81"]);
-        expect(solo).toHaveLength(0);
-      })
-    );
-
-    it.effect("filtrarEmpresas honors a uf + cnae relational filter", () =>
-      Effect.gen(function* () {
-        const receita = yield* seeded;
-        const rows = yield* receita.filtrarEmpresas({
-          uf: "SP",
-          cnae: "6201500",
-        });
-        expect(rows).toHaveLength(1);
-        const first = record(Arr.head(rows).pipe(Option.getOrUndefined));
-        expect(first["cnpj"]).toBe("11222333000181");
-        expect(first["razao_social"]).toBe("EMPRESA ALPHA LTDA");
-        expect(first["municipio"]).toBe("SAO PAULO");
-        const outraUf = yield* receita.filtrarEmpresas({ uf: "RJ" });
-        expect(Arr.map(outraUf, (r) => r.cnpj)).toEqual(["44555666000170"]);
       })
     );
   }

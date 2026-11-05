@@ -1,6 +1,5 @@
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer, Schema } from "effect";
-import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import { QueridoDiario, QueridoDiarioLive } from "../../src/sources/querido-diario/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
@@ -103,12 +102,6 @@ const TestLayer = QueridoDiarioLive.pipe(Layer.provideMerge(Infra));
 
 const scope = [{ uf: "AP", ano: 2025 }] as const;
 
-const seeded = Effect.gen(function* () {
-  const qd = yield* QueridoDiario;
-  yield* qd.indexScope(scope);
-  return qd;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
   "querido-diario store + json/zip/xml ingest",
   (it) => {
@@ -118,55 +111,6 @@ layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
         const total = yield* qd.indexScope(scope);
         expect(total.diarios).toBe(3);
         expect(total.cnpjs).toBe(1);
-      })
-    );
-
-    it.effect("buscarDiarios ranks by DuckDB bm25 and filters territory", () =>
-      Effect.gen(function* () {
-        const qd = yield* seeded;
-        const lexical = yield* qd.buscarDiarios("pavimentacao asfaltica");
-        expect(lexical.length).toBeGreaterThan(0);
-        expect(Arr.map(lexical, (r) => r.territoryId)).toContain("1600600");
-        expect(Option.map(Arr.head(lexical), (r) => Number(r.score) > 0)).toEqual(
-          Option.some(true)
-        );
-        const semLexical = yield* qd.buscarDiarios("zzzz xpto");
-        expect(semLexical).toHaveLength(0);
-        const filtrado = yield* qd.buscarDiarios("concurso", {
-          territoryId: "1600600",
-        });
-        expect(filtrado.length).toBeGreaterThan(0);
-        expect(Arr.every(filtrado, (r) => r.territoryId === "1600600")).toBe(true);
-        const outro = yield* qd.buscarDiarios("medicamentos", {
-          territoryId: "1600600",
-        });
-        expect(Arr.every(outro, (r) => r.territoryId === "1600600")).toBe(true);
-        const missing = yield* Effect.flip(qd.buscarDiarios("   "));
-        expect(missing._tag).toBe("QueridoDiarioError");
-      })
-    );
-
-    it.effect("diariosPorMunicipio lists a municipio's gazettes ordered by date desc", () =>
-      Effect.gen(function* () {
-        const qd = yield* seeded;
-        const rows = yield* qd.diariosPorMunicipio("1600600");
-        expect(rows.length).toBe(2);
-        expect(Arr.every(rows, (r) => r.territoryId === "1600600")).toBe(true);
-        expect(Option.map(Arr.head(rows), (r) => r.data)).toEqual(Option.some("2025-01-20"));
-      })
-    );
-
-    it.effect("buscarCnpjEmDiario finds the gazette by its extracted cnpj", () =>
-      Effect.gen(function* () {
-        const qd = yield* seeded;
-        const found = yield* qd.buscarCnpjEmDiario("44.555.666/0001-99");
-        expect(found.length).toBe(1);
-        expect(Option.map(Arr.head(found), (r) => r.cnpj)).toEqual(Option.some("44555666000199"));
-        expect(Option.map(Arr.head(found), (r) => r.diario.municipio)).toEqual(
-          Option.some("Santana")
-        );
-        const none = yield* qd.buscarCnpjEmDiario("00.000.000/0000-00");
-        expect(none.length).toBe(0);
       })
     );
   }

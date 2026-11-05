@@ -1,10 +1,9 @@
 import { Effect, Match, Schema } from "effect";
-import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
-export const codigoIbgeLength = 7;
+const codigoIbgeLength = 7;
 
 export const municipiosUrl = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios";
 
@@ -41,17 +40,17 @@ const RegiaoImediataRaw = Schema.Struct({
   }),
 });
 
-export const MunicipioRaw = Schema.Struct({
+const MunicipioRaw = Schema.Struct({
   id: Schema.Finite,
   nome: Schema.String,
   microrregiao: Schema.NullOr(MicrorregiaoRaw),
   "regiao-imediata": Schema.optional(RegiaoImediataRaw),
 });
-export type MunicipioRaw = (typeof MunicipioRaw)["Type"];
+type MunicipioRaw = (typeof MunicipioRaw)["Type"];
 
 export const MunicipiosPayload = Schema.Array(MunicipioRaw);
 
-export const MunicipioFlat = Schema.Struct({
+const MunicipioFlat = Schema.Struct({
   id: Schema.String,
   nome: Schema.String,
   nomeNormalizado: Schema.String,
@@ -62,38 +61,7 @@ export const MunicipioFlat = Schema.Struct({
   mesorregiaoNome: Schema.NullOr(Schema.String),
   regiaoSigla: Schema.String,
 });
-export type MunicipioFlat = (typeof MunicipioFlat)["Type"];
-
-const ufs = [
-  { sigla: "RO", id: 11, nome: "Rondonia" },
-  { sigla: "AC", id: 12, nome: "Acre" },
-  { sigla: "AM", id: 13, nome: "Amazonas" },
-  { sigla: "RR", id: 14, nome: "Roraima" },
-  { sigla: "PA", id: 15, nome: "Para" },
-  { sigla: "AP", id: 16, nome: "Amapa" },
-  { sigla: "TO", id: 17, nome: "Tocantins" },
-  { sigla: "MA", id: 21, nome: "Maranhao" },
-  { sigla: "PI", id: 22, nome: "Piaui" },
-  { sigla: "CE", id: 23, nome: "Ceara" },
-  { sigla: "RN", id: 24, nome: "Rio Grande do Norte" },
-  { sigla: "PB", id: 25, nome: "Paraiba" },
-  { sigla: "PE", id: 26, nome: "Pernambuco" },
-  { sigla: "AL", id: 27, nome: "Alagoas" },
-  { sigla: "SE", id: 28, nome: "Sergipe" },
-  { sigla: "BA", id: 29, nome: "Bahia" },
-  { sigla: "MG", id: 31, nome: "Minas Gerais" },
-  { sigla: "ES", id: 32, nome: "Espirito Santo" },
-  { sigla: "RJ", id: 33, nome: "Rio de Janeiro" },
-  { sigla: "SP", id: 35, nome: "Sao Paulo" },
-  { sigla: "PR", id: 41, nome: "Parana" },
-  { sigla: "SC", id: 42, nome: "Santa Catarina" },
-  { sigla: "RS", id: 43, nome: "Rio Grande do Sul" },
-  { sigla: "MS", id: 50, nome: "Mato Grosso do Sul" },
-  { sigla: "MT", id: 51, nome: "Mato Grosso" },
-  { sigla: "GO", id: 52, nome: "Goias" },
-  { sigla: "DF", id: 53, nome: "Distrito Federal" },
-];
-export const ufBySigla = new Map(Arr.map(ufs, (uf) => [uf.sigla, uf] as const));
+type MunicipioFlat = (typeof MunicipioFlat)["Type"];
 
 const IbgeErrorCode = Schema.Literals([
   "ibge.MUNICIPIO_NOT_FOUND",
@@ -103,7 +71,7 @@ const IbgeErrorCode = Schema.Literals([
 ]);
 type IbgeErrorCode = (typeof IbgeErrorCode)["Type"];
 
-export class IbgeError extends Schema.TaggedError<IbgeError, { readonly brand: unique symbol }>()(
+class IbgeError extends Schema.TaggedError<IbgeError, { readonly brand: unique symbol }>()(
   "IbgeError",
   {
     code: IbgeErrorCode,

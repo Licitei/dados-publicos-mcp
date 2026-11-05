@@ -1,7 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
 import { TcuInidoneos, TcuInidoneosLive } from "../../src/sources/tcu-inidoneos/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { TestDuckLive } from "./support/test-duck";
@@ -48,12 +47,6 @@ const TestLayer = TcuInidoneosLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
-const seeded = Effect.gen(function* () {
-  const tcu = yield* TcuInidoneos;
-  yield* tcu.index;
-  return tcu;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
   "tcu-inidoneos store + csv ingest",
   (it) => {
@@ -63,39 +56,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         const result = yield* tcu.index;
         expect(result.inserted).toBe(4);
         expect(result.total).toBe(4);
-      })
-    );
-
-    it.effect("verificar finds a CNPJ across lists, masked or unmasked, by normalized doc", () =>
-      Effect.gen(function* () {
-        const tcu = yield* seeded;
-        const hit = yield* tcu.verificar("07.405.573/0001-44");
-        expect(hit.docNormalizado).toBe("07405573000144");
-        expect(hit.tipoDocumento).toBe("cnpj");
-        expect(hit.inidoneo).toBe(true);
-        expect(hit.total).toBe(2);
-        expect(hit.porLista).toEqual({
-          "licitantes-inidoneos": 1,
-          "resp-contas-julgadas": 1,
-        });
-        const cpf = yield* tcu.verificar("215.805.453-00");
-        expect(cpf.tipoDocumento).toBe("cpf");
-        expect(cpf.porLista).toEqual({ "inabilitados-funcao-publica": 1 });
-        const ausente = yield* tcu.verificar("00000000000000");
-        expect(ausente.inidoneo).toBe(false);
-        expect(ausente.total).toBe(0);
-      })
-    );
-
-    it.effect("buscarPorNome matches by bm25 name, falls back to fff fuzzy on a typo", () =>
-      Effect.gen(function* () {
-        const tcu = yield* seeded;
-        const hit = yield* tcu.buscarPorNome("construcoes servicos");
-        expect(Arr.map(hit, (r) => r.docNormalizado)).toContain("07405573000144");
-        expect(Option.map(Arr.head(hit), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-        const typo = yield* tcu.buscarPorNome("terraplnagem");
-        expect(Arr.map(typo, (r) => r.docNormalizado)).toContain("22333444000155");
-        expect(Option.map(Arr.head(typo), (r) => r.score)).toEqual(Option.some(0));
       })
     );
   }

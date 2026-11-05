@@ -6,31 +6,6 @@ import { normalize } from "../../kernel/text/normalize";
 
 export const subclassesUrl = "https://servicodados.ibge.gov.br/api/v2/cnae/subclasses";
 
-const levelDigits = {
-  divisao: 2,
-  grupo: 3,
-  classe: 5,
-  subclasse: 7,
-} as const;
-
-const levels = [
-  { nivel: "secao", digits: null },
-  { nivel: "divisao", digits: levelDigits.divisao },
-  { nivel: "grupo", digits: levelDigits.grupo },
-  { nivel: "classe", digits: levelDigits.classe },
-  { nivel: "subclasse", digits: levelDigits.subclasse },
-] as const;
-export type CnaeNivel = (typeof levels)[number]["nivel"];
-
-export const secaoNivel = levels[0].nivel;
-
-export const levelByDigits = new Map<number, CnaeNivel>(
-  pipe(
-    levels,
-    Arr.flatMap((level) => (level.digits === null ? [] : [[level.digits, level.nivel] as const]))
-  )
-);
-
 const optionalTextList = Schema.optional(Schema.NullOr(Schema.Array(Schema.String)));
 
 const SecaoRaw = Schema.Struct({
@@ -56,17 +31,17 @@ const ClasseRaw = Schema.Struct({
   grupo: GrupoRaw,
 });
 
-export const SubclasseRaw = Schema.Struct({
+const SubclasseRaw = Schema.Struct({
   id: Schema.String,
   descricao: Schema.String,
   atividades: optionalTextList,
   classe: ClasseRaw,
 });
-export type SubclasseRaw = (typeof SubclasseRaw)["Type"];
+type SubclasseRaw = (typeof SubclasseRaw)["Type"];
 
 export const SubclassesPayload = Schema.Array(SubclasseRaw);
 
-export const SubclasseFlat = Schema.Struct({
+const SubclasseFlat = Schema.Struct({
   id: Schema.String,
   descricao: Schema.String,
   classeId: Schema.String,
@@ -79,28 +54,7 @@ export const SubclasseFlat = Schema.Struct({
   secaoDescricao: Schema.String,
   busca: Schema.String,
 });
-export type SubclasseFlat = (typeof SubclasseFlat)["Type"];
-
-const CnaeErrorCode = Schema.Literals(["cnae.NOT_FOUND", "cnae.LEVEL_UNRECOGNIZED"]);
-type CnaeErrorCode = (typeof CnaeErrorCode)["Type"];
-
-export class CnaeError extends Schema.TaggedError<CnaeError, { readonly brand: unique symbol }>()(
-  "CnaeError",
-  {
-    code: CnaeErrorCode,
-    codigo: Schema.optional(Schema.String),
-    normalizado: Schema.optional(Schema.String),
-  }
-) {
-  override get message() {
-    switch (this.code) {
-      case "cnae.NOT_FOUND":
-        return `Subclasse CNAE nao encontrada: ${this.codigo} (normalizado: ${this.normalizado}). A subclasse tem ${levelDigits.subclasse} digitos.`;
-      case "cnae.LEVEL_UNRECOGNIZED":
-        return `Codigo CNAE nao reconhecido: ${this.codigo}. Use uma letra (secao A-U) ou 2/3/5/7 digitos (divisao/grupo/classe/subclasse).`;
-    }
-  }
-}
+type SubclasseFlat = (typeof SubclasseFlat)["Type"];
 
 const cleanText = (value: string) => pipe(value, Str.replace(/\s+/g, " "), Str.trim);
 

@@ -1,10 +1,10 @@
-import { Context, Effect, Layer, Schema, Struct } from "effect";
+import { Http } from "../../kernel/http/client";
+import { Fuzzy } from "../../kernel/search/fuzzy";
+import { refreshSearch } from "../../kernel/search/index-rows";
+import { Context, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import { Duck, type DuckTable } from "../../kernel/duck/duck";
-import { onlyDigits } from "../../kernel/text/normalize";
-import { SinapiInsumoFlat } from "./catalog";
 import { defaultReferencia, indexReferencia } from "./indexer";
-import { clamp, conditions, ufClause } from "../../kernel/duck/search";
 
 export const sinapiInsumoTable: DuckTable = {
   name: "sinapi_insumo",
@@ -24,53 +24,32 @@ export const sinapiInsumoTable: DuckTable = {
   search: ["busca"],
 };
 
-const InsumoRow = SinapiInsumoFlat.mapFields(Struct.omit(["busca"]));
-
-const InsumoScored = Schema.Struct({ ...InsumoRow.fields, score: Schema.Finite });
-
-const insumoColumns = `"mesReferencia", codigo, descricao, unidade, origem, classificacao, uf, "precoMediano"`;
-
 const makeSinapi = Effect.gen(function* () {
   const duck = yield* Duck;
-
-  const precoPorCodigo = (codigo: string, uf: string | undefined) =>
-    Effect.gen(function* () {
-      const filter = conditions([ufClause(uf)]);
-      return yield* duck.query(
-        InsumoRow,
-        `SELECT ${insumoColumns} FROM sinapi_insumo WHERE codigo = ?${filter.sql} ORDER BY uf`,
-        [onlyDigits(codigo), ...filter.params]
-      );
-    });
-
-  const buscarInsumo = (
-    termo: string,
-    options?: { readonly uf?: string; readonly limit?: number }
-  ) =>
-    duck.ranked(InsumoScored, sinapiInsumoTable, {
-      select: insumoColumns,
-      tie: "id",
-      termo,
-      uf: options?.uf,
-      limit: clamp(options?.limit, 50, 200),
-    });
+  const http = yield* Http;
+  const fuzzy = yield* Fuzzy;
 
   const load = (ano: number, mes: number) =>
     Effect.gen(function* () {
-      const flat = yield* indexReferencia(ano, mes);
+      const flat = yield* indexReferencia(ano, mes).pipe(Effect.provideService(Http, http));
       const rows = Arr.map(flat, (row, position) => ({ ...row, id: String(position) }));
-      return yield* duck.replace(sinapiInsumoTable, rows);
+      const loaded = yield* duck.replace(sinapiInsumoTable, rows);
+      yield* refreshSearch(sinapiInsumoTable).pipe(
+        Effect.provideService(Duck, duck),
+        Effect.provideService(Fuzzy, fuzzy)
+      );
+      return loaded;
     });
 
   const index = Effect.gen(function* () {
-    const referencia = yield* defaultReferencia;
+    const referencia = yield* defaultReferencia.pipe(Effect.provideService(Http, http));
     const inserted = yield* load(referencia.ano, referencia.mes);
     return { inserted, total: yield* duck.count(sinapiInsumoTable) };
   });
 
   const indexAno = (ano: number) =>
     Effect.gen(function* () {
-      const referencia = yield* defaultReferencia;
+      const referencia = yield* defaultReferencia.pipe(Effect.provideService(Http, http));
       const inserted = yield* load(ano, referencia.mes);
       return { inserted };
     });
@@ -78,7 +57,7 @@ const makeSinapi = Effect.gen(function* () {
   const indexReferenciaStore = (ano: number, mes: number) =>
     load(ano, mes).pipe(Effect.map((inserted) => ({ inserted })));
 
-  return { index, indexAno, indexReferencia: indexReferenciaStore, precoPorCodigo, buscarInsumo };
+  return { index, indexAno, indexReferencia: indexReferenciaStore };
 });
 
 export class Sinapi extends Context.Service<Sinapi, Effect.Success<typeof makeSinapi>>()(

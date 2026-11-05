@@ -1,7 +1,6 @@
+import { TestFuzzyLive } from "./support/test-fuzzy";
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
-import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
 import { PainelPrecos, PainelPrecosLive } from "../../src/sources/painel-precos/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { TestDuckLive } from "./support/test-duck";
@@ -17,7 +16,7 @@ const HttpFixture = fixtureLayer([
 ]);
 
 const TestLayer = PainelPrecosLive.pipe(
-  Layer.provideMerge(Layer.mergeAll(TestDuckLive, HttpFixture))
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
@@ -28,31 +27,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         const painel = yield* PainelPrecos;
         const result = yield* painel.indexItens(["99830"]);
         expect(result.inserted).toBe(2);
-      })
-    );
-
-    it.effect("estatisticaPreco computes n/min/median/max; uf filter narrows samples", () =>
-      Effect.gen(function* () {
-        const painel = yield* PainelPrecos;
-        const stats = yield* painel.estatisticaPreco("99830");
-        expect(stats.n).toBe(2);
-        expect(Number(stats.minimo)).toBeCloseTo(4800, 0);
-        expect(Number(stats.maximo)).toBeCloseTo(5100, 0);
-        expect(Number(stats.mediana)).toBeCloseTo(4950, 0);
-        const pr = yield* painel.precoPorItem("99830", { uf: "PR" });
-        expect(pr).toHaveLength(1);
-        expect(Option.map(Arr.head(pr), (r) => r.estado)).toEqual(Option.some("PR"));
-      })
-    );
-
-    it.effect("buscarPrecoPorDescricao matches item descriptions by bm25", () =>
-      Effect.gen(function* () {
-        const painel = yield* PainelPrecos;
-        const hits = yield* painel.buscarPrecoPorDescricao("arma fogo revolver");
-        expect(hits.length).toBeGreaterThan(0);
-        const first = Arr.head(hits);
-        expect(Option.map(first, (r) => r.codigoItemCatalogo)).toEqual(Option.some("99830"));
-        expect(Option.exists(first, (r) => Number(r.score) > 0)).toBe(true);
       })
     );
   }

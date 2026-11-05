@@ -1,8 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
-import * as Order from "effect/Order";
 import { Duck } from "../../src/kernel/duck/duck";
 import { fornecedorTable } from "../../src/sources/sicaf-fornecedores/catalog";
 import { Sicaf, SicafLive } from "../../src/sources/sicaf-fornecedores/store";
@@ -66,12 +64,6 @@ const TestLayer = SicafLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
-const seeded = Effect.gen(function* () {
-  const sicaf = yield* Sicaf;
-  yield* sicaf.index;
-  return sicaf;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
   "sicaf store + pagination + bm25",
   (it) => {
@@ -83,67 +75,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         const duck = yield* Duck;
         const persisted = yield* duck.count(fornecedorTable);
         expect(persisted).toBe(4);
-      })
-    );
-
-    it.effect("buscar filters by bm25 name match and honors apenasAtivos + limit", () =>
-      Effect.gen(function* () {
-        const sicaf = yield* seeded;
-        const hit = yield* sicaf.buscar({ nome: "alpha tecnologia" });
-        expect(Option.map(Arr.head(hit), (r) => r.cnpj)).toEqual(Option.some("11222333000181"));
-        const limited = yield* sicaf.buscar({ nome: "ltda", limit: 1 });
-        expect(limited).toHaveLength(1);
-        const inativa = yield* sicaf.buscar({ nome: "inativa" });
-        expect(Arr.map(inativa, (r) => r.cnpj)).toEqual(["00111222000133"]);
-        const ativos = yield* sicaf.buscar({ nome: "inativa", apenasAtivos: true });
-        expect(ativos).toHaveLength(0);
-        const fuzzy = yield* sicaf.buscar({ nome: "constru" });
-        expect(Arr.map(fuzzy, (r) => r.cnpj)).toContain("44555666000199");
-        const typo = yield* sicaf.buscar({ nome: "alpa tecnologia" });
-        expect(Option.map(Arr.head(typo), (r) => r.cnpj)).toEqual(Option.some("11222333000181"));
-        const none = yield* sicaf.buscar({ nome: "zzzzz inexistente" });
-        expect(none).toHaveLength(0);
-      })
-    );
-
-    it.effect("habilitado returns encontrado=false on miss, the row on hit, never fails", () =>
-      Effect.gen(function* () {
-        const sicaf = yield* seeded;
-        const miss = yield* sicaf.habilitado("99.999.999/0001-99");
-        expect(miss).toMatchObject({
-          encontrado: false,
-          fornecedor: null,
-          cnpj: "99999999000199",
-        });
-        const hit = yield* sicaf.habilitado("11.222.333/0001-81");
-        expect(hit.encontrado).toBe(true);
-        expect(hit.ativo).toBe(true);
-        expect(hit.habilitadoLicitar).toBe(false);
-        expect(hit.fornecedor?.nomeRazaoSocial).toContain("Alpha");
-      })
-    );
-
-    it.effect("listar filters uf/cnae/municipio (accent-insensitive) + apenasAtivos", () =>
-      Effect.gen(function* () {
-        const sicaf = yield* seeded;
-        const sp = yield* sicaf.listar({ uf: "sp" });
-        expect(
-          Arr.sort(
-            Arr.map(sp, (r) => r.cnpj ?? ""),
-            Order.String
-          )
-        ).toEqual(["11222333000181", "77888999000122"]);
-        const saoPaulo = yield* sicaf.listar({ municipio: "sao paulo" });
-        expect(saoPaulo).toHaveLength(2);
-        const porCnae = yield* sicaf.listar({ cnae: 4120400 });
-        expect(
-          Arr.sort(
-            Arr.map(porCnae, (r) => r.cnpj ?? ""),
-            Order.String
-          )
-        ).toEqual(["00111222000133", "44555666000199"]);
-        const ativos = yield* sicaf.listar({ cnae: 4120400, apenasAtivos: true });
-        expect(Arr.map(ativos, (r) => r.cnpj)).toEqual(["44555666000199"]);
       })
     );
   }

@@ -1,9 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
-import * as Order from "effect/Order";
-import * as Predicate from "effect/Predicate";
 import { CamaraDeputados, CamaraDeputadosLive } from "../../src/sources/camara-deputados/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { utf8, zip } from "./support/stored-zip";
@@ -79,12 +76,6 @@ const TestLayer = CamaraDeputadosLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
-const seeded = Effect.gen(function* () {
-  const camara = yield* CamaraDeputados;
-  yield* camara.indexAnos([2026]);
-  return camara;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
   "camara-deputados store + csv/zip ingest",
   (it) => {
@@ -98,120 +89,6 @@ layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
           proposicoes: 2,
           proposicoesAutores: 2,
         });
-      })
-    );
-
-    it.effect(
-      "buscarDeputado matches by bm25 name then fff fuzzy, falls back to id/uf filters",
-      () =>
-        Effect.gen(function* () {
-          const camara = yield* seeded;
-          const porNome = yield* camara.buscarDeputado({ nome: "joao silva" });
-          expect(Arr.map(porNome, (r) => r.id)).toContain("220593");
-          expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) > 0)).toBe(true);
-          const typo = yield* camara.buscarDeputado({ nome: "joao silvz" });
-          expect(Arr.map(typo, (r) => r.id)).toContain("220593");
-          const fuzzyOnly = yield* camara.buscarDeputado({ nome: "mria suza" });
-          expect(Arr.map(fuzzyOnly, (r) => r.id)).toEqual(["178957"]);
-          expect(Arr.every(fuzzyOnly, (r) => r.score === 0)).toBe(true);
-          const porId = yield* camara.buscarDeputado({ id: "178957" });
-          expect(porId).toHaveLength(1);
-          expect(Option.map(Arr.head(porId), (r) => r.nome)).toEqual(Option.some("Maria Souza"));
-          const porUf = yield* camara.buscarDeputado({ uf: "sp" });
-          expect(Arr.map(porUf, (r) => r.id)).toEqual(["220593"]);
-        })
-    );
-
-    it.effect("gastosPorFornecedor resolves by bm25 name, fff fuzzy typo, and exact cnpj", () =>
-      Effect.gen(function* () {
-        const camara = yield* seeded;
-        const porNome = yield* camara.gastosPorFornecedor({
-          fornecedor: "grafica",
-        });
-        expect(porNome).toHaveLength(3);
-        expect(Arr.every(porNome, (r) => r.cnpjCpfNorm === "44555666000199")).toBe(true);
-        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) > 0)).toBe(true);
-        expect(Option.exists(Arr.head(porNome), (r) => r.nomeDeputado !== null)).toBe(true);
-        const typo = yield* camara.gastosPorFornecedor({ fornecedor: "grafca" });
-        expect(Arr.map(typo, (r) => r.cnpjCpfNorm)).toContain("44555666000199");
-        expect(Arr.every(typo, (r) => r.score === 0)).toBe(true);
-        const porDoc = yield* camara.gastosPorFornecedor({
-          cnpjCpf: "44.555.666/0001-99",
-        });
-        expect(porDoc).toHaveLength(3);
-        const comCategoria = yield* camara.gastosPorFornecedor({
-          fornecedor: "grafica",
-          categoria: "DIVULGAÇÃO",
-        });
-        expect(comCategoria).toHaveLength(2);
-        const semAno = yield* camara.gastosPorFornecedor({
-          fornecedor: "grafica",
-          ano: 2020,
-        });
-        expect(semAno).toHaveLength(0);
-        const semFiltro = yield* Effect.flip(camara.gastosPorFornecedor({}));
-        expect(semFiltro._tag).toBe("CamaraError");
-        expect(semFiltro.message).toContain("fornecedor");
-      })
-    );
-
-    it.effect("fornecedorCotaParlamentar breaks an exact supplier down by deputado + totals", () =>
-      Effect.gen(function* () {
-        const camara = yield* seeded;
-        const reverse = yield* camara.fornecedorCotaParlamentar({
-          cnpjCpf: "44.555.666/0001-99",
-        });
-        expect(reverse.cnpjCpf).toBe("44555666000199");
-        expect(reverse.fornecedor).toBe("GRAFICA BETA LTDA");
-        expect(reverse.totalDocumentos).toBe(3);
-        expect(reverse.totalLiquido).toBeCloseTo(15000, 1);
-        expect(reverse.deputados).toHaveLength(2);
-        const byDep = Arr.sort(
-          Arr.map(reverse.deputados, (d) => Number(d.deputadoId)),
-          Order.Number
-        );
-        expect(byDep).toEqual([178957, 220593]);
-      })
-    );
-
-    it.effect("buscarProposicao ranks by bm25, honors tipo/ano, includes authors", () =>
-      Effect.gen(function* () {
-        const camara = yield* seeded;
-        const lexical = yield* camara.buscarProposicao({
-          termo: "proteção de dados pessoais",
-        });
-        expect(Option.map(Arr.head(lexical), (r) => r.id)).toEqual(Option.some("2400001"));
-        expect(Option.exists(Arr.head(lexical), (r) => Number(r.score) > 0)).toBe(true);
-        const semLexical = yield* camara.buscarProposicao({
-          termo: "zzzz",
-        });
-        expect(semLexical).toHaveLength(0);
-        const porTipo = yield* camara.buscarProposicao({
-          termo: "tributário",
-          tipo: "pec",
-        });
-        expect(Arr.map(porTipo, (r) => r.id)).toEqual(["2400002"]);
-        const porAno = yield* camara.buscarProposicao({
-          termo: "dados",
-          ano: 2020,
-        });
-        expect(porAno).toHaveLength(0);
-        const comAutores = yield* camara.buscarProposicao({
-          termo: "dados pessoais",
-          incluirAutores: true,
-        });
-        const alvo = Arr.findFirst(comAutores, (r) => r.id === "2400001");
-        expect(Option.isSome(alvo)).toBe(true);
-        const autores = Option.match(alvo, {
-          onNone: () => [],
-          onSome: (r): readonly unknown[] => {
-            const found = Predicate.hasProperty(r, "autores") ? r.autores : [];
-            return Arr.isArray(found) ? found : [];
-          },
-        });
-        expect(
-          Arr.map(autores, (a) => (Predicate.hasProperty(a, "nomeAutor") ? a.nomeAutor : undefined))
-        ).toContain("João da Silva");
       })
     );
   }

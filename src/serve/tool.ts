@@ -1,3 +1,13 @@
+import type { TceRs } from "../sources/tce-rs/store";
+import type { TcePr } from "../sources/tce-pr/store";
+import type { ComprasGov } from "../sources/compras-gov/store";
+import type { Bndes } from "../sources/bndes/store";
+import type { Ibama } from "../sources/ibama/store";
+import type { ListaSuja } from "../sources/mte-lista-suja/store";
+import type { PortalTransparencia } from "../sources/portal-transparencia/store";
+import type { Cvm } from "../sources/cvm/store";
+import type { Pgfn } from "../sources/pgfn/store";
+import type { IndicesReajuste } from "../sources/indices-reajuste/store";
 import { Effect, Match, Option, Schema } from "effect";
 import type { JsonSchema } from "effect/JsonSchema";
 import * as Predicate from "effect/Predicate";
@@ -48,6 +58,16 @@ export type AppServices =
   | PainelPrecos
   | TransparenciaDespesas
   | Sinapi
+  | IndicesReajuste
+  | Pgfn
+  | Cvm
+  | PortalTransparencia
+  | ListaSuja
+  | Ibama
+  | Bndes
+  | ComprasGov
+  | TcePr
+  | TceRs
   | Duck
   | Search
   | Fuzzy

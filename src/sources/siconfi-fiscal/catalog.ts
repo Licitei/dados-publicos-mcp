@@ -51,7 +51,7 @@ export const SiconfiPayload = Schema.Struct({
 });
 export type SiconfiPayload = (typeof SiconfiPayload)["Type"];
 
-export const SiconfiFatoFlat = Schema.Struct({
+const SiconfiFatoFlat = Schema.Struct({
   idEnte: Schema.String,
   exercicio: Schema.NullOr(Schema.Finite),
   demonstrativo: Schema.String,
@@ -65,7 +65,7 @@ export const SiconfiFatoFlat = Schema.Struct({
   uf: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type SiconfiFatoFlat = (typeof SiconfiFatoFlat)["Type"];
+type SiconfiFatoFlat = (typeof SiconfiFatoFlat)["Type"];
 
 type FatoItem = typeof FatoRaw.Type;
 

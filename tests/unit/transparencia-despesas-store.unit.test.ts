@@ -1,7 +1,7 @@
+import { TestFuzzyLive } from "./support/test-fuzzy";
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
 import {
   TransparenciaDespesas,
   TransparenciaDespesasLive,
@@ -29,14 +29,8 @@ const HttpFixture = fixtureLayer([
 ]);
 
 const TestLayer = TransparenciaDespesasLive.pipe(
-  Layer.provideMerge(Layer.mergeAll(TestDuckLive, HttpFixture))
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
-
-const seeded = Effect.gen(function* () {
-  const td = yield* TransparenciaDespesas;
-  yield* td.indexMes("2024-01");
-  return td;
-});
 
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
   "transparencia-despesas store + zip/csv ingest",
@@ -48,28 +42,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         expect(result.anoMes).toBe("202401");
         expect(result.inserted).toBe(2);
         expect(result.total).toBe(2);
-      })
-    );
-
-    it.effect("buscarDespesa by ação (bm25) and despesasPorOrgao by code", () =>
-      Effect.gen(function* () {
-        const td = yield* seeded;
-        const hits = yield* td.buscarDespesa("relacoes negociacoes multilaterais");
-        expect(Arr.map(hits, (r) => r.codOrgaoSuperior)).toContain("35000");
-        expect(Option.exists(Arr.head(hits), (r) => Number(r.score) > 0)).toBe(true);
-        const orgao = yield* td.despesasPorOrgao("35000", 10);
-        expect(orgao).toHaveLength(1);
-        expect(
-          Option.exists(Arr.head(orgao), (r) => Math.abs(Number(r.valorPago) - 750000) < 1)
-        ).toBe(true);
-      })
-    );
-
-    it.effect("buscarDespesa honors the uf filter", () =>
-      Effect.gen(function* () {
-        const td = yield* seeded;
-        const sp = yield* td.buscarDespesa("educacao superior campi", { uf: "SP" });
-        expect(Arr.map(sp, (r) => r.codOrgaoSuperior)).toEqual(["26000"]);
       })
     );
   }

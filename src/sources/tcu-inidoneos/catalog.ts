@@ -36,7 +36,7 @@ const DatasetKey = Schema.Literals([
   "resp-contas-julgadas",
   "inabilitados-funcao-publica",
 ]);
-export type DatasetKey = (typeof DatasetKey)["Type"];
+type DatasetKey = (typeof DatasetKey)["Type"];
 
 const DatasetSpec = Schema.Struct({
   key: DatasetKey,

@@ -1,3 +1,13 @@
+import { TceRsLive } from "./sources/tce-rs/store";
+import { TcePrLive } from "./sources/tce-pr/store";
+import { ComprasGovLive } from "./sources/compras-gov/store";
+import { BndesLive } from "./sources/bndes/store";
+import { IbamaLive } from "./sources/ibama/store";
+import { ListaSujaLive } from "./sources/mte-lista-suja/store";
+import { PortalTransparenciaLive } from "./sources/portal-transparencia/store";
+import { CvmLive } from "./sources/cvm/store";
+import { PgfnLive } from "./sources/pgfn/store";
+import { IndicesReajusteLive } from "./sources/indices-reajuste/store";
 import { Layer, ManagedRuntime } from "effect";
 import { DuckLive } from "./kernel/duck/duck";
 import { HttpLive } from "./kernel/http/client";
@@ -47,7 +57,17 @@ const AppLayer = Layer.mergeAll(
   TransferegovLive,
   PainelPrecosLive,
   TransparenciaDespesasLive,
-  SinapiLive
+  SinapiLive,
+  IndicesReajusteLive,
+  PgfnLive,
+  CvmLive,
+  PortalTransparenciaLive,
+  ListaSujaLive,
+  IbamaLive,
+  BndesLive,
+  ComprasGovLive,
+  TcePrLive,
+  TceRsLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const runtime = ManagedRuntime.make(AppLayer);

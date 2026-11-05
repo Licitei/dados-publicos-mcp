@@ -1,3 +1,28 @@
+import { TceRs } from "../sources/tce-rs/store";
+import { tceRsTables } from "../sources/tce-rs/catalog";
+import { TcePr } from "../sources/tce-pr/store";
+import { tcePrTable } from "../sources/tce-pr/catalog";
+import { ComprasGov } from "../sources/compras-gov/store";
+import { comprasTables } from "../sources/compras-gov/catalog";
+import { Bndes } from "../sources/bndes/store";
+import { bndesOperacaoTable, bndesEnteTable } from "../sources/bndes/catalog";
+import { Ibama } from "../sources/ibama/store";
+import { ibamaAutoTable, ibamaEmbargoTable } from "../sources/ibama/catalog";
+import { ListaSuja } from "../sources/mte-lista-suja/store";
+import { listaSujaTable } from "../sources/mte-lista-suja/catalog";
+import { PortalTransparencia } from "../sources/portal-transparencia/store";
+import {
+  pepTable,
+  cpgfTable,
+  emendaTable,
+  servidorTable,
+} from "../sources/portal-transparencia/catalog";
+import { Cvm } from "../sources/cvm/store";
+import { cvmTables } from "../sources/cvm/catalog";
+import { Pgfn } from "../sources/pgfn/store";
+import { pgfnTable, pgfnNaoPrevidenciarioTable } from "../sources/pgfn/catalog";
+import { IndicesReajuste } from "../sources/indices-reajuste/store";
+import { indiceReajusteTable } from "../sources/indices-reajuste/catalog";
 import { Effect, Match, Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Str from "effect/String";
@@ -21,13 +46,7 @@ import { Cnae, cnaeTable } from "../sources/cnae/store";
 import { IbgeEconomia, municipioEconomiaTable } from "../sources/ibge-economia/store";
 import { IbgeLocalidades, municipioTable } from "../sources/ibge-localidades/store";
 import { precoPraticadoTable } from "../sources/painel-precos/catalog";
-import {
-  ataTable,
-  contratacaoTable,
-  contratoFornecedorTable,
-  contratoTable,
-  defaultModalidades,
-} from "../sources/pncp/catalog";
+import { pncpTables, defaultModalidades } from "../sources/pncp/catalog";
 import { QueridoDiario, diarioCnpjTable, diarioTable } from "../sources/querido-diario/store";
 import { sancaoTable } from "../sources/sancoes-cgu/catalog";
 import { SenadoFederal, ceapsTable, senadorTable } from "../sources/senado/store";
@@ -50,6 +69,7 @@ import type { DuckTable } from "../kernel/duck/duck";
 import { CorpusGit, corpusDir } from "../kernel/search/corpus";
 import { PainelPrecos } from "../sources/painel-precos/store";
 import { Pncp } from "../sources/pncp/store";
+import { receitaTables } from "../sources/receita-cnpj/catalog";
 import { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import { SancoesCgu } from "../sources/sancoes-cgu/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
@@ -81,6 +101,18 @@ export const FonteKey = Schema.Literals([
   "painel-precos",
   "transparencia-despesas",
   "sinapi",
+  "indices-reajuste",
+  "pgfn",
+  "cvm",
+  "tce-pr",
+  "tce-rs",
+  "compras-gov",
+  "bndes",
+  "ibama",
+  "mte-lista-suja",
+  "portal-transparencia",
+  "servidores-siape",
+  "pgfn-nao-previdenciario",
 ]);
 export type FonteKey = (typeof FonteKey)["Type"];
 
@@ -88,6 +120,8 @@ export type Scope = {
   readonly ufs?: readonly string[];
   readonly anos?: readonly number[];
   readonly mes?: string;
+  readonly orgaos?: readonly string[];
+  readonly uasgs?: readonly string[];
 };
 
 export class IndexFailure extends Schema.TaggedError<
@@ -160,6 +194,56 @@ const byAnos = <E, R, E2, R2>(
 const latestAno = (anos: Arr.NonEmptyReadonlyArray<number>) => Math.max(...anos);
 
 const entries: Record<FonteKey, Omit<IndexEntry, "tables">> = {
+  "tce-rs": entry(true, (scope) =>
+    TceRs.pipe(
+      Effect.flatMap((service) =>
+        scope.anos === undefined ? service.index : service.indexYears(scope.anos)
+      )
+    )
+  ),
+  "tce-pr": entry(true, (scope) =>
+    TcePr.pipe(
+      Effect.flatMap((service) =>
+        scope.anos === undefined ? service.index : service.indexYears(scope.anos)
+      )
+    )
+  ),
+  "compras-gov": entry(true, (scope) =>
+    ComprasGov.pipe(
+      Effect.flatMap((service) =>
+        service.indexScope({
+          mes: scope.mes,
+          orgaos: scope.orgaos,
+          ...(scope.uasgs === undefined ? {} : { uasgs: scope.uasgs }),
+        })
+      )
+    )
+  ),
+  bndes: entry(false, () => Bndes.pipe(Effect.flatMap((service) => service.index))),
+  ibama: entry(true, () => Ibama.pipe(Effect.flatMap((service) => service.index))),
+  "mte-lista-suja": entry(false, () => ListaSuja.pipe(Effect.flatMap((service) => service.index))),
+  "portal-transparencia": entry(false, (scope) =>
+    PortalTransparencia.pipe(
+      Effect.flatMap((service) =>
+        scope.mes === undefined ? service.index : service.indexMonth(scope.mes)
+      )
+    )
+  ),
+  "servidores-siape": entry(true, (scope) =>
+    PortalTransparencia.pipe(
+      Effect.flatMap((service) =>
+        scope.mes === undefined ? service.indexSiape : service.indexSiapeMonth(scope.mes)
+      )
+    )
+  ),
+  cvm: entry(false, () => Cvm.pipe(Effect.flatMap((service) => service.index))),
+  pgfn: entry(false, () => Pgfn.pipe(Effect.flatMap((service) => service.index))),
+  "pgfn-nao-previdenciario": entry(true, () =>
+    Pgfn.pipe(Effect.flatMap((service) => service.indexNaoPrevidenciario))
+  ),
+  "indices-reajuste": entry(false, () =>
+    IndicesReajuste.pipe(Effect.flatMap((service) => service.index))
+  ),
   leis: {
     ...entry(true, () =>
       Effect.gen(function* () {
@@ -286,6 +370,18 @@ const entries: Record<FonteKey, Omit<IndexEntry, "tables">> = {
 };
 
 const fonteTables: Record<FonteKey, readonly DuckTable[]> = {
+  "tce-rs": tceRsTables,
+  "tce-pr": [tcePrTable],
+  "compras-gov": comprasTables,
+  bndes: [bndesOperacaoTable, bndesEnteTable],
+  ibama: [ibamaAutoTable, ibamaEmbargoTable],
+  "mte-lista-suja": [listaSujaTable],
+  "portal-transparencia": [pepTable, cpgfTable, emendaTable],
+  "servidores-siape": [servidorTable],
+  cvm: cvmTables,
+  pgfn: [pgfnTable],
+  "pgfn-nao-previdenciario": [pgfnNaoPrevidenciarioTable],
+  "indices-reajuste": [indiceReajusteTable],
   leis: [],
   precedentes: [],
   "ibge-localidades": [municipioTable],
@@ -293,12 +389,12 @@ const fonteTables: Record<FonteKey, readonly DuckTable[]> = {
   "catmat-catser": [catmatMaterialTable, catserServiceTable],
   "sicaf-fornecedores": [fornecedorTable],
   "sancoes-cgu": [sancaoTable],
-  "receita-cnpj": [],
+  "receita-cnpj": receitaTables,
   "tse-eleitoral": [candidatoTable, bemTable, receitaTable, despesaTable, receitaOriginarioTable],
   "camara-deputados": [deputadoTable, cotaTable, proposicaoTable, proposicaoAutorTable],
   "querido-diario": [diarioTable, diarioCnpjTable],
   capag: [capagEstadoTable, capagMunicipioTable, siconfiEnteTable],
-  pncp: [contratacaoTable, contratoTable, contratoFornecedorTable, ataTable],
+  pncp: pncpTables,
   "tcu-inidoneos": [tcuInidoneoTable],
   "ibge-economia": [municipioEconomiaTable],
   senado: [senadorTable, ceapsTable],
