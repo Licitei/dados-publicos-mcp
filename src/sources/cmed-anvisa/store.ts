@@ -1,106 +1,105 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { medicamentoCmed } from "../../kernel/db/schemas/medicamento-cmed";
+import { Context, Effect, Layer, Schema } from "effect";
+import * as Arr from "effect/Array";
+import { pipe } from "effect/Function";
+import * as Struct from "effect/Struct";
+import { bm25, Duck, type DuckTable, idsParam, inIds } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { MedicamentoFlat } from "./catalog";
 import { indexCmed } from "./indexer";
+import { clamp, preferExact } from "../../kernel/duck/search";
 
-const medicamentoView = sql`
-  substancia, cnpj, doc_normalizado as "docNormalizado", laboratorio,
-  ggrem, registro, ean1, produto, apresentacao,
-  classe_terapeutica as "classeTerapeutica", tarja,
-  pf_sem_impostos as "pfSemImpostos", pmvg_sem_impostos as "pmvgSemImpostos"
-`;
+export const medicamentoCmedTable: DuckTable = {
+  name: "medicamento_cmed",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    substancia: "VARCHAR",
+    cnpj: "VARCHAR",
+    docNormalizado: "VARCHAR",
+    laboratorio: "VARCHAR",
+    ggrem: "VARCHAR",
+    registro: "VARCHAR",
+    ean1: "VARCHAR",
+    produto: "VARCHAR",
+    apresentacao: "VARCHAR",
+    classeTerapeutica: "VARCHAR",
+    tarja: "VARCHAR",
+    pfSemImpostos: "DOUBLE",
+    pmvgSemImpostos: "DOUBLE",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const MedicamentoRow = Schema.Struct(pipe(MedicamentoFlat.fields, Struct.omit(["busca"])));
+const MedicamentoScored = Schema.Struct({
+  ...MedicamentoRow.fields,
+  id: Schema.String,
+  score: Schema.Finite,
+});
+
+const medicamentoColumns = `id, substancia, cnpj, "docNormalizado", laboratorio, ggrem, registro, ean1, produto,
+  apresentacao, "classeTerapeutica", tarja, "pfSemImpostos", "pmvgSemImpostos"`;
 
 const makeCmed = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
-  const bm25Medicamento = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${medicamentoView}, -rk as score
-      from (
-        select
-          substancia, cnpj, doc_normalizado, laboratorio, ggrem, registro,
-          ean1, produto, apresentacao, classe_terapeutica, tarja,
-          pf_sem_impostos, pmvg_sem_impostos, row_number() over () as rk
-        from (
-          select
-            substancia, cnpj, doc_normalizado, laboratorio, ggrem, registro,
-            ean1, produto, apresentacao, classe_terapeutica, tarja,
-            pf_sem_impostos, pmvg_sem_impostos
-          from ${medicamentoCmed}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const trgmMedicamento = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${medicamentoView}, word_similarity(${q}, busca) as score
-      from ${medicamentoCmed}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, id
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const buscarMedicamento = (
-    termo: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const buscarMedicamento = (termo: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 30, 100);
-      const lexical = yield* bm25Medicamento(q, limit);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmMedicamento(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
+      const exact = yield* duck.query(
+        MedicamentoScored,
+        `SELECT ${medicamentoColumns}, score
+         FROM (SELECT *, ${bm25(medicamentoCmedTable)} AS score FROM medicamento_cmed)
+         WHERE score IS NOT NULL ORDER BY score DESC, id LIMIT ?`,
+        [q, limit]
       );
+      const ids = Arr.isReadonlyArrayNonEmpty(exact)
+        ? []
+        : yield* fuzzy.match("medicamento_cmed", q, { limit });
+      const approximate = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            MedicamentoScored,
+            `SELECT ${medicamentoColumns}, 0::DOUBLE AS score FROM medicamento_cmed WHERE ${inIds("id")}`,
+            [idsParam(ids)]
+          )
+        : [];
+      return preferExact(exact, ids, approximate, (row) => row.id);
     });
 
   const precoPorEan = (ean: string) =>
-    db.execute(sql`
-      select ${medicamentoView}
-      from ${medicamentoCmed}
-      where ean1 = ${onlyDigits(ean)}
-      limit 10
-    `).pipe(Effect.map(({ rows }) => rows));
+    duck.query(
+      MedicamentoRow,
+      `SELECT ${medicamentoColumns} FROM medicamento_cmed WHERE ean1 = ? LIMIT 10`,
+      [onlyDigits(ean)]
+    );
 
   const precoPorGgrem = (ggrem: string) =>
-    db.execute(sql`
-      select ${medicamentoView}
-      from ${medicamentoCmed}
-      where ggrem = ${onlyDigits(ggrem)}
-      limit 10
-    `).pipe(Effect.map(({ rows }) => rows));
+    duck.query(
+      MedicamentoRow,
+      `SELECT ${medicamentoColumns} FROM medicamento_cmed WHERE ggrem = ? LIMIT 10`,
+      [onlyDigits(ggrem)]
+    );
 
   const index = Effect.gen(function* () {
-    yield* db.delete(medicamentoCmed);
-    const inserted = yield* indexCmed;
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${medicamentoCmed}`
-    ).pipe(Effect.map(({ rows }) => rows));
-    return { inserted, total: Number(rows[0]?.count ?? 0) };
+    const flat = yield* indexCmed;
+    const rows = Arr.map(flat, (row, position) => ({ ...row, id: String(position) }));
+    const inserted = yield* duck.replace(medicamentoCmedTable, rows);
+    yield* fuzzy.write(
+      "medicamento_cmed",
+      Arr.map(rows, (row): readonly [string, string] => [row.id, row.busca])
+    );
+    return { inserted, total: yield* duck.count(medicamentoCmedTable) };
   });
 
-  return {
-    index,
-    indexAll: index,
-    buscarMedicamento,
-    precoPorEan,
-    precoPorGgrem,
-  };
+  return { index, indexAll: index, buscarMedicamento, precoPorEan, precoPorGgrem };
 });
 
-export class CmedAnvisa extends Context.Service<
-  CmedAnvisa,
-  Effect.Success<typeof makeCmed>
->()("dados-publicos-mcp/sources/cmed-anvisa/store/CmedAnvisa") {}
+export class CmedAnvisa extends Context.Service<CmedAnvisa, Effect.Success<typeof makeCmed>>()(
+  "dados-publicos-mcp/sources/cmed-anvisa/store/CmedAnvisa"
+) {}
 
 export const CmedAnvisaLive = Layer.effect(CmedAnvisa)(makeCmed);

@@ -1,25 +1,49 @@
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
-import * as Rec from "effect/Record";
-import * as Str from "effect/String";
+import type { DuckTable } from "../../kernel/duck/duck";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import type { CsvRecord } from "../../kernel/csv/parse";
+import { indexByKey, pickFirst, dataBr } from "../../kernel/csv/fields";
 
-export const baseUrl =
-  "https://sites.tcu.gov.br/dados-abertos/inidoneos-irregulares/arquivos";
+export const tcuInidoneoTable: DuckTable = {
+  name: "tcu_inidoneo",
+  key: "id",
+  columns: {
+    id: "BIGINT",
+    lista: "VARCHAR",
+    nome: "VARCHAR",
+    documento: "VARCHAR",
+    docNormalizado: "VARCHAR",
+    processo: "VARCHAR",
+    deliberacao: "VARCHAR",
+    dataTransitoJulgado: "VARCHAR",
+    dataFinal: "VARCHAR",
+    dataAcordao: "VARCHAR",
+    uf: "VARCHAR",
+    municipio: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const baseUrl = "https://sites.tcu.gov.br/dados-abertos/inidoneos-irregulares/arquivos";
 
 export const csvOptions = { encoding: "utf-8", delimiter: "|" } as const;
 
-export type DatasetKey =
-  | "licitantes-inidoneos"
-  | "resp-contas-julgadas"
-  | "inabilitados-funcao-publica";
+const DatasetKey = Schema.Literals([
+  "licitantes-inidoneos",
+  "resp-contas-julgadas",
+  "inabilitados-funcao-publica",
+]);
+export type DatasetKey = (typeof DatasetKey)["Type"];
 
-export type DatasetSpec = {
-  readonly key: DatasetKey;
-  readonly file: string;
-  readonly label: string;
-};
+const DatasetSpec = Schema.Struct({
+  key: DatasetKey,
+  file: Schema.String,
+  label: Schema.String,
+});
+export type DatasetSpec = (typeof DatasetSpec)["Type"];
 
 export const datasets: readonly DatasetSpec[] = [
   {
@@ -39,69 +63,7 @@ export const datasets: readonly DatasetSpec[] = [
   },
 ];
 
-export const fileUrl = (dataset: DatasetSpec) =>
-  `${baseUrl}/${dataset.file}`;
-
-const headerKey = (header: string) =>
-  pipe(
-    header,
-    Str.normalize("NFD"),
-    Str.replace(/\p{Diacritic}/gu, ""),
-    Str.toLowerCase,
-    Str.replace(/\s+/g, " "),
-    Str.trim
-  );
-
-const indexByKey = (record: Record<string, string>) =>
-  new Map(
-    pipe(
-      Rec.toEntries(record),
-      Arr.map(([key, value]) => [headerKey(key), value] as const)
-    )
-  );
-
-const pick = (
-  byKey: Map<string, string>,
-  candidates: readonly string[]
-): string =>
-  pipe(
-    candidates,
-    Arr.map((candidate) => pipe(byKey.get(headerKey(candidate)) ?? "", Str.trim)),
-    Arr.findFirst((value) => value !== ""),
-    Option.getOrElse(() => "")
-  );
-
-const buildDate = (year: string, month: string, day: string) => {
-  const y = Number(year);
-  const m = Number(month);
-  const d = Number(day);
-  return m < 1 || m > 12 || d < 1 || d > 31 || y < 1
-    ? null
-    : `${year}-${month}-${day}`;
-};
-
-const dataBr = (value: string) => {
-  const trimmed = pipe(value, Str.trim);
-  return trimmed === "" || /^0+$/.test(trimmed)
-    ? null
-    : pipe(
-        trimmed,
-        Str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/),
-        Option.flatMap((slashed) =>
-          Option.all([Arr.get(slashed, 1), Arr.get(slashed, 2), Arr.get(slashed, 3)])
-        ),
-        Option.flatMap(([day, month, year]) =>
-          Option.fromNullishOr(
-            buildDate(
-              year,
-              pipe(month, Str.padStart(2, "0")),
-              pipe(day, Str.padStart(2, "0"))
-            )
-          )
-        ),
-        Option.getOrNull
-      );
-};
+export const fileUrl = (dataset: DatasetSpec) => `${baseUrl}/${dataset.file}`;
 
 export const TcuInidoneoFlat = Schema.Struct({
   lista: Schema.String,
@@ -134,20 +96,20 @@ const cols = {
 } as const;
 
 const mapRow = (lista: DatasetKey) => (byKey: Map<string, string>) => {
-  const nome = pick(byKey, cols.nome);
-  const documento = pick(byKey, cols.documento);
+  const nome = pickFirst(byKey, cols.nome);
+  const documento = pickFirst(byKey, cols.documento);
   return {
     lista,
     nome: orNull(nome),
     documento: orNull(documento),
     docNormalizado: onlyDigits(documento),
-    processo: orNull(pick(byKey, cols.processo)),
-    deliberacao: orNull(pick(byKey, cols.deliberacao)),
-    dataTransitoJulgado: dataBr(pick(byKey, cols.transito)),
-    dataFinal: dataBr(pick(byKey, cols.dataFinal)),
-    dataAcordao: dataBr(pick(byKey, cols.acordao)),
-    uf: orNull(pick(byKey, cols.uf)),
-    municipio: orNull(pick(byKey, cols.municipio)),
+    processo: orNull(pickFirst(byKey, cols.processo)),
+    deliberacao: orNull(pickFirst(byKey, cols.deliberacao)),
+    dataTransitoJulgado: dataBr(pickFirst(byKey, cols.transito)),
+    dataFinal: dataBr(pickFirst(byKey, cols.dataFinal)),
+    dataAcordao: dataBr(pickFirst(byKey, cols.acordao)),
+    uf: orNull(pickFirst(byKey, cols.uf)),
+    municipio: orNull(pickFirst(byKey, cols.municipio)),
     busca: normalize(nome),
   } satisfies TcuInidoneoFlat;
 };
@@ -155,10 +117,7 @@ const mapRow = (lista: DatasetKey) => (byKey: Map<string, string>) => {
 const hasContent = (row: TcuInidoneoFlat) =>
   row.nome !== null || row.documento !== null || row.docNormalizado !== "";
 
-const mapInidoneosImpl = (
-  lista: DatasetKey,
-  records: readonly Record<string, string>[]
-) =>
+const mapInidoneosImpl = (lista: DatasetKey, records: readonly CsvRecord[]) =>
   pipe(
     records,
     Arr.map((record) => mapRow(lista)(indexByKey(record))),
@@ -166,22 +125,19 @@ const mapInidoneosImpl = (
   );
 
 export const mapInidoneos: {
-  (
-    records: readonly Record<string, string>[]
-  ): (lista: DatasetKey) => readonly TcuInidoneoFlat[];
-  (
-    lista: DatasetKey,
-    records: readonly Record<string, string>[]
-  ): readonly TcuInidoneoFlat[];
+  (records: readonly CsvRecord[]): (lista: DatasetKey) => readonly TcuInidoneoFlat[];
+  (lista: DatasetKey, records: readonly CsvRecord[]): readonly TcuInidoneoFlat[];
 } = dual(2, mapInidoneosImpl);
 
-export const TcuErrorCode = Schema.Literals(["tcu.DATASET_MISSING"]);
-export type TcuErrorCode = (typeof TcuErrorCode)["Type"];
+const TcuErrorCode = Schema.Literals(["tcu.DATASET_MISSING"]);
 
-export class TcuError extends Schema.TaggedError<TcuError, { readonly brand: unique symbol }>()("TcuError", {
-  code: TcuErrorCode,
-  dataset: Schema.optional(Schema.String),
-}) {
+export class TcuError extends Schema.TaggedError<TcuError, { readonly brand: unique symbol }>()(
+  "TcuError",
+  {
+    code: TcuErrorCode,
+    dataset: Schema.optional(Schema.String),
+  }
+) {
   override get message() {
     switch (this.code) {
       case "tcu.DATASET_MISSING":

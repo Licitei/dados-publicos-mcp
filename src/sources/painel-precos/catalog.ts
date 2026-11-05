@@ -2,12 +2,41 @@ import { Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Predicate from "effect/Predicate";
 import { dual, pipe } from "effect/Function";
+import type { DuckTable } from "../../kernel/duck/duck";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
-export const moduloPrecoBase =
-  "https://dadosabertos.compras.gov.br/modulo-pesquisa-preco";
+export const precoPraticadoTable: DuckTable = {
+  name: "preco_praticado",
+  key: "id",
+  columns: {
+    id: "BIGINT",
+    idItemCompra: "VARCHAR",
+    idCompra: "VARCHAR",
+    codigoItemCatalogo: "VARCHAR",
+    descricaoItem: "VARCHAR",
+    precoUnitario: "DOUBLE",
+    quantidade: "DOUBLE",
+    unidadeFornecimento: "VARCHAR",
+    niFornecedor: "VARCHAR",
+    docNormalizado: "VARCHAR",
+    nomeFornecedor: "VARCHAR",
+    marca: "VARCHAR",
+    dataCompra: "VARCHAR",
+    estado: "VARCHAR",
+    codigoMunicipio: "VARCHAR",
+    municipio: "VARCHAR",
+    codigoUasg: "VARCHAR",
+    nomeOrgao: "VARCHAR",
+    codigoClasse: "VARCHAR",
+    nomeClasse: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-export const pageSize = 500;
+const moduloPrecoBase = "https://dadosabertos.compras.gov.br/modulo-pesquisa-preco";
+
+const pageSize = 500;
 export const maxPaginas = 5;
 
 export const consultarMaterialUrl: {
@@ -19,9 +48,7 @@ export const consultarMaterialUrl: {
     `${moduloPrecoBase}/1_consultarMaterial?pagina=${pagina}&tamanhoPagina=${pageSize}&codigoItemCatalogo=${codigo}`
 );
 
-const Escalar = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.Finite, Schema.String]))
-);
+const Escalar = Schema.optional(Schema.NullOr(Schema.Union([Schema.Finite, Schema.String])));
 
 const RecordRaw = Schema.Struct({
   idCompra: Escalar,
@@ -79,9 +106,7 @@ export type PrecoFlat = (typeof PrecoFlat)["Type"];
 const asString = (value: number | string | null | undefined) =>
   value === null || value === undefined ? null : String(value);
 
-export const mapPrecos = (
-  records: readonly RecordRaw[]
-): readonly PrecoFlat[] =>
+export const mapPrecos = (records: readonly RecordRaw[]): readonly PrecoFlat[] =>
   Arr.map(records, (record) => {
     const niFornecedor = asString(record.niFornecedor);
     return {
@@ -93,7 +118,8 @@ export const mapPrecos = (
       quantidade: record.quantidade ?? null,
       unidadeFornecimento: record.siglaUnidadeFornecimento ?? null,
       niFornecedor,
-      docNormalizado: niFornecedor === null || niFornecedor === "" ? null : onlyDigits(niFornecedor),
+      docNormalizado:
+        niFornecedor === null || niFornecedor === "" ? null : onlyDigits(niFornecedor),
       nomeFornecedor: record.nomeFornecedor ?? null,
       marca: record.marca ?? null,
       dataCompra: record.dataCompra ?? null,

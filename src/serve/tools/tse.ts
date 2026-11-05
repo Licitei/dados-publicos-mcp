@@ -17,7 +17,10 @@ const buscarDoacoes = defineTool({
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.buscarDoacoes(args.termo, Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" }))
+        service.buscarDoacoes(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -36,7 +39,10 @@ const buscarFornecedorCampanha = defineTool({
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.buscarFornecedorCampanha(args.termo, Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" }))
+        service.buscarFornecedorCampanha(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -49,13 +55,15 @@ const RastrearInput = Schema.Struct({
 
 const rastrearDoadorOriginario = defineTool({
   name: "rastrear_doador_originario",
-  description:
-    "Rastreia a cadeia de doacao via doador originario (CPF/CNPJ). Fonte: TSE (CC-BY).",
+  description: "Rastreia a cadeia de doacao via doador originario (CPF/CNPJ). Fonte: TSE (CC-BY).",
   input: RastrearInput,
   run: (args) =>
     TseEleitoral.pipe(
       Effect.flatMap((service) =>
-        service.rastrearDoadorOriginario(args.cpfCnpj, Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" }))
+        service.rastrearDoadorOriginario(
+          args.cpfCnpj,
+          Struct.renameKeys(Struct.pick(args, ["ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });

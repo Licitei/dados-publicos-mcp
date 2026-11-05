@@ -1,105 +1,128 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Schema, Struct } from "effect";
 import * as Arr from "effect/Array";
-import { sql } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { ceapsDespesa } from "../../kernel/db/schemas/ceaps-despesa";
-import { senador } from "../../kernel/db/schemas/senador";
+import { bm25, Duck, type DuckTable, idsParam, inIds } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
-import { defaultAno } from "./catalog";
-import { indexCeapsAno, indexSenadores } from "./indexer";
+import { defaultAno, CeapsFlat, SenadorFlat } from "./catalog";
+import { loadCeapsAno, loadSenadores } from "./indexer";
+import { clamp } from "../../kernel/duck/search";
 
-const ceapsViewColumns = {
-  ano: true,
-  mes: true,
-  senador: true,
-  tipoDespesa: true,
-  cnpjCpf: true,
-  docNormalizado: true,
-  fornecedor: true,
-  documento: true,
-  data: true,
-  detalhamento: true,
-  valorReembolsado: true,
-  codDocumento: true,
-} as const;
+export const senadorTable: DuckTable = {
+  name: "senador",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    codigo: "VARCHAR",
+    nome: "VARCHAR",
+    nomeCompleto: "VARCHAR",
+    sexo: "VARCHAR",
+    partido: "VARCHAR",
+    uf: "VARCHAR",
+    email: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const ceapsView = sql`
-  ano, mes, senador, tipo_despesa as "tipoDespesa", cnpj_cpf as "cnpjCpf",
-  doc_normalizado as "docNormalizado", fornecedor, documento, data,
-  detalhamento, valor_reembolsado as "valorReembolsado",
-  cod_documento as "codDocumento"
-`;
+export const ceapsTable: DuckTable = {
+  name: "ceaps_despesa",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    ano: "INTEGER",
+    mes: "INTEGER",
+    senador: "VARCHAR",
+    tipoDespesa: "VARCHAR",
+    cnpjCpf: "VARCHAR",
+    docNormalizado: "VARCHAR",
+    fornecedor: "VARCHAR",
+    documento: "VARCHAR",
+    data: "VARCHAR",
+    detalhamento: "VARCHAR",
+    valorReembolsado: "DOUBLE",
+    codDocumento: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const SenadorRow = Schema.Struct({
+  ...SenadorFlat.mapFields(Struct.omit(["busca"])).fields,
+  score: Schema.Finite,
+});
+
+const CeapsDespesa = CeapsFlat.mapFields(Struct.omit(["busca"]));
+
+const CeapsRow = Schema.Struct({ ...CeapsDespesa.fields, score: Schema.Finite });
+
+const senadorColumns = `codigo, nome, "nomeCompleto", sexo, partido, uf, email`;
+
+const ceapsColumns = `ano::INTEGER AS ano, mes::INTEGER AS mes, senador, "tipoDespesa", "cnpjCpf", "docNormalizado",
+  fornecedor, documento, data, detalhamento, "valorReembolsado"::DOUBLE AS "valorReembolsado", "codDocumento"`;
+
+const withIds = <A extends object>(prefix: string, rows: readonly A[]) =>
+  Arr.map(rows, (row, position) => ({ id: `${prefix}${position}`, ...row }));
 
 const makeSenado = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
-  const buscarSenador = (nome: string, limit: number) =>
-    db.execute(sql`
-      select codigo, nome, nome_completo as "nomeCompleto", sexo, partido, uf,
-        email, word_similarity(${normalize(nome)}, busca) as score
-      from ${senador}
-      where word_similarity(${normalize(nome)}, busca) >= 0.2
-      order by score desc, nome
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const bm25Fornecedor = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${ceapsView}, -rk as score
-      from (
-        select
-          ano, mes, senador, tipo_despesa, cnpj_cpf, doc_normalizado,
-          fornecedor, documento, data, detalhamento, valor_reembolsado,
-          cod_documento, row_number() over () as rk
-        from (
-          select
-            ano, mes, senador, tipo_despesa, cnpj_cpf, doc_normalizado,
-            fornecedor, documento, data, detalhamento, valor_reembolsado,
-            cod_documento
-          from ${ceapsDespesa}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const trgmFornecedor = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${ceapsView}, word_similarity(${q}, busca) as score
-      from ${ceapsDespesa}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, id
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const buscarFornecedorCeaps = (
-    termo: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const buscarSenador = (nome: string, limit?: number) =>
     Effect.gen(function* () {
-      const q = normalize(termo);
-      const limit = clamp(options?.limit, 50, 200);
-      const lexical = yield* bm25Fornecedor(q, limit);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmFornecedor(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
+      const max = clamp(limit, 50, 100);
+      const query = normalize(nome);
+      const exact = yield* duck.query(
+        SenadorRow,
+        `SELECT ${senadorColumns}, score
+         FROM (SELECT *, ${bm25(senadorTable)} AS score FROM senador)
+         WHERE score IS NOT NULL ORDER BY score DESC, nome LIMIT ?`,
+        [query, max]
       );
+      const ids = Arr.isReadonlyArrayNonEmpty(exact)
+        ? []
+        : yield* fuzzy.match("senado-senador", query, { limit: max });
+      const approximate = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            SenadorRow,
+            `SELECT ${senadorColumns}, 0::DOUBLE AS score FROM senador WHERE ${inIds("id")} ORDER BY nome`,
+            [idsParam(ids)]
+          )
+        : [];
+      return Arr.isReadonlyArrayNonEmpty(exact) ? exact : approximate;
+    });
+
+  const buscarFornecedorCeaps = (termo: string, options?: { readonly limit?: number }) =>
+    Effect.gen(function* () {
+      const limit = clamp(options?.limit, 50, 200);
+      const query = normalize(termo);
+      const lexical = yield* duck.query(
+        CeapsRow,
+        `SELECT ${ceapsColumns}, score
+         FROM (SELECT *, ${bm25(ceapsTable)} AS score FROM ceaps_despesa)
+         WHERE score IS NOT NULL ORDER BY score DESC, id LIMIT ?`,
+        [query, limit]
+      );
+      const ids = Arr.isReadonlyArrayNonEmpty(lexical)
+        ? []
+        : yield* fuzzy.match("senado-ceaps", query, { limit });
+      const approximate = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            CeapsRow,
+            `SELECT ${ceapsColumns}, 0::DOUBLE AS score FROM ceaps_despesa WHERE ${inIds("busca")} ORDER BY id LIMIT ?`,
+            [idsParam(ids), limit]
+          )
+        : [];
+      return Arr.isReadonlyArrayNonEmpty(lexical) ? lexical : approximate;
     });
 
   const gastosPorFornecedor = (documentoInput: string) =>
     Effect.gen(function* () {
       const docNormalizado = onlyDigits(documentoInput);
-      const despesas = yield* db.query.ceapsDespesa.findMany({
-        where: { docNormalizado },
-        columns: ceapsViewColumns,
-        orderBy: (d, { desc }) => desc(d.data),
-      });
+      const despesas = yield* duck.query(
+        CeapsDespesa,
+        `SELECT ${ceapsColumns} FROM ceaps_despesa WHERE "docNormalizado" = ? ORDER BY data DESC NULLS LAST, id`,
+        [docNormalizado]
+      );
       const total = Arr.reduce(despesas, 0, (sum, row) => sum + (row.valorReembolsado ?? 0));
       return {
         documento: documentoInput,
@@ -110,26 +133,54 @@ const makeSenado = Effect.gen(function* () {
       };
     });
 
+  const writeCeapsFuzzy = Effect.gen(function* () {
+    const rows = yield* duck.query(
+      Schema.Struct({ busca: Schema.String }),
+      `SELECT DISTINCT busca FROM ceaps_despesa WHERE busca <> ''`
+    );
+    yield* fuzzy.write(
+      "senado-ceaps",
+      Arr.map(rows, (row): readonly [string, string] => [row.busca, row.busca])
+    );
+  });
+
+  const indexCeaps = (ano: number) =>
+    Effect.gen(function* () {
+      const rows = yield* loadCeapsAno(ano);
+      yield* duck.transaction(
+        duck
+          .ensure(ceapsTable)
+          .pipe(
+            Effect.andThen(duck.run("DELETE FROM ceaps_despesa WHERE ano = ?", [ano])),
+            Effect.andThen(duck.append(ceapsTable, withIds(`${ano}-`, rows)))
+          )
+      );
+      yield* duck.reindex(ceapsTable);
+      yield* writeCeapsFuzzy;
+      return rows.length;
+    });
+
   const index = Effect.gen(function* () {
-    yield* db.delete(ceapsDespesa);
-    yield* db.delete(senador);
-    const senadores = yield* indexSenadores;
-    const ceaps = yield* indexCeapsAno(defaultAno);
-    return { senadores, ceaps };
+    const rows = yield* loadSenadores;
+    yield* duck.replace(senadorTable, withIds("s", rows));
+    yield* fuzzy.write(
+      "senado-senador",
+      Arr.map(withIds("s", rows), (row): readonly [string, string] => [row.id, row.busca])
+    );
+    const ceaps = yield* indexCeaps(defaultAno);
+    return { senadores: rows.length, ceaps };
   });
 
   const indexAno = (ano: number) =>
     Effect.gen(function* () {
-      yield* db.delete(ceapsDespesa);
-      const ceaps = yield* indexCeapsAno(ano);
+      const ceaps = yield* indexCeaps(ano);
       return { ceaps };
     });
 
   return {
     index,
     indexAno,
-    buscarSenador: (nome: string, limit?: number) =>
-      buscarSenador(nome, clamp(limit, 50, 100)),
+    buscarSenador,
     buscarFornecedorCeaps,
     gastosPorFornecedor,
   };

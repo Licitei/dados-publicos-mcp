@@ -1,14 +1,14 @@
 import { expect, layer } from "@effect/vitest";
-import { Duration, Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Order, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Str from "effect/String";
-import { sql } from "drizzle-orm";
-import { Db } from "../../src/kernel/db/client";
+import { Duck } from "../../src/kernel/duck/duck";
+import { ataTable, contratacaoTable, contratoTable } from "../../src/sources/pncp/catalog";
 import { Pncp, PncpLive } from "../../src/sources/pncp/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
-import { TestEmbedderLive } from "./support/test-embedder";
-import { TestDbLive } from "./support/test-db";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
 const contratacoes = [
   {
@@ -150,12 +150,11 @@ const atas = [
 ];
 
 const toJson = (value: unknown) =>
-  Effect.runSync(
-    Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(value)
+  Schema.encodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(value).pipe(
+    Option.getOrElse(() => "")
   );
 
-const pageOf = (data: readonly unknown[], totalPaginas: number) =>
-  toJson({ data, totalPaginas });
+const pageOf = (data: readonly unknown[], totalPaginas: number) => toJson({ data, totalPaginas });
 
 const query =
   (suffix: string, pagina: string, modalidade?: string) =>
@@ -196,14 +195,9 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  PncpLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpFixture))
-  ),
-  TestDbLive,
-  TestEmbedderLive,
-  HttpFixture
-);
+const Infra = Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture);
+
+const TestLayer = PncpLive.pipe(Layer.provideMerge(Infra));
 
 const scope = {
   dataInicial: "20260101",
@@ -220,63 +214,48 @@ const seeded = Effect.gen(function* () {
   return pncp;
 });
 
-layer(TestLayer, { timeout: Duration.seconds(60) })("pncp store + paginated harvest + hybrid RRF", (it) => {
-  it.effect(
-    "indexScope harvests and counts the three entities",
-    () =>
+layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
+  "pncp store + paginated harvest + DuckDB bm25 + fuzzy",
+  (it) => {
+    it.effect("indexScope harvests and counts the three entities", () =>
       Effect.gen(function* () {
         const pncp = yield* Pncp;
         const total = yield* pncp.indexScope(scope);
         expect(total).toEqual({ contratacoes: 2, contratos: 2, atas: 2 });
-        const db = yield* Db;
-        const rows = yield* db.execute(
-          sql`select
-            (select count(*)::int from contratacao) as contratacoes,
-            (select count(*)::int from contrato) as contratos,
-            (select count(*)::int from ata) as atas`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(pick(rows, 0, (r) => Number(r.contratacoes))).toEqual(
-          Option.some(2)
-        );
-        expect(pick(rows, 0, (r) => Number(r.contratos))).toEqual(
-          Option.some(2)
-        );
-        expect(pick(rows, 0, (r) => Number(r.atas))).toEqual(Option.some(2));
-        const pagina2 = yield* db.execute(
-          sql`select count(*)::int as count from contrato
-            where ni_fornecedor = '98765432000155'`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(pick(pagina2, 0, (r) => Number(r.count))).toEqual(
-          Option.some(1)
-        );
-      }),
-  );
+        const duck = yield* Duck;
+        const contratacoesCount = yield* duck.count(contratacaoTable);
+        const contratosCount = yield* duck.count(contratoTable);
+        const atasCount = yield* duck.count(ataTable);
+        expect(contratacoesCount).toBe(2);
+        expect(contratosCount).toBe(2);
+        expect(atasCount).toBe(2);
+        const pagina2 = yield* pncp.contratosDoFornecedor({
+          niFornecedor: "98765432000155",
+        });
+        expect(pagina2).toHaveLength(1);
+      })
+    );
 
-  it.effect(
-    "buscarPncp floats the lexical match and honours the uf filter",
-    () =>
+    it.effect("buscarPncp floats the lexical match and honours the uf filter", () =>
       Effect.gen(function* () {
         const pncp = yield* seeded;
         const hits = yield* pncp.buscarPncp({
           termo: "notebooks",
           tipo: "contratacao",
         });
-        expect(pick(hits, 0, (h) => h.numeroControlePNCP)).toEqual(
-          Option.some("00000000000191-1-000001/2026")
-        );
         expect(
-          Option.zipWith(
-            pick(hits, 0, (h) => Number(h.score)),
-            pick(hits, 1, (h) => Number(h.score)),
-            (top, next) => top > next
-          )
-        ).toEqual(Option.some(true));
+          pick(hits, 0, (h) => (h.tipo === "contratacao" ? h.numeroControlePNCP : undefined))
+        ).toEqual(Option.some("00000000000191-1-000001/2026"));
+        const todas = yield* pncp.buscarPncp({ termo: "notebooks" });
+        expect(todas.length).toBeGreaterThan(1);
+        const scores = Arr.map(todas, (h) => h.score);
+        expect(scores).toEqual(Arr.sort(scores, Order.flip(Order.Number)));
 
         const semLexical = yield* pncp.buscarPncp({
           termo: "zzzz inexistente xpto",
           tipo: "contratacao",
         });
-        expect(semLexical.length).toBeGreaterThan(0);
+        expect(semLexical).toHaveLength(0);
 
         const narrowed = yield* pncp.buscarPncp({
           termo: "notebooks",
@@ -285,12 +264,10 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("pncp store + paginated harv
         });
         expect(Arr.every(narrowed, (row) => row.ufSigla === "SP")).toBe(true);
         expect(narrowed.length).toBe(1);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "buscarPncp per tipo and merged todas",
-    () =>
+    it.effect("buscarPncp per tipo and merged todas", () =>
       Effect.gen(function* () {
         const pncp = yield* seeded;
         const contrato = yield* pncp.buscarPncp({
@@ -310,70 +287,54 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("pncp store + paginated harv
         expect(Arr.contains(tipos, "contratacao")).toBe(true);
         expect(Arr.contains(tipos, "contrato")).toBe(true);
         expect(Arr.contains(tipos, "ata")).toBe(true);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "fornecedorPncpPorNome ranks bm25 then falls back to trgm typos",
-    () =>
+    it.effect("fornecedorPncpPorNome ranks bm25 and recovers typos with fuzzy", () =>
       Effect.gen(function* () {
         const pncp = yield* seeded;
         const lexical = yield* pncp.fornecedorPncpPorNome("quantum solucoes");
-        expect(
-          pick(lexical, 0, (r) => r.nomeRazaoSocialFornecedor)
-        ).toEqual(Option.some("Tecnologia Quantum Solucoes LTDA"));
-        expect(pick(lexical, 0, (r) => Number(r.score) < 0)).toEqual(
-          Option.some(true)
+        expect(pick(lexical, 0, (r) => r.nomeRazaoSocialFornecedor)).toEqual(
+          Option.some("Tecnologia Quantum Solucoes LTDA")
         );
+        expect(pick(lexical, 0, (r) => Number(r.score) > 0)).toEqual(Option.some(true));
 
         const typo = yield* pncp.fornecedorPncpPorNome("quantun");
-        expect(
-          Arr.map(typo, (row) => row.nomeRazaoSocialFornecedor)
-        ).toContain("Tecnologia Quantum Solucoes LTDA");
-        expect(pick(typo, 0, (r) => Number(r.score) > 0)).toEqual(
-          Option.some(true)
+        expect(Arr.map(typo, (row) => row.nomeRazaoSocialFornecedor)).toContain(
+          "Tecnologia Quantum Solucoes LTDA"
         );
+        expect(pick(typo, 0, (r) => r.score)).toEqual(Option.some(0));
 
         const missing = yield* Effect.flip(pncp.fornecedorPncpPorNome("  "));
         expect(missing._tag).toBe("PncpError");
         expect(missing.message).toContain("fornecedor");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "contratosDoFornecedor matches the masked ni exactly",
-    () =>
+    it.effect("contratosDoFornecedor matches the masked ni exactly", () =>
       Effect.gen(function* () {
         const pncp = yield* seeded;
         const rows = yield* pncp.contratosDoFornecedor({
           niFornecedor: "12.345.678/0001-90",
         });
         expect(rows.length).toBe(1);
-        expect(pick(rows, 0, (r) => r.niFornecedor)).toEqual(
-          Option.some("12345678000190")
-        );
+        expect(pick(rows, 0, (r) => r.niFornecedor)).toEqual(Option.some("12345678000190"));
         expect(pick(rows, 0, (r) => r.nomeRazaoSocialFornecedor)).toEqual(
           Option.some("Tecnologia Quantum Solucoes LTDA")
         );
 
-        const missing = yield* Effect.flip(
-          pncp.contratosDoFornecedor({ niFornecedor: "abc" })
-        );
+        const missing = yield* Effect.flip(pncp.contratosDoFornecedor({ niFornecedor: "abc" }));
         expect(missing._tag).toBe("PncpError");
         expect(missing.message).toContain("CNPJ");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "alertasPncp returns recent contratacoes filtered by uf and date",
-    () =>
+    it.effect("alertasPncp returns recent contratacoes filtered by uf and date", () =>
       Effect.gen(function* () {
         const pncp = yield* seeded;
         const all = yield* pncp.alertasPncp({});
         expect(all.length).toBe(2);
-        expect(pick(all, 0, (r) => r.dataPublicacaoPncp)).toEqual(
-          Option.some("2026-01-15")
-        );
+        expect(pick(all, 0, (r) => r.dataPublicacaoPncp)).toEqual(Option.some("2026-01-15"));
 
         const filtered = yield* pncp.alertasPncp({
           uf: "PR",
@@ -381,6 +342,7 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("pncp store + paginated harv
         });
         expect(filtered.length).toBe(1);
         expect(pick(filtered, 0, (r) => r.ufSigla)).toEqual(Option.some("PR"));
-      }),
-  );
-});
+      })
+    );
+  }
+);

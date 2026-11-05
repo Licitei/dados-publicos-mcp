@@ -20,8 +20,7 @@ class UnknownFonteError extends Schema.TaggedError<
   }
 }
 
-const splitParts = (value: string) =>
-  Arr.map(Str.split(value, ","), (part) => Str.trim(part));
+const splitParts = (value: string) => Arr.map(Str.split(value, ","), (part) => Str.trim(part));
 
 const splitUpper = (value: string) =>
   Arr.filter(
@@ -56,9 +55,7 @@ const buildScope = (input: {
 
 const decodeFonte = Schema.decodeUnknownOption(FonteKey);
 
-const indexedJson = Schema.encodeUnknownEffect(
-  Schema.fromJsonString(Schema.Unknown)
-);
+const indexedJson = Schema.encodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
 type IndexRun = Effect.Effect<
   void,
@@ -70,9 +67,7 @@ const runOne = (fonte: string, scope: Scope): IndexRun =>
   decodeFonte(fonte).pipe(
     Option.match({
       onNone: () =>
-        Console.error(
-          `Fontes disponiveis: ${Arr.join(FonteKey.literals, ", ")}`
-        ).pipe(
+        Console.error(`Fontes disponiveis: ${Arr.join(FonteKey.literals, ", ")}`).pipe(
           Effect.andThen(Effect.fail(UnknownFonteError.make({ fonte })))
         ),
       onSome: (key) =>
@@ -89,9 +84,7 @@ const runAll = (includeHeavy: boolean, scope: Scope): IndexRun =>
   Effect.gen(function* () {
     const deployer = yield* IndexDeployer;
     const output = yield* deployer.deployAll(includeHeavy, scope);
-    yield* Console.log(
-      `${output.indexed.length} fonte(s) indexada(s) com sucesso.`
-    );
+    yield* Console.log(`${output.indexed.length} fonte(s) indexada(s) com sucesso.`);
   });
 
 const indexCommand = Command.make(
@@ -99,14 +92,10 @@ const indexCommand = Command.make(
   {
     fonte: Argument.String("fonte").pipe(
       Argument.optional,
-      Argument.withDescription(
-        "Fonte a indexar. Sem fonte: indexa todas as fontes leves."
-      )
+      Argument.withDescription("Fonte a indexar. Sem fonte: indexa todas as fontes leves.")
     ),
     includeHeavy: Flag.Boolean("include-heavy").pipe(
-      Flag.withDescription(
-        "Indexa todas as fontes, incluindo as que exigem download pesado"
-      )
+      Flag.withDescription("Indexa todas as fontes, incluindo as que exigem download pesado")
     ),
     ufs: Flag.String("ufs").pipe(
       Flag.optional,
@@ -114,9 +103,7 @@ const indexCommand = Command.make(
     ),
     anos: Flag.String("anos").pipe(
       Flag.optional,
-      Flag.withDescription(
-        "Recorte de anos (separados por virgula). Ex: 2024,2025"
-      )
+      Flag.withDescription("Recorte de anos (separados por virgula). Ex: 2024,2025")
     ),
     mes: Flag.String("mes").pipe(
       Flag.optional,
@@ -134,9 +121,7 @@ const indexCommand = Command.make(
   )
 );
 
-const root = Command.make("dados-publicos-mcp", {}, () =>
-  Effect.promise(() => serve())
-).pipe(
+const root = Command.make("dados-publicos-mcp", {}, () => Effect.promise(() => serve())).pipe(
   Command.withDescription("Inicia o servidor MCP via stdio."),
   Command.withSubcommands([indexCommand])
 );

@@ -1,14 +1,21 @@
 import { Schema } from "effect";
 import * as Arr from "effect/Array";
-import { pipe } from "effect/Function";
-import * as Str from "effect/String";
+import { pagedParams } from "../../kernel/http/paging";
+import type { DuckTable } from "../../kernel/duck/duck";
+import {
+  looseText,
+  looseString,
+  looseFlag,
+  toStringOrNull,
+  toIntOrNull,
+  toBool,
+  joinText,
+} from "../../kernel/schema/loose";
 import { normalize } from "../../kernel/text/normalize";
 
 export const endpoints = {
-  catmatItem:
-    "https://dadosabertos.compras.gov.br/modulo-material/4_consultarItemMaterial",
-  catserItem:
-    "https://dadosabertos.compras.gov.br/modulo-servico/6_consultarItemServico",
+  catmatItem: "https://dadosabertos.compras.gov.br/modulo-material/4_consultarItemMaterial",
+  catserItem: "https://dadosabertos.compras.gov.br/modulo-servico/6_consultarItemServico",
 } as const;
 
 export const pageSizes = { min: 10, max: 500 } as const;
@@ -17,25 +24,7 @@ export const pageUrl = (opts: {
   readonly endpoint: string;
   readonly pagina: number;
   readonly tamanhoPagina: number;
-}) => {
-  const tamanho = Math.min(
-    Math.max(opts.tamanhoPagina, pageSizes.min),
-    pageSizes.max
-  );
-  const params = new URLSearchParams({
-    pagina: String(opts.pagina),
-    tamanhoPagina: String(tamanho),
-  });
-  return `${opts.endpoint}?${params.toString()}`;
-};
-
-const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))
-);
-const looseString = Schema.optional(Schema.NullOr(Schema.String));
-const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]))
-);
+}) => `${opts.endpoint}?${pagedParams({ ...opts, ...pageSizes }).toString()}`;
 
 export const CatmatItemRaw = Schema.Struct({
   codigoItem: looseText,
@@ -79,7 +68,7 @@ export const CatserItemPayload = Schema.Struct({
   totalPaginas: Schema.Finite,
 });
 
-export const CatmatMaterialFlat = Schema.Struct({
+const CatmatMaterialFlat = Schema.Struct({
   codigoItem: Schema.Finite,
   codigoGrupo: Schema.NullOr(Schema.Finite),
   nomeGrupo: Schema.NullOr(Schema.String),
@@ -93,9 +82,9 @@ export const CatmatMaterialFlat = Schema.Struct({
   statusItem: Schema.Boolean,
   busca: Schema.String,
 });
-export type CatmatMaterialFlat = (typeof CatmatMaterialFlat)["Type"];
+type CatmatMaterialFlat = (typeof CatmatMaterialFlat)["Type"];
 
-export const CatserServiceFlat = Schema.Struct({
+const CatserServiceFlat = Schema.Struct({
   codigoServico: Schema.Finite,
   nomeServico: Schema.NullOr(Schema.String),
   codigoSecao: Schema.NullOr(Schema.Finite),
@@ -111,22 +100,61 @@ export const CatserServiceFlat = Schema.Struct({
   statusServico: Schema.Boolean,
   busca: Schema.String,
 });
-export type CatserServiceFlat = (typeof CatserServiceFlat)["Type"];
+type CatserServiceFlat = (typeof CatserServiceFlat)["Type"];
 
-export const CatmatCatserErrorCode = Schema.Literals([
-  "catmat.NOT_FOUND",
-  "catmat.LEVEL_UNRECOGNIZED",
-]);
-export type CatmatCatserErrorCode = (typeof CatmatCatserErrorCode)["Type"];
+export const catmatMaterialTable: DuckTable = {
+  name: "catmat_material",
+  key: "codigoItem",
+  columns: {
+    codigoItem: "INTEGER",
+    codigoGrupo: "INTEGER",
+    nomeGrupo: "VARCHAR",
+    codigoClasse: "INTEGER",
+    nomeClasse: "VARCHAR",
+    codigoPdm: "INTEGER",
+    nomePdm: "VARCHAR",
+    descricaoItem: "VARCHAR",
+    codigoNcm: "VARCHAR",
+    descricaoNcm: "VARCHAR",
+    statusItem: "BOOLEAN",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-export class CatmatCatserError extends Schema.TaggedError<CatmatCatserError, { readonly brand: unique symbol }>()(
-  "CatmatCatserError",
-  {
-    code: CatmatCatserErrorCode,
-    codigo: Schema.optional(Schema.String),
-    nivel: Schema.optional(Schema.String),
-  }
-) {
+export const catserServiceTable: DuckTable = {
+  name: "catser_service",
+  key: "codigoServico",
+  columns: {
+    codigoServico: "INTEGER",
+    nomeServico: "VARCHAR",
+    codigoSecao: "INTEGER",
+    nomeSecao: "VARCHAR",
+    codigoDivisao: "INTEGER",
+    nomeDivisao: "VARCHAR",
+    codigoGrupo: "INTEGER",
+    nomeGrupo: "VARCHAR",
+    codigoClasse: "INTEGER",
+    nomeClasse: "VARCHAR",
+    codigoSubclasse: "INTEGER",
+    nomeSubclasse: "VARCHAR",
+    statusServico: "BOOLEAN",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const CatmatCatserErrorCode = Schema.Literals(["catmat.NOT_FOUND", "catmat.LEVEL_UNRECOGNIZED"]);
+type CatmatCatserErrorCode = (typeof CatmatCatserErrorCode)["Type"];
+
+export class CatmatCatserError extends Schema.TaggedError<
+  CatmatCatserError,
+  { readonly brand: unique symbol }
+>()("CatmatCatserError", {
+  code: CatmatCatserErrorCode,
+  codigo: Schema.optional(Schema.String),
+  nivel: Schema.optional(Schema.String),
+}) {
   override get message() {
     switch (this.code) {
       case "catmat.NOT_FOUND":
@@ -136,37 +164,6 @@ export class CatmatCatserError extends Schema.TaggedError<CatmatCatserError, { r
     }
   }
 }
-
-type Loose = string | number | boolean | null | undefined;
-
-const toStringOrNull = (value: Loose) => {
-  const text = value === null || value === undefined ? "" : Str.trim(String(value));
-  return text === "" ? null : text;
-};
-
-const toIntOrNull = (value: Loose) => {
-  const text = toStringOrNull(value);
-  const parsed = text === null ? Number.NaN : Number(text);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
-};
-
-const toBool = (value: Loose) =>
-  typeof value === "boolean"
-    ? value
-    : typeof value === "string"
-      ? pipe(value, Str.trim, Str.toLowerCase) === "true"
-      : Boolean(value);
-
-const cleanText = (value: string) =>
-  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
-
-const joinText = (parts: readonly Loose[]) =>
-  pipe(
-    parts,
-    Arr.map(toStringOrNull),
-    Arr.filter((part) => part !== null),
-    Arr.join(" ")
-  );
 
 const flattenMaterial = (raw: CatmatItemRaw) => {
   const codigoItem = toIntOrNull(raw.codigoItem);
@@ -236,6 +233,3 @@ const flattenServico = (raw: CatserItemRaw) => {
 
 export const flattenServicos = (resultado: readonly CatserItemRaw[]) =>
   Arr.flatMap(resultado, flattenServico);
-
-export const materialPassage = (row: CatmatMaterialFlat) =>
-  cleanText(joinText([row.descricaoItem, row.nomePdm, row.nomeClasse]));

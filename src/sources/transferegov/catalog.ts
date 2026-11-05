@@ -1,12 +1,40 @@
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
-import * as Rec from "effect/Record";
-import * as Str from "effect/String";
+import type { DuckTable } from "../../kernel/duck/duck";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import type { CsvRecord } from "../../kernel/csv/parse";
+import { indexByKey, pickOne, numeroBr, dataBr } from "../../kernel/csv/fields";
 
-export const repositorioBase =
-  "https://repositorio.dados.gov.br/seges/detru";
+export const convenioTable: DuckTable = {
+  name: "convenio",
+  key: "id",
+  columns: {
+    id: "BIGINT",
+    nrConvenio: "VARCHAR",
+    idProposta: "VARCHAR",
+    situacao: "VARCHAR",
+    dataPublicacao: "VARCHAR",
+    vigenciaInicio: "VARCHAR",
+    vigenciaFim: "VARCHAR",
+    valorGlobal: "DOUBLE",
+    valorRepasse: "DOUBLE",
+    cnpjProponente: "VARCHAR",
+    docNormalizado: "VARCHAR",
+    nomeProponente: "VARCHAR",
+    uf: "VARCHAR",
+    municipio: "VARCHAR",
+    codMunicipioIbge: "VARCHAR",
+    orgaoSuperior: "VARCHAR",
+    orgao: "VARCHAR",
+    objeto: "VARCHAR",
+    modalidade: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const repositorioBase = "https://repositorio.dados.gov.br/seges/detru";
 
 export const convenioZipUrl = `${repositorioBase}/siconv_convenio.csv.zip`;
 export const propostaZipUrl = `${repositorioBase}/siconv_proposta.csv.zip`;
@@ -15,87 +43,41 @@ export const csvOptions = { encoding: "utf-8", delimiter: ";" } as const;
 
 export const acceptCsv = (name: string) => /\.csv$/i.test(name);
 
-const headerKey = (header: string) =>
-  pipe(
-    header,
-    Str.normalize("NFD"),
-    Str.replace(/\p{Diacritic}/gu, ""),
-    Str.toLowerCase,
-    Str.replace(/\s+/g, " "),
-    Str.trim
-  );
-
-const indexByKey = (record: Record<string, string>) =>
-  new Map(
-    pipe(
-      Rec.toEntries(record),
-      Arr.map(([key, value]) => [headerKey(key), value] as const)
-    )
-  );
-
-const pick = (byKey: Map<string, string>, candidate: string) =>
-  Str.trim(byKey.get(headerKey(candidate)) ?? "");
-
 const orNull = (value: string) => (value === "" ? null : value);
 
-const numeroBr = (value: string) => {
-  const trimmed = Str.trim(value);
-  const normalized = Str.includes(",")(trimmed)
-    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
-    : trimmed;
-  const parsed = Number(normalized);
-  return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
-};
+const PropostaEnrich = Schema.Struct({
+  uf: Schema.NullOr(Schema.String),
+  municipio: Schema.NullOr(Schema.String),
+  codMunicipioIbge: Schema.NullOr(Schema.String),
+  orgaoSuperior: Schema.NullOr(Schema.String),
+  orgao: Schema.NullOr(Schema.String),
+  modalidade: Schema.NullOr(Schema.String),
+  cnpjProponente: Schema.NullOr(Schema.String),
+  nomeProponente: Schema.NullOr(Schema.String),
+  objeto: Schema.NullOr(Schema.String),
+});
+export type PropostaEnrich = (typeof PropostaEnrich)["Type"];
 
-const dataBr = (value: string) =>
-  pipe(
-    value,
-    Str.trim,
-    Str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/),
-    Option.flatMap((match) =>
-      Option.all([Arr.get(match, 1), Arr.get(match, 2), Arr.get(match, 3)])
-    ),
-    Option.map(
-      ([dia, mes, ano]) =>
-        `${ano}-${Str.padStart(2, "0")(mes)}-${Str.padStart(2, "0")(dia)}`
-    ),
-    Option.getOrNull
-  );
-
-export type PropostaEnrich = {
-  readonly uf: string | null;
-  readonly municipio: string | null;
-  readonly codMunicipioIbge: string | null;
-  readonly orgaoSuperior: string | null;
-  readonly orgao: string | null;
-  readonly modalidade: string | null;
-  readonly cnpjProponente: string | null;
-  readonly nomeProponente: string | null;
-  readonly objeto: string | null;
-};
-
-export const mapPropostas = (
-  records: readonly Record<string, string>[]
-): Map<string, PropostaEnrich> =>
+export const mapPropostas = (records: readonly CsvRecord[]): Map<string, PropostaEnrich> =>
   new Map(
     Arr.flatMap(records, (record) => {
       const byKey = indexByKey(record);
-      const id = pick(byKey, "ID_PROPOSTA");
+      const id = pickOne(byKey, "ID_PROPOSTA");
       return id === ""
         ? []
         : [
             [
               id,
               {
-                uf: orNull(pick(byKey, "UF_PROPONENTE")),
-                municipio: orNull(pick(byKey, "MUNIC_PROPONENTE")),
-                codMunicipioIbge: orNull(pick(byKey, "COD_MUNIC_IBGE")),
-                orgaoSuperior: orNull(pick(byKey, "DESC_ORGAO_SUP")),
-                orgao: orNull(pick(byKey, "DESC_ORGAO")),
-                modalidade: orNull(pick(byKey, "MODALIDADE")),
-                cnpjProponente: orNull(pick(byKey, "IDENTIF_PROPONENTE")),
-                nomeProponente: orNull(pick(byKey, "NM_PROPONENTE")),
-                objeto: orNull(pick(byKey, "OBJETO_PROPOSTA")),
+                uf: orNull(pickOne(byKey, "UF_PROPONENTE")),
+                municipio: orNull(pickOne(byKey, "MUNIC_PROPONENTE")),
+                codMunicipioIbge: orNull(pickOne(byKey, "COD_MUNIC_IBGE")),
+                orgaoSuperior: orNull(pickOne(byKey, "DESC_ORGAO_SUP")),
+                orgao: orNull(pickOne(byKey, "DESC_ORGAO")),
+                modalidade: orNull(pickOne(byKey, "MODALIDADE")),
+                cnpjProponente: orNull(pickOne(byKey, "IDENTIF_PROPONENTE")),
+                nomeProponente: orNull(pickOne(byKey, "NM_PROPONENTE")),
+                objeto: orNull(pickOne(byKey, "OBJETO_PROPOSTA")),
               },
             ] as const,
           ];
@@ -111,28 +93,20 @@ export const ConvenioFlat = Schema.Struct({
   vigenciaFim: Schema.NullOr(Schema.String),
   valorGlobal: Schema.NullOr(Schema.Finite),
   valorRepasse: Schema.NullOr(Schema.Finite),
-  cnpjProponente: Schema.NullOr(Schema.String),
   docNormalizado: Schema.NullOr(Schema.String),
-  nomeProponente: Schema.NullOr(Schema.String),
-  uf: Schema.NullOr(Schema.String),
-  municipio: Schema.NullOr(Schema.String),
-  codMunicipioIbge: Schema.NullOr(Schema.String),
-  orgaoSuperior: Schema.NullOr(Schema.String),
-  orgao: Schema.NullOr(Schema.String),
-  objeto: Schema.NullOr(Schema.String),
-  modalidade: Schema.NullOr(Schema.String),
+  ...PropostaEnrich.fields,
   busca: Schema.String,
 });
 export type ConvenioFlat = (typeof ConvenioFlat)["Type"];
 
 const mapConveniosImpl = (
-  records: readonly Record<string, string>[],
+  records: readonly CsvRecord[],
   propostas: Map<string, PropostaEnrich>
 ): readonly ConvenioFlat[] =>
   Arr.flatMap(records, (record) => {
     const byKey = indexByKey(record);
-    const nrConvenio = pick(byKey, "NR_CONVENIO");
-    const idProposta = pick(byKey, "ID_PROPOSTA");
+    const nrConvenio = pickOne(byKey, "NR_CONVENIO");
+    const idProposta = pickOne(byKey, "ID_PROPOSTA");
     const enrich = propostas.get(idProposta);
     return nrConvenio === "" && idProposta === ""
       ? []
@@ -140,12 +114,12 @@ const mapConveniosImpl = (
           {
             nrConvenio: orNull(nrConvenio),
             idProposta: orNull(idProposta),
-            situacao: orNull(pick(byKey, "SIT_CONVENIO")),
-            dataPublicacao: dataBr(pick(byKey, "DIA_PUBL_CONV")),
-            vigenciaInicio: dataBr(pick(byKey, "DIA_INIC_VIGENC_CONV")),
-            vigenciaFim: dataBr(pick(byKey, "DIA_FIM_VIGENC_CONV")),
-            valorGlobal: numeroBr(pick(byKey, "VL_GLOBAL_CONV")),
-            valorRepasse: numeroBr(pick(byKey, "VL_REPASSE_CONV")),
+            situacao: orNull(pickOne(byKey, "SIT_CONVENIO")),
+            dataPublicacao: dataBr(pickOne(byKey, "DIA_PUBL_CONV")),
+            vigenciaInicio: dataBr(pickOne(byKey, "DIA_INIC_VIGENC_CONV")),
+            vigenciaFim: dataBr(pickOne(byKey, "DIA_FIM_VIGENC_CONV")),
+            valorGlobal: numeroBr(pickOne(byKey, "VL_GLOBAL_CONV")),
+            valorRepasse: numeroBr(pickOne(byKey, "VL_REPASSE_CONV")),
             cnpjProponente: enrich?.cnpjProponente ?? null,
             docNormalizado:
               enrich?.cnpjProponente === null || enrich?.cnpjProponente === undefined
@@ -173,9 +147,6 @@ const mapConveniosImpl = (
 export const mapConvenios: {
   (
     propostas: Map<string, PropostaEnrich>
-  ): (records: readonly Record<string, string>[]) => readonly ConvenioFlat[];
-  (
-    records: readonly Record<string, string>[],
-    propostas: Map<string, PropostaEnrich>
-  ): readonly ConvenioFlat[];
+  ): (records: readonly CsvRecord[]) => readonly ConvenioFlat[];
+  (records: readonly CsvRecord[], propostas: Map<string, PropostaEnrich>): readonly ConvenioFlat[];
 } = dual(2, mapConveniosImpl);

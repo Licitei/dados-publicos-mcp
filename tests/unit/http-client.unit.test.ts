@@ -17,9 +17,7 @@ const HttpFixture = fixtureLayer([
   {
     match: "/flaky",
     respond: (hit) =>
-      hit === 1
-        ? { status: 503, body: "indisponivel" }
-        : { body: '{"recovered":true}' },
+      hit === 1 ? { status: 503, body: "indisponivel" } : { body: '{"recovered":true}' },
   },
   { match: "/down-a", respond: { status: 503, body: "indisponivel" } },
   { match: "/down-b", respond: { status: 503, body: "indisponivel" } },
@@ -31,7 +29,7 @@ const HttpFixture = fixtureLayer([
       headers: { "content-type": "application/json" },
     },
   },
-  { match: "/slow", respond: { body: "tarde", delayMs: 5_000 } },
+  { match: "/slow", respond: { body: "tarde", hang: true } },
 ]);
 
 const noRetry = Effect.provideService(HttpConfig, {
@@ -115,9 +113,7 @@ layer(HttpFixture, { excludeTestServices: true })("Http.response", (it) => {
 
   it.effect("interrupts on timeout with http.TIMEOUT", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        response(at("/slow"), { timeoutMs: 100 })
-      );
+      const error = yield* Effect.flip(response(at("/slow"), { timeoutMs: 100 }));
       expect(error.code).toBe("http.TIMEOUT");
     }).pipe(noRetry)
   );

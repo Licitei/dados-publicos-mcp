@@ -17,7 +17,9 @@ const fornecedorCotaParlamentar = defineTool({
   run: (args) =>
     CamaraDeputados.pipe(
       Effect.flatMap((service) =>
-        service.fornecedorCotaParlamentar(Struct.renameKeys(Struct.pick(args, ["cnpjCpf", "ano", "limite"]), { limite: "limit" }))
+        service.fornecedorCotaParlamentar(
+          Struct.renameKeys(Struct.pick(args, ["cnpjCpf", "ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -38,7 +40,12 @@ const gastosPorFornecedor = defineTool({
   run: (args) =>
     CamaraDeputados.pipe(
       Effect.flatMap((service) =>
-        service.gastosPorFornecedor(Struct.renameKeys(Struct.pick(args, ["fornecedor", "cnpjCpf", "ano", "categoria", "limite"]), { limite: "limit" }))
+        service.gastosPorFornecedor(
+          Struct.renameKeys(
+            Struct.pick(args, ["fornecedor", "cnpjCpf", "ano", "categoria", "limite"]),
+            { limite: "limit" }
+          )
+        )
       )
     ),
 });
@@ -87,7 +94,12 @@ const buscarProposicao = defineTool({
   run: (args) =>
     CamaraDeputados.pipe(
       Effect.flatMap((service) =>
-        service.buscarProposicao(Struct.renameKeys(Struct.pick(args, ["termo", "ano", "tipo", "incluirAutores", "limite"]), { limite: "limit" }))
+        service.buscarProposicao(
+          Struct.renameKeys(
+            Struct.pick(args, ["termo", "ano", "tipo", "incluirAutores", "limite"]),
+            { limite: "limit" }
+          )
+        )
       )
     ),
 });

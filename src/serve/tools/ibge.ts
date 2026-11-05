@@ -15,9 +15,7 @@ const resolverMunicipio = defineTool({
   input: ResolverMunicipioInput,
   run: (args) =>
     IbgeLocalidades.pipe(
-      Effect.flatMap((service) =>
-        service.resolveMunicipio(args.nome, Struct.pick(args, ["uf"]))
-      )
+      Effect.flatMap((service) => service.resolveMunicipio(args.nome, Struct.pick(args, ["uf"])))
     ),
 });
 
@@ -29,20 +27,16 @@ const resolverCodigoIbge = defineTool({
     "Resolucao reversa: recebe o codigo IBGE de 7 digitos e retorna nome do municipio, UF, mesorregiao e regiao.",
   input: ResolverCodigoInput,
   run: (args) =>
-    IbgeLocalidades.pipe(
-      Effect.flatMap((service) => service.municipioByCodigo(args.codigo))
-    ),
+    IbgeLocalidades.pipe(Effect.flatMap((service) => service.municipioByCodigo(args.codigo))),
 });
 
 const ListarMunicipiosInput = Schema.Struct({ uf: Uf });
 
 const listarMunicipiosUf = defineTool({
   name: "listar_municipios_uf",
-  description:
-    "Lista todos os municipios de uma UF com seus codigos IBGE de 7 digitos.",
+  description: "Lista todos os municipios de uma UF com seus codigos IBGE de 7 digitos.",
   input: ListarMunicipiosInput,
-  run: (args) =>
-    IbgeLocalidades.pipe(Effect.flatMap((service) => service.listByUf(args.uf))),
+  run: (args) => IbgeLocalidades.pipe(Effect.flatMap((service) => service.listByUf(args.uf))),
 });
 
 const ValidarUfInput = Schema.Struct({ uf: NonEmptyString });
@@ -52,10 +46,7 @@ const validarUf = defineTool({
   description:
     "Normaliza/valida uma sigla de UF (ex SP, rj) e retorna o codigo numerico IBGE da UF.",
   input: ValidarUfInput,
-  run: (args) =>
-    IbgeLocalidades.pipe(
-      Effect.flatMap((service) => service.validateUf(args.uf))
-    ),
+  run: (args) => IbgeLocalidades.pipe(Effect.flatMap((service) => service.validateUf(args.uf))),
 });
 
 export const ibgeTools = [

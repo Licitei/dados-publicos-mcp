@@ -6,14 +6,8 @@ import { defineTool } from "../tool";
 const Ibge = Schema.String.pipe(Schema.check(Schema.isMinLength(6)));
 
 const requireEnteIdentifier = Schema.makeFilter(
-  (value: {
-    readonly cod_ibge?: string;
-    readonly nome?: string;
-    readonly uf?: string;
-  }) =>
-    value.cod_ibge !== undefined ||
-    value.nome !== undefined ||
-    value.uf !== undefined
+  (value: { readonly cod_ibge?: string; readonly nome?: string; readonly uf?: string }) =>
+    value.cod_ibge !== undefined || value.nome !== undefined || value.uf !== undefined
       ? undefined
       : "Informe cod_ibge, nome ou uf."
 );
@@ -33,7 +27,11 @@ const capagEnte = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.capagEnte(Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf", "ano"]), { cod_ibge: "ibge" }))
+        service.capagEnte(
+          Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf", "ano"]), {
+            cod_ibge: "ibge",
+          })
+        )
       )
     ),
 });
@@ -54,7 +52,11 @@ const entesPorNota = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.entesPorNota(Struct.renameKeys(Struct.pick(args, ["notas", "uf", "regiao", "esfera", "limite"]), { limite: "limit" }))
+        service.entesPorNota(
+          Struct.renameKeys(Struct.pick(args, ["notas", "uf", "regiao", "esfera", "limite"]), {
+            limite: "limit",
+          })
+        )
       )
     ),
 });
@@ -72,7 +74,9 @@ const capagSerieHistorica = defineTool({
   run: (args) =>
     Capag.pipe(
       Effect.flatMap((service) =>
-        service.serieHistorica(Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf"]), { cod_ibge: "ibge" }))
+        service.serieHistorica(
+          Struct.renameKeys(Struct.pick(args, ["cod_ibge", "nome", "uf"]), { cod_ibge: "ibge" })
+        )
       )
     ),
 });
@@ -91,14 +95,10 @@ const resolverEntePorCnpj = defineTool({
       Effect.flatMap((service) =>
         service.resolverEntePorCnpj(args.cnpj).pipe(
           Effect.flatMap((ente) =>
-            service
-              .capagEnte({ ibge: ente.codIbge })
-              .pipe(
-                Effect.map((capag) => ({ ...ente, capag })),
-                Effect.catchTag("CapagError", () =>
-                  Effect.succeed({ ...ente, capag: null })
-                )
-              )
+            service.capagEnte({ ibge: ente.codIbge }).pipe(
+              Effect.map((capag) => ({ ...ente, capag })),
+              Effect.catchTag("CapagError", () => Effect.succeed({ ...ente, capag: null }))
+            )
           )
         )
       )

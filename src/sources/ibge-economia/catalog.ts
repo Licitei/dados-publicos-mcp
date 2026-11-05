@@ -4,8 +4,7 @@ import { dual, pipe } from "effect/Function";
 import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
-export const agregadosBase =
-  "https://servicodados.ibge.gov.br/api/v3/agregados";
+const agregadosBase = "https://servicodados.ibge.gov.br/api/v3/agregados";
 
 export const populacaoAgregado = 6579;
 export const populacaoVariavel = 9324;
@@ -44,12 +43,13 @@ const VariavelRaw = Schema.Struct({
 export const AgregadoPayload = Schema.Array(VariavelRaw);
 export type AgregadoPayload = (typeof AgregadoPayload)["Type"];
 
-export type ValorMunicipio = {
-  readonly codIbge: string;
-  readonly nome: string;
-  readonly uf: string | null;
-  readonly valor: number | null;
-};
+const ValorMunicipio = Schema.Struct({
+  codIbge: Schema.String,
+  nome: Schema.String,
+  uf: Schema.NullOr(Schema.String),
+  valor: Schema.NullOr(Schema.Finite),
+});
+type ValorMunicipio = (typeof ValorMunicipio)["Type"];
 
 const ufFromNome = (nome: string) =>
   pipe(
@@ -65,15 +65,10 @@ const ufFromNome = (nome: string) =>
 
 const numeroOrNull = (value: string | null) => {
   const parsed = Number(value);
-  return value === null || pipe(value, Str.trim) === "" || !Number.isFinite(parsed)
-    ? null
-    : parsed;
+  return value === null || pipe(value, Str.trim) === "" || !Number.isFinite(parsed) ? null : parsed;
 };
 
-const valoresForImpl = (
-  payload: AgregadoPayload,
-  ano: number
-): readonly ValorMunicipio[] =>
+const valoresForImpl = (payload: AgregadoPayload, ano: number): readonly ValorMunicipio[] =>
   pipe(
     payload,
     Arr.flatMap((variavel) =>
@@ -106,8 +101,7 @@ export const MunicipioEconomiaFlat = Schema.Struct({
 });
 export type MunicipioEconomiaFlat = (typeof MunicipioEconomiaFlat)["Type"];
 
-const nomeSemUf = (nome: string) =>
-  pipe(nome, Str.replace(/\s*\([A-Za-z]{2}\)\s*$/, ""));
+const nomeSemUf = (nome: string) => pipe(nome, Str.replace(/\s*\([A-Za-z]{2}\)\s*$/, ""));
 
 const mergeEconomiaImpl = (
   ano: number,

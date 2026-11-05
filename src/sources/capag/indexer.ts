@@ -1,6 +1,7 @@
-import { Effect, Match, Option, Stream } from "effect";
+import { Effect, Match, Stream } from "effect";
 import { parseCsvRecords } from "../../kernel/csv/parse";
 import { Http } from "../../kernel/http/client";
+import { offsetPage, type OffsetState } from "../../kernel/http/paging";
 import { readXlsxSheet } from "../../kernel/xlsx/sheet";
 import {
   CapagError,
@@ -17,12 +18,7 @@ import {
   packageShowUrl,
   siconfiEntesUrl,
   siconfiPageSize,
-  type EnteFlat,
-  type EstadoFlat,
-  type MunicipioFlat,
 } from "./catalog";
-
-const maxPages = 5_000;
 
 const fetchBytes = (url: string, accept: string) =>
   Effect.flatMap(Http, (http) => http.bytes(url, { headers: { accept } }));
@@ -40,16 +36,14 @@ const discoverLatest = (
     Effect.flatMap((payload) =>
       Match.value(pick(payload, ceilingYear)).pipe(
         Match.when(Match.undefined, () =>
-          Effect.fail(
-            CapagError.make({ code: "capag.RESOURCE_MISSING", dataset })
-          )
+          Effect.fail(CapagError.make({ code: "capag.RESOURCE_MISSING", dataset }))
         ),
         Match.orElse((entry) => Effect.succeed(entry))
       )
     )
   );
 
-export const fetchEstados = (ceilingYear: number) =>
+const fetchEstados = (ceilingYear: number) =>
   Effect.gen(function* () {
     const latest = yield* discoverLatest("estados", ceilingYear, latestCsvResource);
     const ano = latest.year ?? ceilingYear;
@@ -58,13 +52,9 @@ export const fetchEstados = (ceilingYear: number) =>
     return mapEstados(records, ano);
   });
 
-export const fetchMunicipios = (ceilingYear: number) =>
+const fetchMunicipios = (ceilingYear: number) =>
   Effect.gen(function* () {
-    const latest = yield* discoverLatest(
-      "municipios",
-      ceilingYear,
-      latestXlsxResource
-    );
+    const latest = yield* discoverLatest("municipios", ceilingYear, latestXlsxResource);
     const anoBase = latest.year ?? ceilingYear;
     const posicao = extractPosicao(latest.name);
     const bytes = yield* fetchBytes(
@@ -75,43 +65,19 @@ export const fetchMunicipios = (ceilingYear: number) =>
     return mapMunicipiosRows(rows, anoBase, posicao);
   });
 
-type PageState = { readonly offset: number; readonly page: number };
-
-const fetchEntesPage = (state: PageState) =>
+const fetchEntesPage = (state: OffsetState) =>
   Effect.flatMap(Http, (http) =>
     http.json(
       `${siconfiEntesUrl}?limit=${siconfiPageSize}&offset=${state.offset}`,
       SiconfiEntesPayload,
       { headers: { accept: "application/json" } }
     )
-  ).pipe(
-    Effect.map((payload) => {
-      const items = payload.items ?? [];
-      const stop =
-        items.length === 0 || payload.hasMore !== true || state.page >= maxPages;
-      const next = Match.value(stop).pipe(
-        Match.when(true, () => Option.none<PageState>()),
-        Match.orElse(() =>
-          Option.some<PageState>({
-            offset: state.offset + items.length,
-            page: state.page + 1,
-          })
-        )
-      );
-      return [items, next] as const;
-    })
-  );
+  ).pipe(Effect.map((payload) => offsetPage(state, payload.items ?? [], payload.hasMore)));
 
-export const fetchEntes = Stream.paginate(
-  { offset: 0, page: 1 },
-  fetchEntesPage
-).pipe(Stream.runCollect, Effect.map(mapEntes));
-
-export type CapagSnapshot = {
-  readonly estados: readonly EstadoFlat[];
-  readonly municipios: readonly MunicipioFlat[];
-  readonly entes: readonly EnteFlat[];
-};
+const fetchEntes = Stream.paginate({ offset: 0, page: 1 }, fetchEntesPage).pipe(
+  Stream.runCollect,
+  Effect.map(mapEntes)
+);
 
 export const fetchSnapshot = (ceilingYear: number) =>
   Effect.all(

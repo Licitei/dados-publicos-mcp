@@ -7,15 +7,18 @@ const HttpErrorCode = Schema.Literals([
   "http.TIMEOUT",
   "http.PARSE",
 ]);
-export type HttpErrorCode = (typeof HttpErrorCode)["Type"];
+type HttpErrorCode = (typeof HttpErrorCode)["Type"];
 
-export class HttpError extends Schema.TaggedError<HttpError, { readonly brand: unique symbol }>()("HttpError", {
-  code: HttpErrorCode,
-  url: Schema.String,
-  status: Schema.optional(Schema.Finite),
-  timeoutMs: Schema.optional(Schema.Finite),
-  cause: Schema.optional(Schema.String),
-}) {
+export class HttpError extends Schema.TaggedError<HttpError, { readonly brand: unique symbol }>()(
+  "HttpError",
+  {
+    code: HttpErrorCode,
+    url: Schema.String,
+    status: Schema.optional(Schema.Finite),
+    timeoutMs: Schema.optional(Schema.Finite),
+    cause: Schema.optional(Schema.String),
+  }
+) {
   override get message() {
     switch (this.code) {
       case "http.STATUS":
@@ -39,36 +42,33 @@ const HttpConfigSchema = Schema.Struct({
 });
 export type HttpConfig = (typeof HttpConfigSchema)["Type"];
 
-export const HttpConfig = Context.Reference<HttpConfig>(
-  "dados-publicos-mcp/HttpConfig",
-  {
-    defaultValue: () => ({
-      userAgent:
-        "dados-publicos-mcp/0.1.0 (+https://github.com/Licitei/dados-publicos-mcp)",
-      timeoutMs: 30_000,
-      maxRetries: 3,
-      retryBaseMillis: 250,
-      retryableStatus: new Set([408, 413, 429, 500, 502, 503, 504]),
-    }),
-  }
-);
+export const HttpConfig = Context.Reference<HttpConfig>("dados-publicos-mcp/HttpConfig", {
+  defaultValue: () => ({
+    userAgent: "dados-publicos-mcp/0.1.0 (+https://github.com/Licitei/dados-publicos-mcp)",
+    timeoutMs: 30_000,
+    maxRetries: 3,
+    retryBaseMillis: 250,
+    retryableStatus: new Set([408, 413, 429, 500, 502, 503, 504]),
+  }),
+});
 
-export const Options = Schema.Struct({
+const Options = Schema.Struct({
   timeoutMs: Schema.optional(Schema.Finite),
   headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
-export type Options = (typeof Options)["Type"];
+type Options = (typeof Options)["Type"];
 
 export const HttpOriginOverride = Context.Reference<Option.Option<string>>(
   "dados-publicos-mcp/HttpOriginOverride",
   { defaultValue: () => Option.none<string>() }
 );
 
-export interface HttpResponseData {
-  readonly status: number;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly bytes: Uint8Array;
-}
+const HttpResponseData = Schema.Struct({
+  status: Schema.Finite,
+  headers: Schema.Record(Schema.String, Schema.String),
+  bytes: Schema.Uint8Array,
+});
+type HttpResponseData = (typeof HttpResponseData)["Type"];
 
 const rewriteOrigin = (origin: string, raw: string) => {
   const target = new URL(origin);
@@ -106,25 +106,18 @@ const makeHttp = Effect.gen(function* () {
                   status: r.response.status,
                 })
               ),
-              Match.orElse((r) =>
-                HttpError.make({ code: "http.NETWORK", url, cause: String(r) })
-              )
+              Match.orElse((r) => HttpError.make({ code: "http.NETWORK", url, cause: String(r) }))
             )
           ),
           Effect.timeoutOrElse({
             duration: Duration.millis(timeoutMs),
-            orElse: () =>
-              Effect.fail(
-                HttpError.make({ code: "http.TIMEOUT", url, timeoutMs })
-              ),
+            orElse: () => Effect.fail(HttpError.make({ code: "http.TIMEOUT", url, timeoutMs })),
           }),
           Effect.retry({
             schedule: Schedule.exponential(Duration.millis(cfg.retryBaseMillis)),
             times: cfg.maxRetries,
             while: Match.type<HttpError>().pipe(
-              Match.when({ code: "http.STATUS" }, (e) =>
-                cfg.retryableStatus.has(e.status ?? -1)
-              ),
+              Match.when({ code: "http.STATUS" }, (e) => cfg.retryableStatus.has(e.status ?? -1)),
               Match.orElse(() => true)
             ),
           })
@@ -141,8 +134,7 @@ const makeHttp = Effect.gen(function* () {
               headers: res.headers,
               bytes: new Uint8Array(buffer),
             }),
-            onFailure: (e) =>
-              HttpError.make({ code: "http.NETWORK", url, cause: String(e) }),
+            onFailure: (e) => HttpError.make({ code: "http.NETWORK", url, cause: String(e) }),
           })
         )
       )
@@ -152,23 +144,15 @@ const makeHttp = Effect.gen(function* () {
     response(url, opts).pipe(Effect.map((res) => res.bytes));
 
   const text = (url: string, opts?: Options) =>
-    bytes(url, opts).pipe(
-      Effect.map((buffer) => new TextDecoder().decode(buffer))
-    );
+    bytes(url, opts).pipe(Effect.map((buffer) => new TextDecoder().decode(buffer)));
 
-  const json = <S extends Schema.Top>(
-    url: string,
-    schema: S,
-    opts?: Options
-  ) =>
+  const json = <S extends Schema.Top>(url: string, schema: S, opts?: Options) =>
     fetchResponse(url, opts).pipe(
       Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
       Effect.mapError((e) =>
         Match.value(e).pipe(
           Match.tag("HttpError", (x) => x),
-          Match.orElse((x) =>
-            HttpError.make({ code: "http.PARSE", url, cause: String(x) })
-          )
+          Match.orElse((x) => HttpError.make({ code: "http.PARSE", url, cause: String(x) }))
         )
       )
     );
@@ -180,6 +164,4 @@ export class Http extends Context.Service<Http, Effect.Success<typeof makeHttp>>
   "dados-publicos-mcp/kernel/http/client/Http"
 ) {}
 
-export const HttpLive = Layer.effect(Http)(makeHttp).pipe(
-  Layer.provide(FetchHttpClient.layer)
-);
+export const HttpLive = Layer.effect(Http)(makeHttp).pipe(Layer.provide(FetchHttpClient.layer));

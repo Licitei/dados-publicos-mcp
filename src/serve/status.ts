@@ -1,42 +1,62 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
+import * as Arr from "effect/Array";
 import * as Rec from "effect/Record";
-import { sql } from "drizzle-orm";
-import type { PgTable } from "drizzle-orm/pg-core";
-import { Db } from "../kernel/db/client";
-import { tableGroupsBySource } from "../kernel/db/schema-registry";
+import * as Str from "effect/String";
+import { Duck } from "../kernel/duck/duck";
+import { CorpusGit, corpusDir, corpusNames } from "../kernel/search/corpus";
 import { defineTool } from "./tool";
 
-const countRows = (table: PgTable) =>
-  Db.pipe(
-    Effect.flatMap((db) =>
-      db.execute(sql`select count(*)::int as count from ${table}`)
-    ),
-    Effect.map(({ rows }) => Number(rows[0]?.count ?? 0)),
-    Effect.catchCause(() => Effect.succeed(0))
-  );
+const TableRow = Schema.Struct({ tabela: Schema.String, linhas: Schema.Finite });
 
-const countFonte = (tables: Record<string, PgTable>) =>
-  Effect.forEach(
-    Rec.toEntries(tables),
-    ([tabela, table]) =>
-      countRows(table).pipe(Effect.map((count) => [tabela, count] as const)),
-    { concurrency: 2 }
-  ).pipe(Effect.map(Rec.fromEntries));
+const banco = Duck.pipe(
+  Effect.flatMap((duck) =>
+    duck.query(
+      TableRow,
+      "SELECT table_name AS tabela, estimated_size::INTEGER AS linhas FROM duckdb_tables() WHERE schema_name = 'main' ORDER BY table_name"
+    )
+  ),
+  Effect.map((rows) =>
+    Rec.fromEntries(
+      Arr.map(
+        Arr.filter(rows, (row) => !Str.startsWith("fts_main_")(row.tabela)),
+        (row): readonly [string, number] => [row.tabela, row.linhas]
+      )
+    )
+  ),
+  Effect.orElseSucceed((): Record<string, number> => ({}))
+);
 
-const StatusInput = Schema.Struct({});
+type AcervoInfo = {
+  readonly baixado: boolean;
+  readonly commit: string | null;
+  readonly data: string | null;
+};
+
+const ausente: AcervoInfo = { baixado: false, commit: null, data: null };
+
+const acervos = CorpusGit.pipe(
+  Effect.flatMap((git) =>
+    Effect.forEach(corpusNames, (corpus) =>
+      corpusDir(corpus).pipe(
+        Effect.flatMap((dir) => git.localHead(corpus, dir)),
+        Effect.map((head) =>
+          Option.match(head, {
+            onNone: (): AcervoInfo => ausente,
+            onSome: ({ commit, date }): AcervoInfo => ({ baixado: true, commit, data: date }),
+          })
+        ),
+        Effect.orElseSucceed(() => ausente),
+        Effect.map((info): readonly [string, AcervoInfo] => [corpus, info])
+      )
+    )
+  ),
+  Effect.map(Rec.fromEntries)
+);
 
 export const statusIndices = defineTool({
   name: "status_indices",
   description:
-    "Lista o status de todos os indices locais (dominios) do servidor: contagem de registros por tabela de cada fonte.",
-  input: StatusInput,
-  run: () =>
-    Effect.forEach(
-      Rec.toEntries(tableGroupsBySource),
-      ([fonte, tables]) =>
-        countFonte(tables).pipe(
-          Effect.map((contagens) => [fonte, contagens] as const)
-        ),
-      { concurrency: 2 }
-    ).pipe(Effect.map(Rec.fromEntries)),
+    "Status dos indices locais: linhas por tabela no banco local (DuckDB) e commit/data dos acervos de leis e precedentes baixados.",
+  input: Schema.Struct({}),
+  run: () => Effect.all({ banco, acervos }, { concurrency: 2 }),
 });

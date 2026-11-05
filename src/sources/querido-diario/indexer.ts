@@ -4,28 +4,12 @@ import { dual } from "effect/Function";
 import { TextDecoder } from "node:util";
 import { Http } from "../../kernel/http/client";
 import { unzipEntries } from "../../kernel/zip/archive";
-import {
-  acceptXml,
-  aggregatesUrl,
-  aggregateZipUrl,
-  AggregatesResponse,
-  parseMunicipioXml,
-  type DiarioFlat,
-} from "./catalog";
+import { acceptXml, aggregateZipUrl, parseMunicipioXml, type DiarioFlat } from "./catalog";
 
 const decoder = new TextDecoder("utf-8", { fatal: false });
 
 const downloadZip = (url: string) =>
-  Effect.flatMap(Http, (http) =>
-    http.bytes(url, { headers: { accept: "application/zip" } })
-  );
-
-export const listAggregates = (uf: string) =>
-  Effect.flatMap(Http, (http) =>
-    http.json(aggregatesUrl(uf), AggregatesResponse)
-  ).pipe(
-    Effect.map((response) => response.aggregates ?? [])
-  );
+  Effect.flatMap(Http, (http) => http.bytes(url, { headers: { accept: "application/zip" } }));
 
 const loadDiariosEffect = (uf: string, ano: number) =>
   Effect.gen(function* () {

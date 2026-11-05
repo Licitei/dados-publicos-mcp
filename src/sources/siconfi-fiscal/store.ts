@@ -1,26 +1,55 @@
-import { Context, Effect, Layer, Match, Option } from "effect";
+import { Context, Effect, Layer, Match, Schema, Struct } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
-import { and, eq, sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { siconfiFato } from "../../kernel/db/schemas/siconfi-fato";
+import {
+  bm25,
+  Duck,
+  type DuckParam,
+  type DuckTable,
+  idsParam,
+  inIds,
+} from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
-import { defaultAno, uniaoEnte } from "./catalog";
+import { defaultAno, uniaoEnte, SiconfiFatoFlat } from "./catalog";
 import { indexEnte } from "./indexer";
+import { clamp, preferExact } from "../../kernel/duck/search";
 
-const fatoView = sql`
-  id_ente as "idEnte", exercicio, demonstrativo, anexo, rotulo, coluna,
-  cod_conta as "codConta", conta, valor, instituicao, uf
-`;
+export const siconfiFatoTable: DuckTable = {
+  name: "siconfi_fato",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    idEnte: "VARCHAR",
+    exercicio: "INTEGER",
+    demonstrativo: "VARCHAR",
+    anexo: "VARCHAR",
+    rotulo: "VARCHAR",
+    coluna: "VARCHAR",
+    codConta: "VARCHAR",
+    conta: "VARCHAR",
+    valor: "DOUBLE",
+    instituicao: "VARCHAR",
+    uf: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const FatoRow = SiconfiFatoFlat.mapFields(Struct.omit(["busca"]));
+
+const FatoScored = Schema.Struct({ ...FatoRow.fields, id: Schema.String, score: Schema.Finite });
+
+const FuzzyText = Schema.Struct({ id: Schema.String, busca: Schema.String });
+
+const fatoColumns = `"idEnte", exercicio, demonstrativo, anexo, rotulo, coluna, "codConta", conta, valor, instituicao, uf`;
 
 const makeSiconfiFiscal = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
+
+  const ensureTable = duck.ensure(siconfiFatoTable);
 
   const fiscalPorEnte = (
     idEnteInput: string,
@@ -33,93 +62,92 @@ const makeSiconfiFiscal = Effect.gen(function* () {
     Effect.gen(function* () {
       const idEnte = onlyDigits(idEnteInput);
       const limit = clamp(options?.limit, 200, 1000);
-      const demonstrativoWhere: SQL = Match.value(options?.demonstrativo).pipe(
-        Match.when(Match.string, (d) => sql`and demonstrativo = ${pipe(d, Str.toUpperCase)}`),
-        Match.orElse(() => sql``)
+      const demonstrativoFilter = Match.value(options?.demonstrativo).pipe(
+        Match.when(Match.string, (d): readonly [string, readonly DuckParam[]] => [
+          `AND demonstrativo = ?`,
+          [pipe(d, Str.toUpperCase)],
+        ]),
+        Match.orElse((): readonly [string, readonly DuckParam[]] => ["", []])
       );
-      const exercicioWhere: SQL = Match.value(options?.exercicio).pipe(
-        Match.when(Match.number, (ano) => sql`and exercicio = ${ano}`),
-        Match.orElse(() => sql``)
+      const exercicioFilter = Match.value(options?.exercicio).pipe(
+        Match.when(Match.number, (ano): readonly [string, readonly DuckParam[]] => [
+          `AND exercicio = ?`,
+          [ano],
+        ]),
+        Match.orElse((): readonly [string, readonly DuckParam[]] => ["", []])
       );
-      return yield* db.execute(sql`
-        select ${fatoView}
-        from ${siconfiFato}
-        where id_ente = ${idEnte} ${demonstrativoWhere} ${exercicioWhere}
-        order by demonstrativo, anexo, cod_conta, coluna
-        limit ${sql.raw(String(limit))}
-      `).pipe(Effect.map(({ rows }) => rows));
+      return yield* duck.query(
+        FatoRow,
+        `SELECT ${fatoColumns} FROM siconfi_fato
+         WHERE "idEnte" = ? ${demonstrativoFilter[0]} ${exercicioFilter[0]}
+         ORDER BY demonstrativo, anexo, "codConta", coluna LIMIT ?`,
+        [idEnte, ...demonstrativoFilter[1], ...exercicioFilter[1], limit]
+      );
     });
 
-  const bm25Conta = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${fatoView}, -rk as score
-      from (
-        select
-          id_ente, exercicio, demonstrativo, anexo, rotulo, coluna, cod_conta,
-          conta, valor, instituicao, uf, row_number() over () as rk
-        from (
-          select
-            id_ente, exercicio, demonstrativo, anexo, rotulo, coluna, cod_conta,
-            conta, valor, instituicao, uf
-          from ${siconfiFato}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const trgmConta = (q: string, limit: number) =>
-    db.execute(sql`
-      select ${fatoView}, word_similarity(${q}, busca) as score
-      from ${siconfiFato}
-      where word_similarity(${q}, busca) >= 0.2
-      order by score desc, id
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const buscarConta = (
-    termo: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const buscarConta = (termo: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
       const q = normalize(termo);
       const limit = clamp(options?.limit, 50, 200);
-      const lexical = yield* bm25Conta(q, limit);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmConta(q, limit)),
-        Match.orElse(() => Effect.succeed(lexical))
+      const exact = yield* duck.query(
+        FatoScored,
+        `SELECT id, ${fatoColumns}, score
+         FROM (SELECT *, ${bm25(siconfiFatoTable)} AS score FROM siconfi_fato)
+         WHERE score IS NOT NULL ORDER BY score DESC, id LIMIT ?`,
+        [q, limit]
       );
+      const ids = Arr.isReadonlyArrayNonEmpty(exact)
+        ? []
+        : yield* fuzzy.match("siconfi_fato", q, { limit });
+      const approximate = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            FatoScored,
+            `SELECT id, ${fatoColumns}, 0::DOUBLE AS score FROM siconfi_fato WHERE ${inIds("id")}`,
+            [idsParam(ids)]
+          )
+        : [];
+      return preferExact(exact, ids, approximate, (row) => row.id);
     });
+
+  const writeFuzzy = duck.query(FuzzyText, `SELECT id, busca FROM siconfi_fato`).pipe(
+    Effect.flatMap((rows) =>
+      fuzzy.write(
+        "siconfi_fato",
+        Arr.map(rows, (row): readonly [string, string] => [row.id, row.busca])
+      )
+    )
+  );
 
   const indexarEnte = (idEnteInput: string, ano: number) =>
     Effect.gen(function* () {
       const idEnte = onlyDigits(idEnteInput);
-      yield* db
-        .delete(siconfiFato)
-        .where(
-          and(eq(siconfiFato.idEnte, idEnte), eq(siconfiFato.exercicio, ano))
-        );
-      const inserted = yield* indexEnte(idEnte, ano);
+      const flat = yield* indexEnte(idEnte, ano);
+      const rows = Arr.map(flat, (row, position) => ({
+        ...row,
+        id: `${idEnte}:${ano}:${position}`,
+      }));
+      yield* ensureTable;
+      yield* duck.run(`DELETE FROM siconfi_fato WHERE "idEnte" = ? AND exercicio = ?`, [
+        idEnte,
+        ano,
+      ]);
+      const inserted = yield* duck.append(siconfiFatoTable, rows);
+      yield* duck.reindex(siconfiFatoTable);
+      yield* writeFuzzy;
       return { idEnte, ano, inserted };
     });
 
   const indexAno = (ano: number) => indexarEnte(uniaoEnte, ano);
 
   const index = Effect.gen(function* () {
-    yield* db.delete(siconfiFato);
-    const inserted = yield* indexEnte(uniaoEnte, defaultAno);
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${siconfiFato}`
-    ).pipe(Effect.map(({ rows }) => rows));
-    const total = pipe(
-      Arr.head(rows),
-      Option.match({
-        onNone: () => 0,
-        onSome: (row) => Number(row.count),
-      })
-    );
-    return { inserted, total };
+    const flat = yield* indexEnte(uniaoEnte, defaultAno);
+    const rows = Arr.map(flat, (row, position) => ({
+      ...row,
+      id: `${uniaoEnte}:${defaultAno}:${position}`,
+    }));
+    const inserted = yield* duck.replace(siconfiFatoTable, rows);
+    yield* writeFuzzy;
+    return { inserted, total: yield* duck.count(siconfiFatoTable) };
   });
 
   return { index, indexAno, indexarEnte, fiscalPorEnte, buscarConta };

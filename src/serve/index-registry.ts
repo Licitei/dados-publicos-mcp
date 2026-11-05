@@ -1,32 +1,66 @@
 import { Effect, Match, Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Str from "effect/String";
-import { CamaraDeputados } from "../sources/camara-deputados/store";
-import { Capag } from "../sources/capag/store";
+import * as Rec from "effect/Record";
+import {
+  CamaraDeputados,
+  cotaTable,
+  deputadoTable,
+  proposicaoAutorTable,
+  proposicaoTable,
+} from "../sources/camara-deputados/store";
+import {
+  Capag,
+  capagEstadoTable,
+  capagMunicipioTable,
+  siconfiEnteTable,
+} from "../sources/capag/store";
+import { catmatMaterialTable, catserServiceTable } from "../sources/catmat-catser/catalog";
+import { CmedAnvisa, medicamentoCmedTable } from "../sources/cmed-anvisa/store";
+import { Cnae, cnaeTable } from "../sources/cnae/store";
+import { IbgeEconomia, municipioEconomiaTable } from "../sources/ibge-economia/store";
+import { IbgeLocalidades, municipioTable } from "../sources/ibge-localidades/store";
+import { precoPraticadoTable } from "../sources/painel-precos/catalog";
+import {
+  ataTable,
+  contratacaoTable,
+  contratoFornecedorTable,
+  contratoTable,
+  defaultModalidades,
+} from "../sources/pncp/catalog";
+import { QueridoDiario, diarioCnpjTable, diarioTable } from "../sources/querido-diario/store";
+import { sancaoTable } from "../sources/sancoes-cgu/catalog";
+import { SenadoFederal, ceapsTable, senadorTable } from "../sources/senado/store";
+import { fornecedorTable } from "../sources/sicaf-fornecedores/catalog";
+import { SiconfiFiscal, siconfiFatoTable } from "../sources/siconfi-fiscal/store";
+import { Sinapi, sinapiInsumoTable } from "../sources/sinapi/store";
+import { tcuInidoneoTable } from "../sources/tcu-inidoneos/catalog";
+import { convenioTable } from "../sources/transferegov/catalog";
+import { despesaFederalTable } from "../sources/transparencia-despesas/catalog";
+import {
+  TseEleitoral,
+  bemTable,
+  candidatoTable,
+  despesaTable,
+  receitaOriginarioTable,
+  receitaTable,
+} from "../sources/tse-eleitoral/store";
 import { CatmatCatser } from "../sources/catmat-catser/store";
-import { CmedAnvisa } from "../sources/cmed-anvisa/store";
-import { Cnae } from "../sources/cnae/store";
-import { IbgeEconomia } from "../sources/ibge-economia/store";
-import { IbgeLocalidades } from "../sources/ibge-localidades/store";
-import { Legislacao } from "../sources/legislacao/store";
+import type { DuckTable } from "../kernel/duck/duck";
+import { CorpusGit, corpusDir } from "../kernel/search/corpus";
 import { PainelPrecos } from "../sources/painel-precos/store";
-import { defaultModalidades } from "../sources/pncp/catalog";
 import { Pncp } from "../sources/pncp/store";
-import { QueridoDiario } from "../sources/querido-diario/store";
 import { ReceitaCnpj } from "../sources/receita-cnpj/store";
 import { SancoesCgu } from "../sources/sancoes-cgu/store";
-import { SenadoFederal } from "../sources/senado/store";
 import { Sicaf } from "../sources/sicaf-fornecedores/store";
-import { SiconfiFiscal } from "../sources/siconfi-fiscal/store";
-import { Sinapi } from "../sources/sinapi/store";
 import { Transferegov } from "../sources/transferegov/store";
 import { TcuInidoneos } from "../sources/tcu-inidoneos/store";
 import { TransparenciaDespesas } from "../sources/transparencia-despesas/store";
-import { TseEleitoral } from "../sources/tse-eleitoral/store";
-import { failureText, type AppServices } from "./tool";
+import { type AppServices, failureText } from "./tool";
 
 export const FonteKey = Schema.Literals([
-  "legislacao",
+  "leis",
+  "precedentes",
   "ibge-localidades",
   "cnae",
   "catmat-catser",
@@ -67,13 +101,12 @@ export class IndexFailure extends Schema.TaggedError<
 
 export type IndexEntry = {
   readonly heavy: boolean;
-  readonly run: (
-    scope: Scope
-  ) => Effect.Effect<unknown, IndexFailure, AppServices>;
+  readonly tables: readonly DuckTable[];
+  readonly version?: Effect.Effect<string, IndexFailure, AppServices>;
+  readonly run: (scope: Scope) => Effect.Effect<unknown, IndexFailure, AppServices>;
 };
 
-const isLeapYear = (year: number) =>
-  (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+const isLeapYear = (year: number) => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 
 const lastDayOf = (year: number, month: number) =>
   Match.value(month).pipe(
@@ -87,9 +120,7 @@ const pad2 = (value: number) => Str.padStart(2, "0")(String(value));
 const monthWindow = (mes: string | undefined) =>
   Option.fromNullishOr(mes).pipe(
     Option.map((value) => Arr.map(Str.split(value, "-"), Number)),
-    Option.flatMap((parts) =>
-      Option.all([Arr.get(parts, 0), Arr.get(parts, 1)])
-    ),
+    Option.flatMap((parts) => Option.all([Arr.get(parts, 0), Arr.get(parts, 1)])),
     Option.map(([year, month]) => ({
       dataInicial: `${year}-${pad2(month)}-01`,
       dataFinal: `${year}-${pad2(month)}-${pad2(lastDayOf(year, month))}`,
@@ -97,31 +128,26 @@ const monthWindow = (mes: string | undefined) =>
   );
 
 const nonEmptyAnos = (scope: Scope) =>
-  Option.fromNullishOr(scope.anos).pipe(
-    Option.filter(Arr.isReadonlyArrayNonEmpty)
-  );
+  Option.fromNullishOr(scope.anos).pipe(Option.filter(Arr.isReadonlyArrayNonEmpty));
 
 const nonEmptyUfs = (scope: Scope) =>
-  Option.fromNullishOr(scope.ufs).pipe(
-    Option.filter(Arr.isReadonlyArrayNonEmpty)
-  );
+  Option.fromNullishOr(scope.ufs).pipe(Option.filter(Arr.isReadonlyArrayNonEmpty));
+
+const versioned = <E, R extends AppServices>(version: Effect.Effect<string, E, R>) =>
+  version.pipe(Effect.mapError((error) => IndexFailure.make({ text: failureText(error) })));
 
 const entry = <A, E, R extends AppServices>(
   heavy: boolean,
   run: (scope: Scope) => Effect.Effect<A, E, R>
-): IndexEntry => ({
+): Omit<IndexEntry, "tables"> => ({
   heavy,
   run: (scope) =>
-    run(scope).pipe(
-      Effect.mapError((error) => IndexFailure.make({ text: failureText(error) }))
-    ),
+    run(scope).pipe(Effect.mapError((error) => IndexFailure.make({ text: failureText(error) }))),
 });
 
 const byAnos = <E, R, E2, R2>(
   scope: Scope,
-  onAnos: (
-    anos: Arr.NonEmptyReadonlyArray<number>
-  ) => Effect.Effect<unknown, E, R>,
+  onAnos: (anos: Arr.NonEmptyReadonlyArray<number>) => Effect.Effect<unknown, E, R>,
   otherwise: Effect.Effect<unknown, E2, R2>
 ): Effect.Effect<unknown, E | E2, R | R2> =>
   nonEmptyAnos(scope).pipe(
@@ -131,13 +157,29 @@ const byAnos = <E, R, E2, R2>(
     })
   );
 
-const latestAno = (anos: Arr.NonEmptyReadonlyArray<number>) =>
-  Math.max(...anos);
+const latestAno = (anos: Arr.NonEmptyReadonlyArray<number>) => Math.max(...anos);
 
-export const indexRegistry: Record<FonteKey, IndexEntry> = {
-  legislacao: entry(false, () =>
-    Legislacao.pipe(Effect.flatMap((service) => service.indexAll))
-  ),
+const entries: Record<FonteKey, Omit<IndexEntry, "tables">> = {
+  leis: {
+    ...entry(true, () =>
+      Effect.gen(function* () {
+        const git = yield* CorpusGit;
+        const dir = yield* corpusDir("leis");
+        return yield* git.sync("leis", { dir, paths: [] });
+      })
+    ),
+    version: versioned(CorpusGit.pipe(Effect.flatMap((git) => git.remoteHead("leis")))),
+  },
+  precedentes: {
+    ...entry(false, () =>
+      Effect.gen(function* () {
+        const git = yield* CorpusGit;
+        const dir = yield* corpusDir("precedentes");
+        return yield* git.sync("precedentes", { dir, paths: [] });
+      })
+    ),
+    version: versioned(CorpusGit.pipe(Effect.flatMap((git) => git.remoteHead("precedentes")))),
+  },
   "ibge-localidades": entry(false, () =>
     IbgeLocalidades.pipe(Effect.flatMap((service) => service.index))
   ),
@@ -145,27 +187,17 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
   "catmat-catser": entry(false, () =>
     CatmatCatser.pipe(Effect.flatMap((service) => service.index))
   ),
-  "sicaf-fornecedores": entry(false, () =>
-    Sicaf.pipe(Effect.flatMap((service) => service.index))
-  ),
-  "sancoes-cgu": entry(false, () =>
-    SancoesCgu.pipe(Effect.flatMap((service) => service.index))
-  ),
-  "receita-cnpj": entry(true, () =>
-    ReceitaCnpj.pipe(Effect.flatMap((service) => service.index))
-  ),
+  "sicaf-fornecedores": entry(false, () => Sicaf.pipe(Effect.flatMap((service) => service.index))),
+  "sancoes-cgu": entry(false, () => SancoesCgu.pipe(Effect.flatMap((service) => service.index))),
+  "receita-cnpj": entry(true, () => ReceitaCnpj.pipe(Effect.flatMap((service) => service.index))),
   "tse-eleitoral": entry(true, (scope) =>
     TseEleitoral.pipe(
-      Effect.flatMap((service) =>
-        byAnos(scope, (anos) => service.indexAnos(anos), service.index)
-      )
+      Effect.flatMap((service) => byAnos(scope, (anos) => service.indexAnos(anos), service.index))
     )
   ),
   "camara-deputados": entry(true, (scope) =>
     CamaraDeputados.pipe(
-      Effect.flatMap((service) =>
-        byAnos(scope, (anos) => service.indexAnos(anos), service.index)
-      )
+      Effect.flatMap((service) => byAnos(scope, (anos) => service.indexAnos(anos), service.index))
     )
   ),
   "querido-diario": entry(true, (scope) =>
@@ -175,9 +207,7 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
           Option.match({
             onNone: () => service.index,
             onSome: ({ ufs, anos }) =>
-              service.indexScope(
-                Arr.flatMap(ufs, (uf) => Arr.map(anos, (ano) => ({ uf, ano })))
-              ),
+              service.indexScope(Arr.flatMap(ufs, (uf) => Arr.map(anos, (ano) => ({ uf, ano })))),
           })
         )
       )
@@ -224,9 +254,7 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
       )
     )
   ),
-  "cmed-anvisa": entry(false, () =>
-    CmedAnvisa.pipe(Effect.flatMap((service) => service.index))
-  ),
+  "cmed-anvisa": entry(false, () => CmedAnvisa.pipe(Effect.flatMap((service) => service.index))),
   "siconfi-fiscal": entry(true, (scope) =>
     SiconfiFiscal.pipe(
       Effect.flatMap((service) =>
@@ -234,12 +262,8 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
       )
     )
   ),
-  transferegov: entry(true, () =>
-    Transferegov.pipe(Effect.flatMap((service) => service.index))
-  ),
-  "painel-precos": entry(true, () =>
-    PainelPrecos.pipe(Effect.flatMap((service) => service.index))
-  ),
+  transferegov: entry(true, () => Transferegov.pipe(Effect.flatMap((service) => service.index))),
+  "painel-precos": entry(true, () => PainelPrecos.pipe(Effect.flatMap((service) => service.index))),
   "transparencia-despesas": entry(true, (scope) =>
     TransparenciaDespesas.pipe(
       Effect.flatMap((service) =>
@@ -260,3 +284,33 @@ export const indexRegistry: Record<FonteKey, IndexEntry> = {
     )
   ),
 };
+
+const fonteTables: Record<FonteKey, readonly DuckTable[]> = {
+  leis: [],
+  precedentes: [],
+  "ibge-localidades": [municipioTable],
+  cnae: [cnaeTable],
+  "catmat-catser": [catmatMaterialTable, catserServiceTable],
+  "sicaf-fornecedores": [fornecedorTable],
+  "sancoes-cgu": [sancaoTable],
+  "receita-cnpj": [],
+  "tse-eleitoral": [candidatoTable, bemTable, receitaTable, despesaTable, receitaOriginarioTable],
+  "camara-deputados": [deputadoTable, cotaTable, proposicaoTable, proposicaoAutorTable],
+  "querido-diario": [diarioTable, diarioCnpjTable],
+  capag: [capagEstadoTable, capagMunicipioTable, siconfiEnteTable],
+  pncp: [contratacaoTable, contratoTable, contratoFornecedorTable, ataTable],
+  "tcu-inidoneos": [tcuInidoneoTable],
+  "ibge-economia": [municipioEconomiaTable],
+  senado: [senadorTable, ceapsTable],
+  "cmed-anvisa": [medicamentoCmedTable],
+  "siconfi-fiscal": [siconfiFatoTable],
+  transferegov: [convenioTable],
+  "painel-precos": [precoPraticadoTable],
+  "transparencia-despesas": [despesaFederalTable],
+  sinapi: [sinapiInsumoTable],
+};
+
+export const indexRegistry: Record<FonteKey, IndexEntry> = Rec.map(entries, (base, fonte) => ({
+  ...base,
+  tables: fonteTables[fonte],
+}));

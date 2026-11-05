@@ -38,10 +38,7 @@ const workbookXlsx = storedZip([
 describe("kernel/xlsx readXlsxSheet", () => {
   it.effect("reads rows by position resolving shared and inline strings", () =>
     Effect.gen(function* () {
-      const rows = yield* readXlsxSheet(
-        workbookXlsx,
-        Str.startsWith("CAPAG Ano Base")
-      );
+      const rows = yield* readXlsxSheet(workbookXlsx, Str.startsWith("CAPAG Ano Base"));
       expect(rows.length).toBe(2);
       expect(cell(rows, 0, 0)).toBe("3550308");
       expect(cell(rows, 0, 1)).toBe("São Paulo");
@@ -53,9 +50,7 @@ describe("kernel/xlsx readXlsxSheet", () => {
 
   it.effect("fails with XlsxError when the sheet matcher finds nothing", () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        readXlsxSheet(workbookXlsx, (name) => name === "missing")
-      );
+      const error = yield* Effect.flip(readXlsxSheet(workbookXlsx, (name) => name === "missing"));
       expect(error._tag).toBe("XlsxError");
       expect(error.code).toBe("xlsx.SHEET_NOT_FOUND");
     })

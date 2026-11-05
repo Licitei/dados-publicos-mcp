@@ -1,7 +1,8 @@
 import { Effect, Layer } from "effect";
 import { fixtureLayer } from "../../unit/support/fixture-server";
-import { TestEmbedderLive } from "../../unit/support/test-embedder";
-import { TestDbLive } from "../../unit/support/test-db";
+import { TestDuckLive } from "../../unit/support/test-duck";
+import { TestSearchLive } from "../../unit/support/test-search";
+import { TestFuzzyLive } from "../../unit/support/test-fuzzy";
 import { CamaraDeputadosLive } from "../../../src/sources/camara-deputados/store";
 import { CapagLive } from "../../../src/sources/capag/store";
 import { CatmatCatserLive } from "../../../src/sources/catmat-catser/store";
@@ -9,7 +10,6 @@ import { CmedAnvisaLive } from "../../../src/sources/cmed-anvisa/store";
 import { CnaeLive } from "../../../src/sources/cnae/store";
 import { IbgeEconomiaLive } from "../../../src/sources/ibge-economia/store";
 import { IbgeLocalidadesLive } from "../../../src/sources/ibge-localidades/store";
-import { LegislacaoLive } from "../../../src/sources/legislacao/store";
 import { PainelPrecosLive } from "../../../src/sources/painel-precos/store";
 import { PncpLive } from "../../../src/sources/pncp/store";
 import { QueridoDiarioLive } from "../../../src/sources/querido-diario/store";
@@ -26,10 +26,9 @@ import { TseEleitoralLive } from "../../../src/sources/tse-eleitoral/store";
 
 const HttpOffline = fixtureLayer([]);
 
-const Infra = Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpOffline);
+const Infra = Layer.mergeAll(TestDuckLive, TestSearchLive, TestFuzzyLive, HttpOffline);
 
-export const offlineSources = Layer.mergeAll(
-  LegislacaoLive,
+const offlineSources = Layer.mergeAll(
   IbgeLocalidadesLive,
   CnaeLive,
   CatmatCatserLive,

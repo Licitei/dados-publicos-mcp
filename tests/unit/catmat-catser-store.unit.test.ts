@@ -3,15 +3,12 @@ import { Duration, Effect, Layer, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
-import { sql } from "drizzle-orm";
-import { Db } from "../../src/kernel/db/client";
-import {
-  CatmatCatser,
-  CatmatCatserLive,
-} from "../../src/sources/catmat-catser/store";
+import { Duck } from "../../src/kernel/duck/duck";
+import { catmatMaterialTable, catserServiceTable } from "../../src/sources/catmat-catser/catalog";
+import { CatmatCatser, CatmatCatserLive } from "../../src/sources/catmat-catser/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
-import { TestEmbedderLive } from "./support/test-embedder";
-import { TestDbLive } from "./support/test-db";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
 const material = (
   codigoItem: number,
@@ -105,31 +102,16 @@ const materiais = [
 ];
 
 const servicos = [
-  servico(
-    5001,
-    "Servico de limpeza predial e conservacao",
-    1000,
-    "Limpeza",
-    10001,
-    "Predial"
-  ),
-  servico(
-    5002,
-    "Manutencao de computadores e notebooks",
-    2000,
-    "Suporte",
-    20001,
-    "Tecnico"
-  ),
+  servico(5001, "Servico de limpeza predial e conservacao", 1000, "Limpeza", 10001, "Predial"),
+  servico(5002, "Manutencao de computadores e notebooks", 2000, "Suporte", 20001, "Tecnico"),
 ];
 
 const toJson = (value: unknown) =>
-  Effect.runSync(
-    Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(value)
+  Schema.encodeUnknownOption(Schema.fromJsonString(Schema.Unknown))(value).pipe(
+    Option.getOrElse(() => "")
   );
 
-const pageOf = (rows: readonly unknown[]) =>
-  toJson({ resultado: rows, totalPaginas: 1 });
+const pageOf = (rows: readonly unknown[]) => toJson({ resultado: rows, totalPaginas: 1 });
 
 const firstPage = (url: URL) => url.searchParams.get("pagina") === "1";
 
@@ -148,14 +130,9 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  CatmatCatserLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpFixture))
-  ),
-  TestDbLive,
-  TestEmbedderLive,
-  HttpFixture
-);
+const Infra = Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture);
+
+const TestLayer = CatmatCatserLive.pipe(Layer.provideMerge(Infra));
 
 const pick = <A, B>(xs: readonly A[], index: number, f: (a: A) => B) =>
   Arr.get(xs, index).pipe(Option.map(f));
@@ -166,38 +143,33 @@ const seeded = Effect.gen(function* () {
   return catmat;
 });
 
-layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagination + hybrid search", (it) => {
-  it.effect(
-    "index streams material + service pages and counts both tables",
-    () =>
+layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
+  "catmat-catser store + pagination + DuckDB bm25 + fuzzy search",
+  (it) => {
+    it.effect("index streams material + service pages and counts both tables", () =>
       Effect.gen(function* () {
         const catmat = yield* CatmatCatser;
         const total = yield* catmat.index;
         expect(total).toEqual({ materiais: 4, servicos: 2 });
-        const db = yield* Db;
-        const rows = yield* db.execute(
-          sql`select
-            (select count(*)::int from catmat_material) as materiais,
-            (select count(*)::int from catser_service) as servicos`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(pick(rows, 0, (r) => Number(r.materiais))).toEqual(Option.some(4));
-        expect(pick(rows, 0, (r) => Number(r.servicos))).toEqual(Option.some(2));
-      }),
-  );
+        const duck = yield* Duck;
+        const materiais = yield* duck.count(catmatMaterialTable);
+        const servicos = yield* duck.count(catserServiceTable);
+        expect(materiais).toBe(4);
+        expect(servicos).toBe(2);
+      })
+    );
 
-  it.effect(
-    "buscarMaterial hybrid RRF floats the lexical match to the top",
-    () =>
+    it.effect("buscarMaterial bm25 floats the lexical match to the top", () =>
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const hits = yield* catmat.buscarMaterial("parafuso aco inox");
-        expect(pick(hits, 0, (h) => Number(h.codigoItem))).toEqual(
-          Option.some(1003)
-        );
+        expect(pick(hits, 0, (h) => Number(h.codigoItem))).toEqual(Option.some(1003));
+        const ranked = yield* catmat.buscarMaterial("computador informatica");
+        expect(pick(ranked, 0, (h) => Number(h.codigoItem))).toEqual(Option.some(1001));
         expect(
           Option.zipWith(
-            pick(hits, 0, (h) => Number(h.score)),
-            pick(hits, 1, (h) => Number(h.score)),
+            pick(ranked, 0, (h) => Number(h.score)),
+            pick(ranked, 1, (h) => Number(h.score)),
             (top, next) => top > next
           )
         ).toEqual(Option.some(true));
@@ -209,28 +181,23 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagin
           apenasAtivos: true,
         });
         expect(Arr.map(ativos, (h) => Number(h.codigoItem))).not.toContain(1004);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "buscarServico ranks bm25 lexical hits and falls back to trgm on typos",
-    () =>
+    it.effect("buscarServico ranks bm25 lexical hits and falls back to fuzzy on typos", () =>
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const lexical = yield* catmat.buscarServico("manutencao computadores");
-        expect(pick(lexical, 0, (r) => Number(r.codigoServico))).toEqual(
-          Option.some(5002)
-        );
+        expect(pick(lexical, 0, (r) => Number(r.codigoServico))).toEqual(Option.some(5002));
         const typo = yield* catmat.buscarServico("limpza");
         expect(Arr.map(typo, (r) => Number(r.codigoServico))).toContain(5001);
+        expect(pick(typo, 0, (r) => r.score)).toEqual(Option.some(0));
         const none = yield* catmat.buscarServico("zzzzz inexistente xpto");
         expect(none).toHaveLength(0);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "resolver returns the denormalized chain or fails NOT_FOUND",
-    () =>
+    it.effect("resolver returns the denormalized chain or fails NOT_FOUND", () =>
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const item = yield* catmat.resolver(1003);
@@ -242,28 +209,22 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagin
         const error = yield* Effect.flip(catmat.resolver(999999));
         expect(error._tag).toBe("CatmatCatserError");
         expect(error.message).toContain("nao encontrado");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "normalizarItemEdital fans out into materials + services",
-    () =>
+    it.effect("normalizarItemEdital fans out into materials + services", () =>
       Effect.gen(function* () {
         const catmat = yield* seeded;
-        const out = yield* catmat.normalizarItemEdital(
-          "manutencao de computadores e parafusos"
-        );
+        const out = yield* catmat.normalizarItemEdital("manutencao de computadores e parafusos");
         expect(Arr.map(out.materiais, (m) => Number(m.codigoItem))).toContain(1003);
         expect(Arr.map(out.servicos, (s) => Number(s.codigoServico))).toContain(5002);
         expect(Arr.head(out.materiais)).toEqual(
           Option.some(expect.objectContaining({ nomeGrupo: expect.any(String) }))
         );
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "listByLevel filters by a denormalized hierarchy code",
-    () =>
+    it.effect("listByLevel filters by a denormalized hierarchy code", () =>
       Effect.gen(function* () {
         const catmat = yield* seeded;
         const grupo = yield* catmat.listByLevel({
@@ -272,16 +233,22 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagin
           codigo: 70,
         });
         expect(grupo.total).toBe(2);
-        expect(Arr.sort(Arr.map(grupo.itens, (i) => i.codigo), Order.Number)).toEqual([
-          1001, 1002,
-        ]);
+        expect(
+          Arr.sort(
+            Arr.map(grupo.itens, (i) => i.codigo),
+            Order.Number
+          )
+        ).toEqual([1001, 1002]);
         const svcGrupo = yield* catmat.listByLevel({
           tipo: "servico",
           nivel: "grupo",
           codigo: 100,
         });
         expect(
-          Arr.sort(Arr.map(svcGrupo.itens, (i) => i.codigo), Order.Number)
+          Arr.sort(
+            Arr.map(svcGrupo.itens, (i) => i.codigo),
+            Order.Number
+          )
         ).toEqual([5001, 5002]);
         const svcClasse = yield* catmat.listByLevel({
           tipo: "servico",
@@ -294,6 +261,7 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("catmat-catser store + pagin
         );
         expect(error._tag).toBe("CatmatCatserError");
         expect(error.message).toContain("Nivel");
-      }),
-  );
-});
+      })
+    );
+  }
+);

@@ -2,14 +2,15 @@ import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
-import { sql } from "drizzle-orm";
-import { Db } from "../../src/kernel/db/client";
+import { Duck } from "../../src/kernel/duck/duck";
 import {
   IbgeLocalidades,
   IbgeLocalidadesLive,
+  municipioTable,
 } from "../../src/sources/ibge-localidades/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
-import { TestDbLive } from "./support/test-db";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
 const uf = (sigla: string, id: number, nome: string) => ({
   id,
@@ -70,12 +71,8 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  IbgeLocalidadesLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, HttpFixture))
-  ),
-  TestDbLive,
-  HttpFixture
+const TestLayer = IbgeLocalidadesLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
 const seeded = Effect.gen(function* () {
@@ -85,35 +82,35 @@ const seeded = Effect.gen(function* () {
 });
 
 layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades empty table", (it) => {
-  it.effect(
-    "resolveMunicipio fails MUNICIPIO_NOT_FOUND on an empty table",
-    () =>
-      Effect.gen(function* () {
-        const ibge = yield* IbgeLocalidades;
-        const error = yield* Effect.flip(ibge.resolveMunicipio("qualquer"));
-        expect(error._tag).toBe("IbgeError");
-        expect(error).toMatchObject({ code: "ibge.MUNICIPIO_NOT_FOUND" });
-        expect(error.message).toContain("Municipio nao encontrado");
-      }),
+  it.effect("resolveMunicipio fails MUNICIPIO_NOT_FOUND on an empty table", () =>
+    Effect.gen(function* () {
+      const ibge = yield* IbgeLocalidades;
+      const duck = yield* Duck;
+      yield* duck.replace(municipioTable, []);
+      const error = yield* Effect.flip(ibge.resolveMunicipio("qualquer"));
+      expect(error._tag).toBe("IbgeError");
+      expect(error).toMatchObject({ code: "ibge.MUNICIPIO_NOT_FOUND" });
+      expect(error.message).toContain("Municipio nao encontrado");
+    })
   );
 });
 
-layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fuzzy resolver", (it) => {
-  it.effect(
-    "index loads the fixture across both UFs including the null-microrregiao edge case",
-    () =>
-      Effect.gen(function* () {
-        const ibge = yield* seeded;
-        const edge = yield* ibge.municipioByCodigo("5101837");
-        expect(edge.nome).toBe("Pescaria Brava");
-        expect(edge.ufSigla).toBe("GO");
-        expect(edge.mesorregiaoNome).toBeNull();
-      }),
-  );
+layer(TestLayer, { timeout: Duration.seconds(60) })(
+  "ibge-localidades store + fuzzy resolver",
+  (it) => {
+    it.effect(
+      "index loads the fixture across both UFs including the null-microrregiao edge case",
+      () =>
+        Effect.gen(function* () {
+          const ibge = yield* seeded;
+          const edge = yield* ibge.municipioByCodigo("5101837");
+          expect(edge.nome).toBe("Pescaria Brava");
+          expect(edge.ufSigla).toBe("GO");
+          expect(edge.mesorregiaoNome).toBeNull();
+        })
+    );
 
-  it.effect(
-    "fuzzy resolve is accent and typo tolerant",
-    () =>
+    it.effect("fuzzy resolve is accent and typo tolerant", () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const accentless = yield* ibge.resolveMunicipio("sao paulo");
@@ -122,12 +119,16 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
         expect(Option.map(Arr.head(abbreviated), (r) => r.nome)).toEqual(Option.some("São Paulo"));
         const goiania = yield* ibge.resolveMunicipio("goiania");
         expect(Option.map(Arr.head(goiania), (r) => r.nome)).toEqual(Option.some("Goiânia"));
-      }),
-  );
+        const typo = yield* ibge.resolveMunicipio("goina");
+        expect(Option.map(Arr.head(typo), (r) => r.nome)).toEqual(Option.some("Goiânia"));
+        const typoCampinas = yield* ibge.resolveMunicipio("campnas");
+        expect(Option.map(Arr.head(typoCampinas), (r) => r.nome)).toEqual(Option.some("Campinas"));
+        const typoSp = yield* ibge.resolveMunicipio("sao palo");
+        expect(Option.map(Arr.head(typoSp), (r) => r.nome)).toEqual(Option.some("São Paulo"));
+      })
+    );
 
-  it.effect(
-    "the uf filter narrows the candidate pool",
-    () =>
+    it.effect("the uf filter narrows the candidate pool", () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const inGo = yield* ibge.resolveMunicipio("campinas", { uf: "GO" });
@@ -136,12 +137,10 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
         }
         const inSp = yield* ibge.resolveMunicipio("campinas", { uf: "SP" });
         expect(Option.map(Arr.head(inSp), (r) => r.nome)).toEqual(Option.some("Campinas"));
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "trgm ranking orders the best match first",
-    () =>
+    it.effect("bm25 ranking orders the best match first", () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const rows = yield* ibge.resolveMunicipio("goiania");
@@ -151,12 +150,10 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
           Option.zipWith(Arr.head(scores), Arr.last(scores), (top, bottom) => top >= bottom)
         ).toEqual(Option.some(true));
         expect(Arr.map(rows, (row) => row.nome)).not.toContain("Santos");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "validateUf accepts SP and rejects XX",
-    () =>
+    it.effect("validateUf accepts SP and rejects XX", () =>
       Effect.gen(function* () {
         const ibge = yield* IbgeLocalidades;
         const sp = yield* ibge.validateUf("sp");
@@ -165,12 +162,10 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
         const error = yield* Effect.flip(ibge.validateUf("XX"));
         expect(error.code).toBe("ibge.UF_INVALID");
         expect(error.message).toContain("UF invalida: XX");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "municipioByCodigo finds a known code and fails CODE_NOT_FOUND otherwise",
-    () =>
+    it.effect("municipioByCodigo finds a known code and fails CODE_NOT_FOUND otherwise", () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const found = yield* ibge.municipioByCodigo("3550308");
@@ -178,12 +173,10 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
         const error = yield* Effect.flip(ibge.municipioByCodigo("9999999"));
         expect(error).toMatchObject({ code: "ibge.CODE_NOT_FOUND" });
         expect(error.message).toContain("Codigo IBGE nao encontrado");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "listByUf returns the municipios of a UF ordered by normalized name",
-    () =>
+    it.effect("listByUf returns the municipios of a UF ordered by normalized name", () =>
       Effect.gen(function* () {
         const ibge = yield* seeded;
         const result = yield* ibge.listByUf("sp");
@@ -192,21 +185,16 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("ibge-localidades store + fu
         expect(result.total).toBe(3);
         const names = Arr.map(result.municipios, (m) => m.nome);
         expect(names).toEqual(["Campinas", "Santos", "São Paulo"]);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "index persists rows queryable via the raw Db handle",
-    () =>
+    it.effect("index persists rows queryable via the Duck handle", () =>
       Effect.gen(function* () {
         yield* seeded;
-        const db = yield* Db;
-        const rows = yield* db.execute(
-          sql`select count(*)::int as count from municipio`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(Option.map(Arr.head(rows), (r) => Number(r.count))).toEqual(
-          Option.some(6)
-        );
-      }),
-  );
-});
+        const duck = yield* Duck;
+        const total = yield* duck.count(municipioTable);
+        expect(total).toBe(6);
+      })
+    );
+  }
+);

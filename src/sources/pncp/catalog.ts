@@ -2,9 +2,20 @@ import { DateTime, Option, Predicate, Schema } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
+import type { DuckTable } from "../../kernel/duck/duck";
+import {
+  looseText,
+  looseString,
+  looseFlag,
+  toStringOrNull,
+  toIntOrNull,
+  toRealOrNull,
+  toBool,
+  type Loose,
+} from "../../kernel/schema/loose";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
-export const base = "https://pncp.gov.br/api/consulta/v1";
+const base = "https://pncp.gov.br/api/consulta/v1";
 
 export const endpoints = {
   contratacoes: "contratacoes/publicacao",
@@ -14,32 +25,24 @@ export const endpoints = {
 
 export const pageSizes = { min: 10, max: 50 } as const;
 
-export const modalidades = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
-] as const;
-
 export const defaultModalidades = [6, 8] as const;
 
-export const defaultWindowDays = 7;
+const defaultWindowDays = 7;
 
-type PageUrlOptions = {
-  readonly endpoint: string;
-  readonly pagina: number;
-  readonly tamanhoPagina: number;
-  readonly dataInicial: string;
-  readonly dataFinal: string;
-  readonly codigoModalidadeContratacao?: number;
-  readonly uf?: string;
-};
+const PageUrlOptions = Schema.Struct({
+  endpoint: Schema.String,
+  pagina: Schema.Finite,
+  tamanhoPagina: Schema.Finite,
+  dataInicial: Schema.String,
+  dataFinal: Schema.String,
+  codigoModalidadeContratacao: Schema.optionalKey(Schema.Finite),
+  uf: Schema.optionalKey(Schema.String),
+});
+type PageUrlOptions = (typeof PageUrlOptions)["Type"];
 
 export const pageUrl = (opts: PageUrlOptions) => {
-  const tamanho = Math.min(
-    Math.max(opts.tamanhoPagina, pageSizes.min),
-    pageSizes.max
-  );
-  const entries: ReadonlyArray<
-    readonly [string, string | number | undefined | null]
-  > = [
+  const tamanho = Math.min(Math.max(opts.tamanhoPagina, pageSizes.min), pageSizes.max);
+  const entries: ReadonlyArray<readonly [string, string | number | undefined | null]> = [
     ["pagina", opts.pagina],
     ["tamanhoPagina", tamanho],
     ["dataInicial", opts.dataInicial],
@@ -51,22 +54,13 @@ export const pageUrl = (opts: PageUrlOptions) => {
     pipe(
       entries,
       Arr.filter(
-        ([, value]) =>
-          value !== undefined && value !== null && String(value).length !== 0
+        ([, value]) => value !== undefined && value !== null && String(value).length !== 0
       ),
       Arr.map(([key, value]) => [key, String(value)] as const)
     )
   );
   return `${base}/${opts.endpoint}?${params.toString()}`;
 };
-
-const looseText = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite]))
-);
-const looseString = Schema.optional(Schema.NullOr(Schema.String));
-const looseFlag = Schema.optional(
-  Schema.NullOr(Schema.Union([Schema.String, Schema.Finite, Schema.Boolean]))
-);
 
 const orgaoEntidadeRaw = Schema.optional(
   Schema.NullOr(
@@ -175,7 +169,7 @@ export const AtaPayload = Schema.Struct({
   paginasRestantes: Schema.optional(Schema.Finite),
 });
 
-export const ContratacaoFlat = Schema.Struct({
+const ContratacaoFlat = Schema.Struct({
   numeroControlePNCP: Schema.String,
   anoCompra: Schema.NullOr(Schema.Finite),
   sequencialCompra: Schema.NullOr(Schema.Finite),
@@ -199,9 +193,9 @@ export const ContratacaoFlat = Schema.Struct({
   srp: Schema.NullOr(Schema.Boolean),
   busca: Schema.String,
 });
-export type ContratacaoFlat = (typeof ContratacaoFlat)["Type"];
+type ContratacaoFlat = (typeof ContratacaoFlat)["Type"];
 
-export const ContratoFlat = Schema.Struct({
+const ContratoFlat = Schema.Struct({
   numeroControlePNCP: Schema.String,
   numeroControlePncpCompra: Schema.NullOr(Schema.String),
   anoContrato: Schema.NullOr(Schema.Finite),
@@ -228,9 +222,9 @@ export const ContratoFlat = Schema.Struct({
   busca: Schema.String,
   buscaFornecedor: Schema.String,
 });
-export type ContratoFlat = (typeof ContratoFlat)["Type"];
+type ContratoFlat = (typeof ContratoFlat)["Type"];
 
-export const AtaFlat = Schema.Struct({
+const AtaFlat = Schema.Struct({
   numeroControlePNCPAta: Schema.String,
   numeroControlePNCPCompra: Schema.NullOr(Schema.String),
   anoAta: Schema.NullOr(Schema.Finite),
@@ -245,18 +239,111 @@ export const AtaFlat = Schema.Struct({
   ufSigla: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type AtaFlat = (typeof AtaFlat)["Type"];
+type AtaFlat = (typeof AtaFlat)["Type"];
 
-export const PncpErrorCode = Schema.Literals([
+export const contratacaoTable: DuckTable = {
+  name: "contratacao",
+  key: "numeroControlePNCP",
+  columns: {
+    numeroControlePNCP: "VARCHAR",
+    anoCompra: "INTEGER",
+    sequencialCompra: "INTEGER",
+    objetoCompra: "VARCHAR",
+    modalidadeId: "INTEGER",
+    modalidadeNome: "VARCHAR",
+    situacaoCompraNome: "VARCHAR",
+    valorTotalEstimado: "DOUBLE",
+    valorTotalHomologado: "DOUBLE",
+    dataPublicacaoPncp: "VARCHAR",
+    dataAberturaProposta: "VARCHAR",
+    dataEncerramentoProposta: "VARCHAR",
+    dataAtualizacaoGlobal: "VARCHAR",
+    orgaoCnpj: "VARCHAR",
+    orgaoRazaoSocial: "VARCHAR",
+    esferaId: "VARCHAR",
+    poderId: "VARCHAR",
+    codigoIbge: "VARCHAR",
+    municipioNome: "VARCHAR",
+    ufSigla: "VARCHAR",
+    srp: "BOOLEAN",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+export const contratoTable: DuckTable = {
+  name: "contrato",
+  key: "numeroControlePNCP",
+  columns: {
+    numeroControlePNCP: "VARCHAR",
+    numeroControlePncpCompra: "VARCHAR",
+    anoContrato: "INTEGER",
+    sequencialContrato: "INTEGER",
+    objetoContrato: "VARCHAR",
+    niFornecedor: "VARCHAR",
+    tipoPessoa: "VARCHAR",
+    nomeRazaoSocialFornecedor: "VARCHAR",
+    niFornecedorSubContratado: "VARCHAR",
+    nomeFornecedorSubContratado: "VARCHAR",
+    valorInicial: "DOUBLE",
+    valorGlobal: "DOUBLE",
+    valorAcumulado: "DOUBLE",
+    dataAssinatura: "VARCHAR",
+    dataVigenciaInicio: "VARCHAR",
+    dataVigenciaFim: "VARCHAR",
+    dataPublicacaoPncp: "VARCHAR",
+    dataAtualizacaoGlobal: "VARCHAR",
+    orgaoCnpj: "VARCHAR",
+    orgaoRazaoSocial: "VARCHAR",
+    codigoIbge: "VARCHAR",
+    ufSigla: "VARCHAR",
+    tipoContrato: "VARCHAR",
+    busca: "VARCHAR",
+    buscaFornecedor: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+export const contratoFornecedorTable: DuckTable = {
+  name: "contrato_fornecedor",
+  key: "numeroControlePNCP",
+  columns: { numeroControlePNCP: "VARCHAR", buscaFornecedor: "VARCHAR" },
+  search: ["buscaFornecedor"],
+};
+
+export const ataTable: DuckTable = {
+  name: "ata",
+  key: "numeroControlePNCPAta",
+  columns: {
+    numeroControlePNCPAta: "VARCHAR",
+    numeroControlePNCPCompra: "VARCHAR",
+    anoAta: "INTEGER",
+    numeroAtaRegistroPreco: "VARCHAR",
+    objetoContratacao: "VARCHAR",
+    vigenciaInicio: "VARCHAR",
+    vigenciaFim: "VARCHAR",
+    dataAtualizacaoGlobal: "VARCHAR",
+    cnpjOrgao: "VARCHAR",
+    nomeOrgao: "VARCHAR",
+    codigoUnidadeOrgao: "VARCHAR",
+    ufSigla: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const PncpErrorCode = Schema.Literals([
   "pncp.MISSING_TERMO",
   "pncp.MISSING_FORNECEDOR",
   "pncp.MISSING_NI",
 ]);
-export type PncpErrorCode = (typeof PncpErrorCode)["Type"];
 
-export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: unique symbol }>()("PncpError", {
-  code: PncpErrorCode,
-}) {
+export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: unique symbol }>()(
+  "PncpError",
+  {
+    code: PncpErrorCode,
+  }
+) {
   override get message() {
     switch (this.code) {
       case "pncp.MISSING_TERMO":
@@ -269,44 +356,8 @@ export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: u
   }
 }
 
-type Loose = string | number | boolean | null | undefined;
-
-const toStringOrNull = (value: Loose) => {
-  const text = value === null || value === undefined ? "" : Str.trim(String(value));
-  return text === "" ? null : text;
-};
-
-const toIntOrNull = (value: Loose) => {
-  const text = toStringOrNull(value);
-  const parsed = text === null ? Number.NaN : Number(text);
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
-};
-
-const toRealOrNull = (value: Loose) => {
-  const text = toStringOrNull(value);
-  const parsed = text === null ? Number.NaN : Number(text);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const toBool = (value: Loose) =>
-  typeof value === "boolean"
-    ? value
-    : typeof value === "string"
-      ? pipe(value, Str.trim, Str.toLowerCase) === "true"
-      : value === null || value === undefined
-        ? null
-        : Boolean(value);
-
-const cleanText = (value: string) =>
-  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
-
 const firstString = (...values: readonly Loose[]) =>
-  pipe(
-    values,
-    Arr.map(toStringOrNull),
-    Arr.findFirst(Predicate.isNotNull),
-    Option.getOrNull
-  );
+  pipe(values, Arr.map(toStringOrNull), Arr.findFirst(Predicate.isNotNull), Option.getOrNull);
 
 const flattenContratacao = (raw: ContratacaoRaw) => {
   const numeroControlePNCP = toStringOrNull(raw.numeroControlePNCP);
@@ -329,10 +380,7 @@ const flattenContratacao = (raw: ContratacaoRaw) => {
           dataPublicacaoPncp: toStringOrNull(raw.dataPublicacaoPncp),
           dataAberturaProposta: toStringOrNull(raw.dataAberturaProposta),
           dataEncerramentoProposta: toStringOrNull(raw.dataEncerramentoProposta),
-          dataAtualizacaoGlobal: firstString(
-            raw.dataAtualizacaoGlobal,
-            raw.dataAtualizacao
-          ),
+          dataAtualizacaoGlobal: firstString(raw.dataAtualizacaoGlobal, raw.dataAtualizacao),
           orgaoCnpj: toStringOrNull(orgao?.cnpj),
           orgaoRazaoSocial: toStringOrNull(orgao?.razaoSocial),
           esferaId: toStringOrNull(orgao?.esferaId),
@@ -340,7 +388,7 @@ const flattenContratacao = (raw: ContratacaoRaw) => {
           codigoIbge: toStringOrNull(unidade?.codigoIbge),
           municipioNome: toStringOrNull(unidade?.municipioNome),
           ufSigla: toStringOrNull(unidade?.ufSigla),
-          srp: toBool(raw.srp),
+          srp: Predicate.isNullish(raw.srp) ? null : toBool(raw.srp),
           busca: normalize(objetoCompra ?? ""),
         } satisfies ContratacaoFlat,
       ];
@@ -354,9 +402,7 @@ const flattenContrato = (raw: ContratoRaw) => {
   const orgao = raw.orgaoEntidade;
   const unidade = raw.unidadeOrgao;
   const objetoContrato = toStringOrNull(raw.objetoContrato);
-  const nomeRazaoSocialFornecedor = toStringOrNull(
-    raw.nomeRazaoSocialFornecedor
-  );
+  const nomeRazaoSocialFornecedor = toStringOrNull(raw.nomeRazaoSocialFornecedor);
   return numeroControlePNCP === null
     ? []
     : [
@@ -369,12 +415,8 @@ const flattenContrato = (raw: ContratoRaw) => {
           niFornecedor: onlyDigits(toStringOrNull(raw.niFornecedor) ?? ""),
           tipoPessoa: toStringOrNull(raw.tipoPessoa),
           nomeRazaoSocialFornecedor,
-          niFornecedorSubContratado: toStringOrNull(
-            raw.niFornecedorSubContratado
-          ),
-          nomeFornecedorSubContratado: toStringOrNull(
-            raw.nomeFornecedorSubContratado
-          ),
+          niFornecedorSubContratado: toStringOrNull(raw.niFornecedorSubContratado),
+          nomeFornecedorSubContratado: toStringOrNull(raw.nomeFornecedorSubContratado),
           valorInicial: toRealOrNull(raw.valorInicial),
           valorGlobal: toRealOrNull(raw.valorGlobal),
           valorAcumulado: toRealOrNull(raw.valorAcumulado),
@@ -382,10 +424,7 @@ const flattenContrato = (raw: ContratoRaw) => {
           dataVigenciaInicio: toStringOrNull(raw.dataVigenciaInicio),
           dataVigenciaFim: toStringOrNull(raw.dataVigenciaFim),
           dataPublicacaoPncp: toStringOrNull(raw.dataPublicacaoPncp),
-          dataAtualizacaoGlobal: firstString(
-            raw.dataAtualizacaoGlobal,
-            raw.dataAtualizacao
-          ),
+          dataAtualizacaoGlobal: firstString(raw.dataAtualizacaoGlobal, raw.dataAtualizacao),
           orgaoCnpj: toStringOrNull(orgao?.cnpj),
           orgaoRazaoSocial: toStringOrNull(orgao?.razaoSocial),
           codigoIbge: toStringOrNull(unidade?.codigoIbge),
@@ -421,10 +460,7 @@ const flattenAta = (raw: AtaRaw) => {
           objetoContratacao,
           vigenciaInicio: toStringOrNull(raw.vigenciaInicio),
           vigenciaFim: toStringOrNull(raw.vigenciaFim),
-          dataAtualizacaoGlobal: firstString(
-            raw.dataAtualizacaoGlobal,
-            raw.dataAtualizacao
-          ),
+          dataAtualizacaoGlobal: firstString(raw.dataAtualizacaoGlobal, raw.dataAtualizacao),
           cnpjOrgao: toStringOrNull(raw.cnpjOrgao),
           nomeOrgao: toStringOrNull(raw.nomeOrgao),
           codigoUnidadeOrgao: toStringOrNull(raw.codigoUnidadeOrgao),
@@ -435,15 +471,6 @@ const flattenAta = (raw: AtaRaw) => {
 };
 
 export const flattenAtas = (rows: readonly AtaRaw[]) => Arr.flatMap(rows, flattenAta);
-
-export const passageContratacao = (row: ContratacaoFlat) =>
-  cleanText(row.objetoCompra ?? "");
-
-export const passageContrato = (row: ContratoFlat) =>
-  cleanText(row.objetoContrato ?? "");
-
-export const passageAta = (row: AtaFlat) =>
-  cleanText(row.objetoContratacao ?? "");
 
 const pad = (value: number) => Str.padStart(2, "0")(String(value));
 

@@ -1,17 +1,24 @@
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import type { CsvRecord } from "../../kernel/csv/parse";
+import {
+  type HeaderIndex,
+  indexByKey,
+  pickFirst,
+  numeroBr,
+  intBr,
+  dataBr,
+  pickClean,
+} from "../../kernel/csv/fields";
 
-export const cdnBase = "https://cdn.tse.jus.br/estatistica/sead/odsele";
+const cdnBase = "https://cdn.tse.jus.br/estatistica/sead/odsele";
 
 export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
 
-export type DatasetTipo =
-  | "consulta_cand"
-  | "bem_candidato"
-  | "prestacao_contas";
+export type DatasetTipo = "consulta_cand" | "bem_candidato" | "prestacao_contas";
 
 export const zipUrl: {
   (ano: number): (tipo: DatasetTipo) => string;
@@ -43,112 +50,9 @@ export const classifyPrestacao = (name: string): TabelaPrestacao | null => {
           : null;
 };
 
-export const acceptPrestacao = (name: string) =>
-  classifyPrestacao(name) !== null;
+export const acceptPrestacao = (name: string) => classifyPrestacao(name) !== null;
 
-export const ehDocumento = (termo: string) => {
-  const digits = onlyDigits(termo);
-  return (
-    digits.length >= 11 &&
-    digits.length === pipe(termo, Str.replace(/[.\-/\s]/g, "")).length
-  );
-};
-
-const sentinels = new Set(["#NULO#", "#NULO", "-1", "#NE#", "#NI#"]);
-
-const clean = (value: string) => {
-  const trimmed = Str.trim(value);
-  return sentinels.has(trimmed) ? "" : trimmed;
-};
-
-const pick = (record: Record<string, string>, keys: readonly string[]) =>
-  pipe(
-    keys,
-    Arr.map((key) => pipe(record[key] ?? "", Str.trim)),
-    Arr.findFirst((value) => value !== ""),
-    Option.getOrElse(() => "")
-  );
-
-const field = (record: Record<string, string>, keys: readonly string[]) =>
-  clean(pick(record, keys));
-
-const numeroBr = (value: string) => {
-  const trimmed = Str.trim(value);
-  const normalized = Str.includes(",")(trimmed)
-    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
-    : trimmed;
-  const cleaned = pipe(normalized, Str.replace(/[^\d.\-]/g, ""));
-  const parsed = Number(cleaned);
-  return cleaned === "" ||
-    cleaned === "-" ||
-    cleaned === "." ||
-    cleaned === "-." ||
-    !Number.isFinite(parsed)
-    ? null
-    : parsed;
-};
-
-const intBr = (value: string) => {
-  const parsed = numeroBr(value);
-  return parsed === null ? null : Math.trunc(parsed);
-};
-
-const buildDate = (year: string, month: string, day: string) => {
-  const y = Number(year);
-  const m = Number(month);
-  const d = Number(day);
-  return m < 1 || m > 12 || d < 1 || d > 31 || y < 1
-    ? Option.none()
-    : Option.some(`${year}-${month}-${day}`);
-};
-
-const dateParts = (
-  trimmed: string,
-  pattern: RegExp,
-  order: readonly [number, number, number]
-) =>
-  pipe(
-    trimmed,
-    Str.match(pattern),
-    Option.flatMap((found) =>
-      Option.all([
-        Arr.get(found, order[0]),
-        Arr.get(found, order[1]),
-        Arr.get(found, order[2]),
-      ])
-    )
-  );
-
-const padTwo = Str.padStart(2, "0");
-
-const dataBr = (value: string) => {
-  const trimmed = Str.trim(value);
-  const compact = dateParts(trimmed, /^(\d{4})(\d{2})(\d{2})$/, [1, 2, 3]).pipe(
-    Option.flatMap(([year, month, day]) => buildDate(year, month, day))
-  );
-  const slashed = dateParts(
-    trimmed,
-    /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/,
-    [3, 2, 1]
-  ).pipe(
-    Option.flatMap(([year, month, day]) =>
-      buildDate(year, padTwo(month), padTwo(day))
-    )
-  );
-  const iso = dateParts(trimmed, /^(\d{4})-(\d{2})-(\d{2})$/, [1, 2, 3]).pipe(
-    Option.flatMap(([year, month, day]) => buildDate(year, month, day))
-  );
-  return trimmed === "" || /^0+$/.test(trimmed)
-    ? null
-    : pipe(
-        compact,
-        Option.orElse(() => slashed),
-        Option.orElse(() => iso),
-        Option.getOrNull
-      );
-};
-
-export const CandidatoFlat = Schema.Struct({
+const CandidatoFlat = Schema.Struct({
   sqCandidato: Schema.String,
   cpf: Schema.String,
   nome: Schema.String,
@@ -165,7 +69,7 @@ export const CandidatoFlat = Schema.Struct({
   ocupacao: Schema.String,
   busca: Schema.String,
 });
-export type CandidatoFlat = (typeof CandidatoFlat)["Type"];
+type CandidatoFlat = (typeof CandidatoFlat)["Type"];
 
 export const BemFlat = Schema.Struct({
   sqCandidato: Schema.String,
@@ -179,46 +83,53 @@ export const BemFlat = Schema.Struct({
 });
 export type BemFlat = (typeof BemFlat)["Type"];
 
-const mapCandidato = (record: Record<string, string>) => {
-  const nome = field(record, ["NM_CANDIDATO"]);
-  const nomeUrna = field(record, ["NM_URNA_CANDIDATO"]);
+const mapCandidato = (byKey: HeaderIndex) => {
+  const nome = pickClean(byKey, ["NM_CANDIDATO"]);
+  const nomeUrna = pickClean(byKey, ["NM_URNA_CANDIDATO"]);
   return {
-    sqCandidato: field(record, ["SQ_CANDIDATO"]),
-    cpf: onlyDigits(field(record, ["NR_CPF_CANDIDATO"])),
+    sqCandidato: pickClean(byKey, ["SQ_CANDIDATO"]),
+    cpf: onlyDigits(pickClean(byKey, ["NR_CPF_CANDIDATO"])),
     nome,
     nomeUrna,
-    anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
-    ufSigla: field(record, ["SG_UF"]),
-    ueSigla: field(record, ["SG_UE"]),
-    cargoCodigo: field(record, ["CD_CARGO"]),
-    cargoDescricao: field(record, ["DS_CARGO"]),
-    partidoNumero: field(record, ["NR_PARTIDO"]),
-    partidoSigla: field(record, ["SG_PARTIDO"]),
-    situacaoTurno: field(record, ["DS_SIT_TOT_TURNO"]),
-    dataNascimento: dataBr(field(record, ["DT_NASCIMENTO"])) ?? "",
-    ocupacao: field(record, ["DS_OCUPACAO"]),
+    anoEleicao: intBr(pickFirst(byKey, ["ANO_ELEICAO"])),
+    ufSigla: pickClean(byKey, ["SG_UF"]),
+    ueSigla: pickClean(byKey, ["SG_UE"]),
+    cargoCodigo: pickClean(byKey, ["CD_CARGO"]),
+    cargoDescricao: pickClean(byKey, ["DS_CARGO"]),
+    partidoNumero: pickClean(byKey, ["NR_PARTIDO"]),
+    partidoSigla: pickClean(byKey, ["SG_PARTIDO"]),
+    situacaoTurno: pickClean(byKey, ["DS_SIT_TOT_TURNO"]),
+    dataNascimento: dataBr(pickClean(byKey, ["DT_NASCIMENTO"])) ?? "",
+    ocupacao: pickClean(byKey, ["DS_OCUPACAO"]),
     busca: normalize(`${nome} ${nomeUrna}`),
   } satisfies CandidatoFlat;
 };
 
-const mapBem = (record: Record<string, string>) => ({
-  sqCandidato: field(record, ["SQ_CANDIDATO"]),
-  anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
-  ufSigla: field(record, ["SG_UF"]),
-  ordem: field(record, ["NR_ORDEM_BEM_CANDIDATO", "NR_ORDEM_CANDIDATO"]),
-  tipoCodigo: field(record, ["CD_TIPO_BEM_CANDIDATO"]),
-  tipoDescricao: field(record, ["DS_TIPO_BEM_CANDIDATO"]),
-  descricao: field(record, ["DS_BEM_CANDIDATO"]),
-  valor: numeroBr(pick(record, ["VR_BEM_CANDIDATO"])),
-}) satisfies BemFlat;
+const mapBem = (byKey: HeaderIndex) =>
+  ({
+    sqCandidato: pickClean(byKey, ["SQ_CANDIDATO"]),
+    anoEleicao: intBr(pickFirst(byKey, ["ANO_ELEICAO"])),
+    ufSigla: pickClean(byKey, ["SG_UF"]),
+    ordem: pickClean(byKey, ["NR_ORDEM_BEM_CANDIDATO", "NR_ORDEM_CANDIDATO"]),
+    tipoCodigo: pickClean(byKey, ["CD_TIPO_BEM_CANDIDATO"]),
+    tipoDescricao: pickClean(byKey, ["DS_TIPO_BEM_CANDIDATO"]),
+    descricao: pickClean(byKey, ["DS_BEM_CANDIDATO"]),
+    valor: numeroBr(pickFirst(byKey, ["VR_BEM_CANDIDATO"])),
+  }) satisfies BemFlat;
 
-export const mapCandidatos = (records: readonly Record<string, string>[]) =>
-  pipe(records, Arr.map(mapCandidato));
+export const mapCandidatos = (records: readonly CsvRecord[]) =>
+  pipe(
+    records,
+    Arr.map((record) => mapCandidato(indexByKey(record)))
+  );
 
-export const mapBens = (records: readonly Record<string, string>[]) =>
-  pipe(records, Arr.map(mapBem));
+export const mapBens = (records: readonly CsvRecord[]) =>
+  pipe(
+    records,
+    Arr.map((record) => mapBem(indexByKey(record)))
+  );
 
-export const ReceitaFlat = Schema.Struct({
+const ReceitaFlat = Schema.Struct({
   sqReceita: Schema.String,
   sqCandidato: Schema.String,
   cpfCandidato: Schema.String,
@@ -236,9 +147,9 @@ export const ReceitaFlat = Schema.Struct({
   recibo: Schema.String,
   busca: Schema.String,
 });
-export type ReceitaFlat = (typeof ReceitaFlat)["Type"];
+type ReceitaFlat = (typeof ReceitaFlat)["Type"];
 
-export const DespesaFlat = Schema.Struct({
+const DespesaFlat = Schema.Struct({
   sqDespesa: Schema.String,
   sqCandidato: Schema.String,
   cpfCandidato: Schema.String,
@@ -255,7 +166,7 @@ export const DespesaFlat = Schema.Struct({
   documento: Schema.String,
   busca: Schema.String,
 });
-export type DespesaFlat = (typeof DespesaFlat)["Type"];
+type DespesaFlat = (typeof DespesaFlat)["Type"];
 
 export const ReceitaOrigFlat = Schema.Struct({
   sqReceita: Schema.String,
@@ -270,79 +181,90 @@ export const ReceitaOrigFlat = Schema.Struct({
 });
 export type ReceitaOrigFlat = (typeof ReceitaOrigFlat)["Type"];
 
-const mapReceita = (record: Record<string, string>) => {
-  const nomeDoador = field(record, ["NM_DOADOR"]);
-  const nomeDoadorRfb = field(record, ["NM_DOADOR_RFB"]);
+const mapReceita = (byKey: HeaderIndex) => {
+  const nomeDoador = pickClean(byKey, ["NM_DOADOR"]);
+  const nomeDoadorRfb = pickClean(byKey, ["NM_DOADOR_RFB"]);
   return {
-    sqReceita: field(record, ["SQ_RECEITA"]),
-    sqCandidato: field(record, ["SQ_CANDIDATO"]),
-    cpfCandidato: onlyDigits(field(record, ["NR_CPF_CANDIDATO"])),
-    anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
-    cpfCnpjDoador: onlyDigits(field(record, ["NR_CPF_CNPJ_DOADOR"])),
+    sqReceita: pickClean(byKey, ["SQ_RECEITA"]),
+    sqCandidato: pickClean(byKey, ["SQ_CANDIDATO"]),
+    cpfCandidato: onlyDigits(pickClean(byKey, ["NR_CPF_CANDIDATO"])),
+    anoEleicao: intBr(pickFirst(byKey, ["ANO_ELEICAO"])),
+    cpfCnpjDoador: onlyDigits(pickClean(byKey, ["NR_CPF_CNPJ_DOADOR"])),
     nomeDoador,
     nomeDoadorRfb,
-    cnaeCodigo: field(record, ["CD_CNAE_DOADOR"]),
-    cnaeDescricao: field(record, ["DS_CNAE_DOADOR"]),
-    ufDoador: field(record, ["SG_UF_DOADOR"]),
-    valor: numeroBr(pick(record, ["VR_RECEITA"])),
-    data: dataBr(field(record, ["DT_RECEITA"])) ?? "",
-    origem: field(record, ["DS_ORIGEM_RECEITA"]),
-    natureza: field(record, ["DS_NATUREZA_RECEITA"]),
-    recibo: field(record, ["NR_RECIBO_DOACAO"]),
+    cnaeCodigo: pickClean(byKey, ["CD_CNAE_DOADOR"]),
+    cnaeDescricao: pickClean(byKey, ["DS_CNAE_DOADOR"]),
+    ufDoador: pickClean(byKey, ["SG_UF_DOADOR"]),
+    valor: numeroBr(pickFirst(byKey, ["VR_RECEITA"])),
+    data: dataBr(pickClean(byKey, ["DT_RECEITA"])) ?? "",
+    origem: pickClean(byKey, ["DS_ORIGEM_RECEITA"]),
+    natureza: pickClean(byKey, ["DS_NATUREZA_RECEITA"]),
+    recibo: pickClean(byKey, ["NR_RECIBO_DOACAO"]),
     busca: normalize(`${nomeDoador} ${nomeDoadorRfb}`),
   } satisfies ReceitaFlat;
 };
 
-const mapDespesa = (record: Record<string, string>) => {
-  const nomeForn = field(record, ["NM_FORNECEDOR"]);
-  const nomeFornRfb = field(record, ["NM_FORNECEDOR_RFB"]);
+const mapDespesa = (byKey: HeaderIndex) => {
+  const nomeForn = pickClean(byKey, ["NM_FORNECEDOR"]);
+  const nomeFornRfb = pickClean(byKey, ["NM_FORNECEDOR_RFB"]);
   return {
-    sqDespesa: field(record, ["SQ_DESPESA"]),
-    sqCandidato: field(record, ["SQ_CANDIDATO"]),
-    cpfCandidato: onlyDigits(field(record, ["NR_CPF_CANDIDATO"])),
-    anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
-    cpfCnpjForn: onlyDigits(field(record, ["NR_CPF_CNPJ_FORNECEDOR"])),
+    sqDespesa: pickClean(byKey, ["SQ_DESPESA"]),
+    sqCandidato: pickClean(byKey, ["SQ_CANDIDATO"]),
+    cpfCandidato: onlyDigits(pickClean(byKey, ["NR_CPF_CANDIDATO"])),
+    anoEleicao: intBr(pickFirst(byKey, ["ANO_ELEICAO"])),
+    cpfCnpjForn: onlyDigits(pickClean(byKey, ["NR_CPF_CNPJ_FORNECEDOR"])),
     nomeForn,
     nomeFornRfb,
-    cnaeCodigo: field(record, ["CD_CNAE_FORNECEDOR"]),
-    cnaeDescricao: field(record, ["DS_CNAE_FORNECEDOR"]),
-    ufForn: field(record, ["SG_UF_FORNECEDOR"]),
-    valor: numeroBr(pick(record, ["VR_DESPESA_CONTRATADA"])),
-    data: dataBr(field(record, ["DT_DESPESA"])) ?? "",
-    descricao: field(record, ["DS_DESPESA"]),
-    documento: field(record, ["NR_DOCUMENTO"]),
+    cnaeCodigo: pickClean(byKey, ["CD_CNAE_FORNECEDOR"]),
+    cnaeDescricao: pickClean(byKey, ["DS_CNAE_FORNECEDOR"]),
+    ufForn: pickClean(byKey, ["SG_UF_FORNECEDOR"]),
+    valor: numeroBr(pickFirst(byKey, ["VR_DESPESA_CONTRATADA"])),
+    data: dataBr(pickClean(byKey, ["DT_DESPESA"])) ?? "",
+    descricao: pickClean(byKey, ["DS_DESPESA"]),
+    documento: pickClean(byKey, ["NR_DOCUMENTO"]),
     busca: normalize(`${nomeForn} ${nomeFornRfb}`),
   } satisfies DespesaFlat;
 };
 
-const mapReceitaOriginario = (record: Record<string, string>) => ({
-  sqReceita: field(record, ["SQ_RECEITA"]),
-  anoEleicao: intBr(pick(record, ["ANO_ELEICAO"])),
-  cpfCnpjOrig: onlyDigits(field(record, ["NR_CPF_CNPJ_DOADOR_ORIGINARIO"])),
-  nomeOrig: field(record, ["NM_DOADOR_ORIGINARIO"]),
-  nomeOrigRfb: field(record, ["NM_DOADOR_ORIGINARIO_RFB"]),
-  tipoOrig: field(record, ["DS_TP_DOADOR_ORIGINARIO", "TP_DOADOR_ORIGINARIO"]),
-  cnaeCodigo: field(record, ["CD_CNAE_DOADOR_ORIGINARIO"]),
-  valor: numeroBr(pick(record, ["VR_RECEITA"])),
-  data: dataBr(field(record, ["DT_RECEITA"])) ?? "",
-}) satisfies ReceitaOrigFlat;
+const mapReceitaOriginario = (byKey: HeaderIndex) =>
+  ({
+    sqReceita: pickClean(byKey, ["SQ_RECEITA"]),
+    anoEleicao: intBr(pickFirst(byKey, ["ANO_ELEICAO"])),
+    cpfCnpjOrig: onlyDigits(pickClean(byKey, ["NR_CPF_CNPJ_DOADOR_ORIGINARIO"])),
+    nomeOrig: pickClean(byKey, ["NM_DOADOR_ORIGINARIO"]),
+    nomeOrigRfb: pickClean(byKey, ["NM_DOADOR_ORIGINARIO_RFB"]),
+    tipoOrig: pickClean(byKey, ["DS_TP_DOADOR_ORIGINARIO", "TP_DOADOR_ORIGINARIO"]),
+    cnaeCodigo: pickClean(byKey, ["CD_CNAE_DOADOR_ORIGINARIO"]),
+    valor: numeroBr(pickFirst(byKey, ["VR_RECEITA"])),
+    data: dataBr(pickClean(byKey, ["DT_RECEITA"])) ?? "",
+  }) satisfies ReceitaOrigFlat;
 
-export const mapReceitas = (records: readonly Record<string, string>[]) =>
-  pipe(records, Arr.map(mapReceita));
+export const mapReceitas = (records: readonly CsvRecord[]) =>
+  pipe(
+    records,
+    Arr.map((record) => mapReceita(indexByKey(record)))
+  );
 
-export const mapDespesas = (records: readonly Record<string, string>[]) =>
-  pipe(records, Arr.map(mapDespesa));
+export const mapDespesas = (records: readonly CsvRecord[]) =>
+  pipe(
+    records,
+    Arr.map((record) => mapDespesa(indexByKey(record)))
+  );
 
-export const mapReceitasOriginario = (
-  records: readonly Record<string, string>[]
-) => pipe(records, Arr.map(mapReceitaOriginario));
+export const mapReceitasOriginario = (records: readonly CsvRecord[]) =>
+  pipe(
+    records,
+    Arr.map((record) => mapReceitaOriginario(indexByKey(record)))
+  );
 
-export const TseErrorCode = Schema.Literals(["tse.MISSING_IDENTIFIER"]);
-export type TseErrorCode = (typeof TseErrorCode)["Type"];
+const TseErrorCode = Schema.Literals(["tse.MISSING_IDENTIFIER"]);
 
-export class TseError extends Schema.TaggedError<TseError, { readonly brand: unique symbol }>()("TseError", {
-  code: TseErrorCode,
-}) {
+export class TseError extends Schema.TaggedError<TseError, { readonly brand: unique symbol }>()(
+  "TseError",
+  {
+    code: TseErrorCode,
+  }
+) {
   override get message() {
     switch (this.code) {
       case "tse.MISSING_IDENTIFIER":

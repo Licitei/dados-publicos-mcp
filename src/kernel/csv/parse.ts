@@ -3,6 +3,7 @@ import { dual, pipe } from "effect/Function";
 import * as Predicate from "effect/Predicate";
 import * as Option from "effect/Option";
 import * as Rec from "effect/Record";
+import * as Schema from "effect/Schema";
 import * as Str from "effect/String";
 
 const stripBom = (text: string) =>
@@ -11,49 +12,45 @@ const stripBom = (text: string) =>
     Option.filter((code) => code === 0xfeff),
     Option.match({
       onNone: () => text,
-      onSome: () => pipe(text, Str.slice(1))
+      onSome: () => pipe(text, Str.slice(1)),
     })
   );
 
-const escapeRegExp = (value: string) =>
-  pipe(value, Str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+const escapeRegExp = (value: string) => pipe(value, Str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
 const quoteCount = (value: string) =>
-  pipe(
-    value,
-    Str.match(/"/g),
-    Option.match({ onNone: () => 0, onSome: (found) => found.length })
-  );
+  pipe(value, Str.match(/"/g), Option.match({ onNone: () => 0, onSome: (found) => found.length }));
 
-type Merge = {
-  readonly merged: readonly string[];
-  readonly pending: Option.Option<string>;
-};
+const Merge = Schema.Struct({
+  merged: Schema.Array(Schema.String),
+  pending: Schema.Option(Schema.String),
+});
+type Merge = (typeof Merge)["Type"];
+
+const CsvRecord = Schema.Record(Schema.String, Schema.String);
+export type CsvRecord = (typeof CsvRecord)["Type"];
 
 const mergeQuotedLines = (lines: readonly string[]) => {
   const state = pipe(
     lines,
-    Arr.reduce<Merge, string>(
-      { merged: [], pending: Option.none() },
-      (acc, line) => {
-        const combined = pipe(
-          acc.pending,
-          Option.match({
-            onNone: () => line,
-            onSome: (pending) => `${pending}\n${line}`
-          })
-        );
-        return quoteCount(combined) % 2 === 0
-          ? { merged: Arr.append(acc.merged, combined), pending: Option.none() }
-          : { merged: acc.merged, pending: Option.some(combined) };
-      }
-    )
+    Arr.reduce<Merge, string>({ merged: [], pending: Option.none() }, (acc, line) => {
+      const combined = pipe(
+        acc.pending,
+        Option.match({
+          onNone: () => line,
+          onSome: (pending) => `${pending}\n${line}`,
+        })
+      );
+      return quoteCount(combined) % 2 === 0
+        ? { merged: Arr.append(acc.merged, combined), pending: Option.none() }
+        : { merged: acc.merged, pending: Option.some(combined) };
+    })
   );
   return pipe(
     state.pending,
     Option.match({
       onNone: () => state.merged,
-      onSome: (trailing) => Arr.append(state.merged, trailing)
+      onSome: (trailing) => Arr.append(state.merged, trailing),
     })
   );
 };
@@ -69,29 +66,27 @@ const tokenize = (line: string, pattern: RegExp, delimiter: string) =>
     Arr.map((match) => unquote(match[1] ?? ""))
   );
 
-export type CsvOptions = {
-  readonly encoding?: string;
-  readonly delimiter?: string;
-};
+const CsvOptions = Schema.Struct({
+  encoding: Schema.optional(Schema.String),
+  delimiter: Schema.optional(Schema.String),
+});
+type CsvOptions = (typeof CsvOptions)["Type"];
 
-const parseCsvRecordsImpl = (
-  bytes: Uint8Array,
-  options?: CsvOptions
-): readonly Record<string, string>[] => {
+const parseCsvRecordsImpl = (bytes: Uint8Array, options?: CsvOptions): readonly CsvRecord[] => {
   const encoding = options?.encoding ?? "utf-8";
   const delimiter = options?.delimiter ?? ",";
   const text = stripBom(new TextDecoder(encoding, { fatal: false }).decode(bytes));
   const escaped = escapeRegExp(delimiter);
-  const pattern = new RegExp(
-    `${escaped}("(?:[^"]*(?:""[^"]*)*)"|[^${escaped}]*)`,
-    "g"
-  );
+  const pattern = new RegExp(`${escaped}("(?:[^"]*(?:""[^"]*)*)"|[^${escaped}]*)`, "g");
   const rows = pipe(
     mergeQuotedLines(pipe(text, Str.split(/\r\n|\r|\n/))),
     Arr.filter((line) => line.length > 0),
     Arr.map((line) => tokenize(line, pattern, delimiter))
   );
-  const header = pipe(Arr.head(rows), Option.getOrElse((): readonly string[] => []));
+  const header = pipe(
+    Arr.head(rows),
+    Option.getOrElse((): readonly string[] => [])
+  );
   return pipe(
     Arr.drop(rows, 1),
     Arr.map((cells) =>
@@ -99,7 +94,10 @@ const parseCsvRecordsImpl = (
         header,
         Arr.map((key, index): readonly [string, string] => [
           key,
-          pipe(Arr.get(cells, index), Option.getOrElse(() => ""))
+          pipe(
+            Arr.get(cells, index),
+            Option.getOrElse(() => "")
+          ),
         ]),
         Rec.fromEntries
       )
@@ -108,8 +106,8 @@ const parseCsvRecordsImpl = (
 };
 
 export const parseCsvRecords: {
-  (options?: CsvOptions): (bytes: Uint8Array) => readonly Record<string, string>[];
-  (bytes: Uint8Array, options?: CsvOptions): readonly Record<string, string>[];
+  (options?: CsvOptions): (bytes: Uint8Array) => readonly CsvRecord[];
+  (bytes: Uint8Array, options?: CsvOptions): readonly CsvRecord[];
 } = dual(
   (args) => Predicate.isUint8Array(args[0]),
   (bytes: Uint8Array, options?: CsvOptions) => parseCsvRecordsImpl(bytes, options)

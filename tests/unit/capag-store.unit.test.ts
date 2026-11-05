@@ -4,12 +4,18 @@ import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Rec from "effect/Record";
 import * as Str from "effect/String";
-import { sql } from "drizzle-orm";
-import { Db } from "../../src/kernel/db/client";
-import { Capag, CapagLive } from "../../src/sources/capag/store";
+import { Duck } from "../../src/kernel/duck/duck";
+import {
+  Capag,
+  CapagLive,
+  capagEstadoTable,
+  capagMunicipioTable,
+  siconfiEnteTable,
+} from "../../src/sources/capag/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { storedZip, utf8 } from "./support/stored-zip";
-import { TestDbLive } from "./support/test-db";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
 const letters = Arr.fromIterable("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
 
@@ -23,10 +29,7 @@ const cell = (rowNumber: number, index: number, value: string) =>
     ? `<c r="${colLetter(index)}${rowNumber}"><v>${value}</v></c>`
     : `<c r="${colLetter(index)}${rowNumber}" t="inlineStr"><is><t>${value}</t></is></c>`;
 
-const sheetRow = (
-  rowNumber: number,
-  values: readonly (readonly [number, string])[]
-) =>
+const sheetRow = (rowNumber: number, values: readonly (readonly [number, string])[]) =>
   `<row r="${rowNumber}">${Arr.join(
     Arr.map(values, ([index, value]) => cell(rowNumber, index, value)),
     ""
@@ -76,49 +79,52 @@ const municipiosXlsx = storedZip([
   {
     name: "xl/worksheets/sheet1.xml",
     bytes: utf8(
-      `<?xml version="1.0"?><worksheet><sheetData>${Arr.join([
-        sheetRow(1, [
-          [0, "Cod.IBGE"],
-          [1, "Municipio"],
-          [2, "UF"],
-        ]),
-        municipioRow(5, {
-          codIbge: "3550308",
-          nome: "São Paulo",
-          uf: "SP",
-          indicador1: "0.3000",
-          nota1: "A",
-          indicador2: "1.2000",
-          nota2: "A",
-          indicador3: "2.0000",
-          nota3: "A",
-          capag: "A",
-        }),
-        municipioRow(6, {
-          codIbge: "3304557",
-          nome: "Rio de Janeiro",
-          uf: "RJ",
-          indicador1: "0.8000",
-          nota1: "C",
-          indicador2: "0.6000",
-          nota2: "C",
-          indicador3: "0.9000",
-          nota3: "C",
-          capag: "C",
-        }),
-        municipioRow(7, {
-          codIbge: "5208707",
-          nome: "Goiânia",
-          uf: "GO",
-          indicador1: "0.5500",
-          nota1: "B+",
-          indicador2: "0.7500",
-          nota2: "B",
-          indicador3: "1.1000",
-          nota3: "B",
-          capag: "B",
-        }),
-      ], "")}</sheetData></worksheet>`
+      `<?xml version="1.0"?><worksheet><sheetData>${Arr.join(
+        [
+          sheetRow(1, [
+            [0, "Cod.IBGE"],
+            [1, "Municipio"],
+            [2, "UF"],
+          ]),
+          municipioRow(5, {
+            codIbge: "3550308",
+            nome: "São Paulo",
+            uf: "SP",
+            indicador1: "0.3000",
+            nota1: "A",
+            indicador2: "1.2000",
+            nota2: "A",
+            indicador3: "2.0000",
+            nota3: "A",
+            capag: "A",
+          }),
+          municipioRow(6, {
+            codIbge: "3304557",
+            nome: "Rio de Janeiro",
+            uf: "RJ",
+            indicador1: "0.8000",
+            nota1: "C",
+            indicador2: "0.6000",
+            nota2: "C",
+            indicador3: "0.9000",
+            nota3: "C",
+            capag: "C",
+          }),
+          municipioRow(7, {
+            codIbge: "5208707",
+            nome: "Goiânia",
+            uf: "GO",
+            indicador1: "0.5500",
+            nota1: "B+",
+            indicador2: "0.7500",
+            nota2: "B",
+            indicador3: "1.1000",
+            nota3: "B",
+            capag: "B",
+          }),
+        ],
+        ""
+      )}</sheetData></worksheet>`
     ),
   },
 ]);
@@ -154,17 +160,23 @@ const municipiosPackage = {
   },
 };
 
-const estados2023Csv = Arr.join([
-  "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
-  "SP;45,10%;A;88,00%;A;130,00%;A;A;Boa;-",
-  "RJ;92,29%;D;70,00%;C;40,00%;D;C;Boa;-",
-], "\n");
+const estados2023Csv = Arr.join(
+  [
+    "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
+    "SP;45,10%;A;88,00%;A;130,00%;A;A;Boa;-",
+    "RJ;92,29%;D;70,00%;C;40,00%;D;C;Boa;-",
+  ],
+  "\n"
+);
 
-const estados2024Csv = Arr.join([
-  "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
-  "SP;44,00%;A;90,00%;A;140,00%;A;A;Boa;-",
-  "RJ;95,00%;D;65,00%;C;38,00%;D;D;Boa;piora",
-], "\n");
+const estados2024Csv = Arr.join(
+  [
+    "UF;Indicador 1;Nota 1;Indicador 2;Nota 2;Indicador 3;Nota 3;Classificação da CAPAG;Qualidade da Informação;Observação",
+    "SP;44,00%;A;90,00%;A;140,00%;A;A;Boa;-",
+    "RJ;95,00%;D;65,00%;C;38,00%;D;D;Boa;piora",
+  ],
+  "\n"
+);
 
 const entesPayload = {
   items: [
@@ -217,19 +229,16 @@ const quote = (value: string) => `"${value}"`;
 const jsonBody = (value: unknown): string =>
   Match.value(value).pipe(
     Match.when(Predicate.isString, quote),
-    Match.when(Arr.isArray, (items) =>
-      `[${Arr.join(Arr.map(items, jsonBody), ",")}]`
+    Match.when(Arr.isArray, (items) => `[${Arr.join(Arr.map(items, jsonBody), ",")}]`),
+    Match.when(
+      Predicate.isObject,
+      (record) =>
+        `{${Arr.join(
+          Arr.map(Rec.toEntries(record), ([key, item]) => `${quote(key)}:${jsonBody(item)}`),
+          ","
+        )}}`
     ),
-    Match.when(Predicate.isObject, (record) =>
-      `{${Arr.join(
-        Arr.map(
-          Rec.toEntries(record),
-          ([key, item]) => `${quote(key)}:${jsonBody(item)}`
-        ),
-        ","
-      )}}`
-    ),
-    Match.orElse((other) => `${other}`)
+    Match.orElse((other) => String(other))
   );
 
 const json = { "content-type": "application/json" };
@@ -264,10 +273,8 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  CapagLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpFixture))),
-  TestDbLive,
-  HttpFixture
+const TestLayer = CapagLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
 const seeded = Effect.gen(function* () {
@@ -276,103 +283,105 @@ const seeded = Effect.gen(function* () {
   return capag;
 });
 
-layer(TestLayer, { timeout: Duration.seconds(60) })("capag store + fiscal solvency ratings", (it) => {
-  it.effect(
-    "index discovers latest CSV (estados) + XLSX (municipios) and persists three tables",
-    () =>
-      Effect.gen(function* () {
-        yield* seeded;
-        const db = yield* Db;
-        const estados = yield* db.execute(
-          sql`select count(*)::int as count from capag_estado`
-        ).pipe(Effect.map(({ rows }) => rows));
-        const municipios = yield* db.execute(
-          sql`select count(*)::int as count from capag_municipio`
-        ).pipe(Effect.map(({ rows }) => rows));
-        const entes = yield* db.execute(
-          sql`select count(*)::int as count from siconfi_ente`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(Option.map(Arr.head(estados), (r) => Number(r.count))).toEqual(Option.some(2));
-        expect(Option.map(Arr.head(municipios), (r) => Number(r.count))).toEqual(Option.some(3));
-        expect(Option.map(Arr.head(entes), (r) => Number(r.count))).toEqual(Option.some(4));
-      }),
-  );
+layer(TestLayer, { timeout: Duration.seconds(60) })(
+  "capag store + fiscal solvency ratings",
+  (it) => {
+    it.effect(
+      "index discovers latest CSV (estados) + XLSX (municipios) and persists three tables",
+      () =>
+        Effect.gen(function* () {
+          yield* seeded;
+          const duck = yield* Duck;
+          const estados = yield* duck.count(capagEstadoTable);
+          const municipios = yield* duck.count(capagMunicipioTable);
+          const entes = yield* duck.count(siconfiEnteTable);
+          expect(estados).toBe(2);
+          expect(municipios).toBe(3);
+          expect(entes).toBe(4);
+        })
+    );
 
-  it.effect(
-    "capagEnte resolves by ibge exact with XLSX fraction + estado percentage coercion",
-    () =>
+    it.effect(
+      "capagEnte resolves by ibge exact with XLSX fraction + estado percentage coercion",
+      () =>
+        Effect.gen(function* () {
+          const capag = yield* seeded;
+          const sp = yield* capag.capagEnte({ ibge: "3550308" });
+          expect(sp.capag).toBe("A");
+          expect(sp.nome).toBe("São Paulo");
+          expect(sp.indicador1).toBeCloseTo(0.3, 5);
+          const goiania = yield* capag.capagEnte({ ibge: "5208707" });
+          expect(goiania.indicador1).toBeCloseTo(0.55, 5);
+          const estado = yield* capag.capagEnte({ ibge: "RJ" });
+          expect(estado.uf).toBe("RJ");
+          expect(estado.capag).toBe("D");
+          expect(estado.indicador1).toBeCloseTo(0.95, 5);
+        })
+    );
+
+    it.effect(
+      "capagEnte by name exposes a positive bm25 score from the word index and a zero score from the fuzzy fallback",
+      () =>
+        Effect.gen(function* () {
+          const capag = yield* seeded;
+          const goiania = yield* capag.capagEnte({ nome: "goiania" });
+          expect(goiania.nome).toBe("Goiânia");
+          expect(goiania.capag).toBe("B");
+          expect(goiania.score).not.toBeNull();
+          expect(goiania.score).toBeGreaterThan(0);
+          const typo = yield* capag.capagEnte({ nome: "goina" });
+          expect(typo.nome).toBe("Goiânia");
+          expect(typo.score).toBe(0);
+          const filtered = yield* capag.capagEnte({ nome: "rio", uf: "RJ" });
+          expect(filtered.uf).toBe("RJ");
+        })
+    );
+
+    it.effect(
+      "capagEnte fails ENTE_NOT_FOUND for an unknown name and MISSING_IDENTIFIER for empty input",
+      () =>
+        Effect.gen(function* () {
+          const capag = yield* seeded;
+          const notFound = yield* Effect.flip(capag.capagEnte({ nome: "cidade inexistente xyz" }));
+          expect(notFound).toMatchObject({ code: "capag.ENTE_NOT_FOUND" });
+          const missing = yield* Effect.flip(capag.capagEnte({}));
+          expect(missing).toMatchObject({ code: "capag.MISSING_IDENTIFIER" });
+          expect(missing.message).toContain("Informe ibge ou nome");
+        })
+    );
+
+    it.effect("serieHistorica returns every ano of a municipio ordered ascending by ano", () =>
       Effect.gen(function* () {
         const capag = yield* seeded;
-        const sp = yield* capag.capagEnte({ ibge: "3550308" });
-        expect(sp.capag).toBe("A");
-        expect(sp.nome).toBe("São Paulo");
-        expect(sp.indicador1).toBeCloseTo(0.3, 5);
-        const goiania = yield* capag.capagEnte({ ibge: "5208707" });
-        expect(goiania.indicador1).toBeCloseTo(0.55, 5);
-        const estado = yield* capag.capagEnte({ ibge: "RJ" });
-        expect(estado.uf).toBe("RJ");
-        expect(estado.capag).toBe("D");
-        expect(estado.indicador1).toBeCloseTo(0.95, 5);
-      }),
-  );
-
-  it.effect(
-    "capagEnte by name exposes a bm25 (negative) score and a trgm-typo (positive) score",
-    () =>
-      Effect.gen(function* () {
-        const capag = yield* seeded;
-        const goiania = yield* capag.capagEnte({ nome: "goiania" });
-        expect(goiania.nome).toBe("Goiânia");
-        expect(goiania.capag).toBe("B");
-        expect(goiania.score).not.toBeNull();
-        expect(goiania.score).toBeLessThan(0);
-        const typo = yield* capag.capagEnte({ nome: "goina" });
-        expect(typo.nome).toBe("Goiânia");
-        expect(typo.score).not.toBeNull();
-        expect(typo.score).toBeGreaterThan(0);
-        const filtered = yield* capag.capagEnte({ nome: "rio", uf: "RJ" });
-        expect(filtered.uf).toBe("RJ");
-      }),
-  );
-
-  it.effect(
-    "capagEnte fails ENTE_NOT_FOUND for an unknown name and MISSING_IDENTIFIER for empty input",
-    () =>
-      Effect.gen(function* () {
-        const capag = yield* seeded;
-        const notFound = yield* Effect.flip(
-          capag.capagEnte({ nome: "cidade inexistente xyz" })
-        );
-        expect(notFound).toMatchObject({ code: "capag.ENTE_NOT_FOUND" });
-        const missing = yield* Effect.flip(capag.capagEnte({}));
-        expect(missing).toMatchObject({ code: "capag.MISSING_IDENTIFIER" });
-        expect(missing.message).toContain("Informe ibge ou nome");
-      }),
-  );
-
-  it.effect(
-    "serieHistorica returns every ano of a municipio ordered ascending by ano",
-    () =>
-      Effect.gen(function* () {
-        const capag = yield* seeded;
-        const db = yield* Db;
-        yield* db.execute(sql`
-          insert into capag_municipio
-            (cod_ibge, nome, nome_norm, uf, ano_base, posicao, capag, busca)
-          values ('3550308', 'São Paulo', 'sao paulo', 'SP', 2022,
-                  '2022-11-09', 'B', 'sao paulo')
-        `).pipe(Effect.map(({ rows }) => rows));
+        const duck = yield* Duck;
+        yield* duck.append(capagMunicipioTable, [
+          {
+            id: "3550308:2022",
+            codIbge: "3550308",
+            nome: "São Paulo",
+            nomeNorm: "sao paulo",
+            uf: "SP",
+            anoBase: 2022,
+            posicao: "2022-11-09",
+            indicador1: null,
+            nota1: null,
+            indicador2: null,
+            nota2: null,
+            indicador3: null,
+            nota3: null,
+            capag: "B",
+            busca: "sao paulo",
+          },
+        ]);
         const serie = yield* capag.serieHistorica({ ibge: "3550308" });
         expect(serie.tipo).toBe("municipio");
         const anos = Arr.map(serie.serie, (row) => row.anoBase);
         expect(anos).toEqual([2022, 2024]);
         expect(Arr.map(serie.serie, (row) => row.capag)).toEqual(["B", "A"]);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "entesPorNota filters by a rating subset and by region via the siconfi bridge",
-    () =>
+    it.effect("entesPorNota filters by a rating subset and by region via the siconfi bridge", () =>
       Effect.gen(function* () {
         const capag = yield* seeded;
         const cd = yield* capag.entesPorNota({ notas: ["C", "D"] });
@@ -386,27 +395,26 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("capag store + fiscal solven
         });
         expect(Arr.map(aCentroOeste.municipios, (m) => m.nome)).toEqual(["Goiânia"]);
         expect(aCentroOeste.estados).toEqual([]);
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "buscarEntePorNome ranks siconfi entes by the busca bm25/trgm column",
-    () =>
-      Effect.gen(function* () {
-        const capag = yield* seeded;
-        const entes = yield* capag.buscarEntePorNome("goiania");
-        const top = Arr.head(entes);
-        expect(Option.map(top, (e) => e.ente)).toEqual(Option.some("Goiânia"));
-        expect(Option.map(top, (e) => e.codIbge)).toEqual(
-          Option.some("5208707")
-        );
-        expect(Option.map(top, (e) => e.score < 0)).toEqual(Option.some(true));
-      }),
-  );
+    it.effect(
+      "buscarEntePorNome ranks siconfi entes by the busca bm25 column with fuzzy fallback",
+      () =>
+        Effect.gen(function* () {
+          const capag = yield* seeded;
+          const entes = yield* capag.buscarEntePorNome("goiania");
+          const top = Arr.head(entes);
+          expect(Option.map(top, (e) => e.ente)).toEqual(Option.some("Goiânia"));
+          expect(Option.map(top, (e) => e.codIbge)).toEqual(Option.some("5208707"));
+          expect(Option.map(top, (e) => e.score > 0)).toEqual(Option.some(true));
+          const typo = yield* capag.buscarEntePorNome("goina");
+          expect(Option.map(Arr.head(typo), (e) => e.codIbge)).toEqual(Option.some("5208707"));
+          expect(Option.map(Arr.head(typo), (e) => e.score)).toEqual(Option.some(0));
+        })
+    );
 
-  it.effect(
-    "resolverEntePorCnpj maps a CNPJ to its ente and codIbge, else CNPJ_NOT_FOUND",
-    () =>
+    it.effect("resolverEntePorCnpj maps a CNPJ to its ente and codIbge, else CNPJ_NOT_FOUND", () =>
       Effect.gen(function* () {
         const capag = yield* seeded;
         const ente = yield* capag.resolverEntePorCnpj("46.395.000/0001-39");
@@ -418,10 +426,9 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("capag store + fiscal solven
         const estado = yield* capag.resolverEntePorCnpj("48.498.674/0001-92");
         expect(estado.esfera).toBe("E");
         expect(estado.codIbge).toBe("35");
-        const missing = yield* Effect.flip(
-          capag.resolverEntePorCnpj("00.000.000/0000-00")
-        );
+        const missing = yield* Effect.flip(capag.resolverEntePorCnpj("00.000.000/0000-00"));
         expect(missing).toMatchObject({ code: "capag.CNPJ_NOT_FOUND" });
-      }),
-  );
-});
+      })
+    );
+  }
+);

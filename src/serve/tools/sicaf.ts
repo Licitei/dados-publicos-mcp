@@ -16,7 +16,11 @@ const buscarFornecedorSicaf = defineTool({
   run: (args) =>
     Sicaf.pipe(
       Effect.flatMap((service) =>
-        service.buscar(Struct.renameKeys(Struct.pick(args, ["nome", "apenasAtivos", "limite"]), { limite: "limit" }))
+        service.buscar(
+          Struct.renameKeys(Struct.pick(args, ["nome", "apenasAtivos", "limite"]), {
+            limite: "limit",
+          })
+        )
       )
     ),
 });
@@ -28,8 +32,7 @@ const fornecedorHabilitado = defineTool({
   description:
     "Verifica por CNPJ se um fornecedor esta ativo e habilitado a licitar no SICAF, offline.",
   input: HabilitadoInput,
-  run: (args) =>
-    Sicaf.pipe(Effect.flatMap((service) => service.habilitado(args.cnpj))),
+  run: (args) => Sicaf.pipe(Effect.flatMap((service) => service.habilitado(args.cnpj))),
 });
 
 const ListarInput = Schema.Struct({
@@ -41,9 +44,7 @@ const ListarInput = Schema.Struct({
 }).pipe(
   Schema.check(
     Schema.makeFilter((value) =>
-      value.uf !== undefined ||
-      value.municipio !== undefined ||
-      value.cnae !== undefined
+      value.uf !== undefined || value.municipio !== undefined || value.cnae !== undefined
         ? undefined
         : "Informe ao menos um filtro: uf, municipio ou cnae."
     )
@@ -57,7 +58,12 @@ const listarFornecedoresUfCnae = defineTool({
   run: (args) =>
     Sicaf.pipe(
       Effect.flatMap((service) =>
-        service.listar(Struct.renameKeys(Struct.pick(args, ["uf", "municipio", "cnae", "apenasAtivos", "limite"]), { limite: "limit" }))
+        service.listar(
+          Struct.renameKeys(
+            Struct.pick(args, ["uf", "municipio", "cnae", "apenasAtivos", "limite"]),
+            { limite: "limit" }
+          )
+        )
       )
     ),
 });

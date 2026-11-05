@@ -4,7 +4,7 @@ The v2 is **declarative-first**: declare data/schema and compose with Effect com
 
 ## Declarative, not helpers
 
-`lint:errors` (an AST checker, strict tier on `src/kernel/` and `src/sources/`) bans `to*Error`/`is*Error`/`map*Error`/`wrap*Error`/`from*Error` and functions that return an error. We extend the aesthetic to all code:
+The lint (`dados-publicos/no-error-helper-functions`, strict tier on `src/kernel/` and `src/sources/`) bans `to*Error`/`is*Error`/`map*Error`/`wrap*Error`/`from*Error` and functions that return an error. We extend the aesthetic to all code:
 
 - Branch with **`Match`**; `switch` only inside a `get message()`.
 - Tools declared as **data** `{ name, schema, handler }`, folded by one deep `defineTool` — never a per-source `registerXxxTools` with `if/else`.
@@ -15,31 +15,31 @@ The v2 is **declarative-first**: declare data/schema and compose with Effect com
 
 ## Anti-`utils` rule
 
-No `utils/`, `helpers/`, `misc/`, `common/`. A folder earns its name by being a deep module with an interface. If the candidate name is "util", the content is: (a) a **capability** → name it (`text`, `csv`, `http`, `embed`); (b) a **domain** concept → name it (`cnpj`, `db`); or (c) it **should not exist** → inline it as a combinator.
+No `utils/`, `helpers/`, `misc/`, `common/`. A folder earns its name by being a deep module with an interface. If the candidate name is "util", the content is: (a) a **capability** → name it (`text`, `csv`, `http`, `duck`); (b) a **domain** concept → name it (`cnpj`, `search`); or (c) it **should not exist** → inline it as a combinator.
 
 ## Layout (as built)
 
 ```
 src/
-  index.ts                          # CLI entrypoint (effect/unstable/cli + @effect/platform-bun)
-  runtime.ts                        # ManagedRuntime over AppLayer = 12 source XLive provideMerge Infra
-  kernel/                           # deep core, by capability
-    db/    (client.ts PGlite Layer + 4 extensions, persistence.ts Config dataDir, ddl.ts, relations.ts, schemas/<table>.ts)
-    embed/ (embedder.ts, dimensions.ts)
-    http/  (client.ts — gold standard)
-    text/  · csv/ · xlsx/ · zip/
-  sources/<source>/                 # 12 slices, each a Context.Service + XLive Layer
-    store.ts query.ts indexer.ts errors.ts data.ts <source>.test.ts
-  serve/                            # MCP tool layer (Effect-native over @modelcontextprotocol/sdk Server)
-    tool.ts fold.ts server.ts status.ts registry.ts index-registry.ts tools/<source>.ts
+  index.ts          CLI entrypoint (effect/cli + @effect/platform-bun)
+  runtime.ts        ManagedRuntime over AppLayer = 20 source XLive provideMerge Infra
+  kernel/           deep core, by capability
+    duck/           Duck: one native DuckDB file, DuckTable declarations, bm25
+    search/         Search (fff over the Markdown corpora), Fuzzy (fff typo fallback), CorpusGit
+    http/           Http (gold standard)
+    text/ csv/ xlsx/ zip/   data-dir.ts
+  sources/<source>/ catalog.ts (Schemas, codes, errors, DuckTables) · indexer.ts (download/parse) · store.ts (Context.Service + XLive)
+  serve/            MCP tool layer over the low-level @modelcontextprotocol/sdk Server
+    tool.ts fold.ts server.ts status.ts lazy.ts registry.ts index-registry.ts skills.ts tools/<source>.ts
 ```
 
-The 12 sources: `legislacao`, `ibge-localidades`, `cnae`, `catmat-catser`, `sicaf-fornecedores`, `sancoes-cgu`, `receita-cnpj`, `tse-eleitoral`, `camara-deputados`, `querido-diario`, `capag`, `pncp`. All persist into the **one** PGlite database under `src/kernel/db/schemas/`.
+Tests live in `tests/unit` and `tests/integration` (vitest + @effect/vitest). The layout and import directions are
+enforced by the lint (`tooling/lint`: konsistent + `no-restricted-imports` per directory), not by this document.
 
 ## Fixed naming
 
-`store.ts` (not `db`) · `query.ts` (not `service`) · `indexer.ts` · `errors.ts` · `data.ts` (not `catalog`) · **kebab-case always**.
+`catalog.ts` · `indexer.ts` · `store.ts` · **kebab-case always** (lint: `dados-publicos/filename-case`).
 
 ## Status
 
-**accepted — realized.** The folder migration is done: `src/modules/**` and `src/core/**` are deleted; the live tree is `src/kernel/**`, `src/sources/**`, `src/serve/**`. Tools are folded from data via `defineTool`; there is no `registerTool`/`IndexAdapter`/legacy registry. Tests are `vitest` (`*.test.ts` colocated in the slice) — no `bun test`, no `__tests__/`.
+**accepted — realized.** The folder migration is done: `src/modules/**` and `src/core/**` are deleted; the live tree is `src/kernel/**`, `src/sources/**`, `src/serve/**`. Tools are folded from data via `defineTool`; there is no `registerTool`/`IndexAdapter`/legacy registry. Tests are `vitest` under `tests/` — no `bun test`.

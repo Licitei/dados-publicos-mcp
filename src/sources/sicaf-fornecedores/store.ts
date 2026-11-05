@@ -1,77 +1,28 @@
-import { Context, Effect, Layer, Match, Option, pipe } from "effect";
+import { Context, Effect, Layer, Match, Option, pipe, Schema, Struct } from "effect";
 import * as Arr from "effect/Array";
 import * as Str from "effect/String";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { fornecedor } from "../../kernel/db/schemas/fornecedor";
+import { Duck, idsParam, type DuckParam } from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { fornecedorTable, FornecedorFlat } from "./catalog";
 import { indexFornecedores } from "./indexer";
+import { castIds, clamp, lexicalOrFuzzy, scoredFrom } from "../../kernel/duck/search";
 
-const viewColumns = {
-  cnpj: true,
-  cpf: true,
-  nomeRazaoSocial: true,
-  ativo: true,
-  habilitadoLicitar: true,
-  ufSigla: true,
-  nomeMunicipio: true,
-  codigoCnae: true,
-  nomeCnae: true,
-  naturezaJuridicaNome: true,
-  porteEmpresaNome: true,
-} as const;
+const FornecedorView = FornecedorFlat.mapFields(Struct.omit(["busca", "nomeMunicipioNormalizado"]));
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const FornecedorHit = Schema.Struct({
+  ...FornecedorView.fields,
+  id: Schema.Finite,
+  score: Schema.Finite,
+});
+
+const viewSelect = `cnpj, cpf, "nomeRazaoSocial", ativo, "habilitadoLicitar", "ufSigla", "nomeMunicipio", "codigoCnae"::INTEGER AS "codigoCnae", "nomeCnae", "naturezaJuridicaNome", "porteEmpresaNome"`;
+
+type Filter = readonly [clause: string, params: ReadonlyArray<DuckParam>];
 
 const makeSicaf = Effect.gen(function* () {
-  const db = yield* Db;
-
-  const bm25Fornecedores = (q: string, limit: number, ativoWhere: SQL) =>
-    db.execute(sql`
-      select
-        cnpj, cpf, nome_razao_social as "nomeRazaoSocial", ativo,
-        habilitado_licitar as "habilitadoLicitar", uf_sigla as "ufSigla",
-        nome_municipio as "nomeMunicipio", codigo_cnae as "codigoCnae",
-        nome_cnae as "nomeCnae",
-        natureza_juridica_nome as "naturezaJuridicaNome",
-        porte_empresa_nome as "porteEmpresaNome", -rk as score
-      from (
-        select
-          cnpj, cpf, nome_razao_social, ativo, habilitado_licitar, uf_sigla,
-          nome_municipio, codigo_cnae, nome_cnae, natureza_juridica_nome,
-          porte_empresa_nome, row_number() over () as rk
-        from (
-          select
-            cnpj, cpf, nome_razao_social, ativo, habilitado_licitar, uf_sigla,
-            nome_municipio, codigo_cnae, nome_cnae, natureza_juridica_nome,
-            porte_empresa_nome
-          from ${fornecedor}
-          ${ativoWhere}
-          order by busca <@> to_bm25query(${q})
-          limit ${sql.raw(String(limit))}
-        ) ranked
-      ) scored
-      order by rk
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const trgmFornecedores = (q: string, limit: number, ativoAnd: SQL) =>
-    db.execute(sql`
-      select
-        cnpj, cpf, nome_razao_social as "nomeRazaoSocial", ativo,
-        habilitado_licitar as "habilitadoLicitar", uf_sigla as "ufSigla",
-        nome_municipio as "nomeMunicipio", codigo_cnae as "codigoCnae",
-        nome_cnae as "nomeCnae",
-        natureza_juridica_nome as "naturezaJuridicaNome",
-        porte_empresa_nome as "porteEmpresaNome",
-        word_similarity(${q}, busca) as score
-      from ${fornecedor}
-      where word_similarity(${q}, busca) >= 0.2 ${ativoAnd}
-      order by score desc, cnpj
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
   const buscar = (options: {
     readonly nome: string;
@@ -81,48 +32,52 @@ const makeSicaf = Effect.gen(function* () {
     Effect.gen(function* () {
       const q = normalize(options.nome);
       const limit = clamp(options.limit, 20, 100);
-      const ativoWhere = Match.value(options.apenasAtivos).pipe(
-        Match.when(true, () => sql`where ativo = true`),
-        Match.orElse(() => sql``)
-      );
-      const ativoAnd = Match.value(options.apenasAtivos).pipe(
-        Match.when(true, () => sql`and ativo = true`),
-        Match.orElse(() => sql``)
-      );
-      const lexical = yield* bm25Fornecedores(q, limit, ativoWhere);
-      return yield* Match.value(lexical.length).pipe(
-        Match.when(0, () => trgmFornecedores(q, limit, ativoAnd)),
-        Match.orElse(() => Effect.succeed(lexical))
-      );
+      const ativoAnd = options.apenasAtivos === true ? "AND ativo" : "";
+      const rows = yield* Str.isNonEmpty(q)
+        ? lexicalOrFuzzy(
+            duck.query(
+              FornecedorHit,
+              `SELECT id::DOUBLE AS id, ${viewSelect}, score ${scoredFrom(fornecedorTable)} ${ativoAnd}
+               ORDER BY score DESC, cnpj LIMIT ?`,
+              [q, limit]
+            ),
+            fuzzy.match("fornecedor", q, { limit }),
+            (ids) =>
+              duck.query(
+                FornecedorHit,
+                `SELECT id::DOUBLE AS id, ${viewSelect}, 0::DOUBLE AS score FROM fornecedor WHERE ${castIds} ${ativoAnd}`,
+                [idsParam(ids)]
+              ),
+            (row) => row.id
+          )
+        : Effect.succeed([]);
+      return Arr.map(rows, Struct.omit(["id"]));
     });
 
   const habilitado = (cnpjInput: string) =>
     Effect.gen(function* () {
       const cnpj = onlyDigits(cnpjInput);
-      const row = yield* db.query.fornecedor.findFirst({
-        where: { cnpj },
-        columns: viewColumns,
-      });
-      return yield* Match.value(row).pipe(
-        Match.when(Match.undefined, () =>
-          Effect.succeed({
-            cnpj,
-            encontrado: false,
-            ativo: false,
-            habilitadoLicitar: false,
-            fornecedor: null,
-          })
-        ),
-        Match.orElse((found) =>
-          Effect.succeed({
-            cnpj,
-            encontrado: true,
-            ativo: found.ativo,
-            habilitadoLicitar: found.habilitadoLicitar,
-            fornecedor: found,
-          })
-        )
+      const rows = yield* duck.query(
+        FornecedorView,
+        `SELECT ${viewSelect} FROM fornecedor WHERE cnpj = ? LIMIT 1`,
+        [cnpj]
       );
+      return Option.match(Arr.head(rows), {
+        onNone: () => ({
+          cnpj,
+          encontrado: false,
+          ativo: false,
+          habilitadoLicitar: false,
+          fornecedor: null,
+        }),
+        onSome: (found) => ({
+          cnpj,
+          encontrado: true,
+          ativo: found.ativo,
+          habilitadoLicitar: found.habilitadoLicitar,
+          fornecedor: found,
+        }),
+      });
     });
 
   const listar = (options: {
@@ -134,53 +89,63 @@ const makeSicaf = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const limit = clamp(options.limit, 50, 500);
-      const where = {
+      const filters: ReadonlyArray<Filter> = [
         ...Match.value(options.uf).pipe(
-          Match.when(Match.string, (uf) => ({ ufSigla: pipe(uf, Str.trim, Str.toUpperCase) })),
-          Match.orElse(() => ({}))
+          Match.when(Match.string, (uf): ReadonlyArray<Filter> => [
+            [`"ufSigla" = ?`, [pipe(uf, Str.trim, Str.toUpperCase)]],
+          ]),
+          Match.orElse(() => [])
         ),
         ...Match.value(options.cnae).pipe(
-          Match.when(Match.number, (cnae) => ({ codigoCnae: cnae })),
-          Match.orElse(() => ({}))
+          Match.when(Match.number, (cnae): ReadonlyArray<Filter> => [[`"codigoCnae" = ?`, [cnae]]]),
+          Match.orElse(() => [])
         ),
         ...Match.value(options.municipio).pipe(
-          Match.when(Match.string, (municipio) => ({
-            nomeMunicipioNormalizado: { like: `%${normalize(municipio)}%` },
-          })),
-          Match.orElse(() => ({}))
+          Match.when(Match.string, (municipio): ReadonlyArray<Filter> => [
+            [`"nomeMunicipioNormalizado" LIKE ?`, [`%${normalize(municipio)}%`]],
+          ]),
+          Match.orElse(() => [])
         ),
         ...Match.value(options.apenasAtivos).pipe(
-          Match.when(true, () => ({ ativo: true })),
-          Match.orElse(() => ({}))
+          Match.when(true, (): ReadonlyArray<Filter> => [[`ativo`, []]]),
+          Match.orElse(() => [])
         ),
-      };
-      return yield* db.query.fornecedor.findMany({
-        where,
-        columns: viewColumns,
-        orderBy: (f, { asc }) => asc(f.nomeRazaoSocial),
-        limit,
-      });
+      ];
+      const where = Arr.isReadonlyArrayNonEmpty(filters)
+        ? `WHERE ${pipe(
+            filters,
+            Arr.map(([clause]) => clause),
+            Arr.join(" AND ")
+          )}`
+        : "";
+      const params = Arr.flatMap(filters, ([, values]) => values);
+      return yield* duck.query(
+        FornecedorView,
+        `SELECT ${viewSelect} FROM fornecedor ${where} ORDER BY "nomeRazaoSocial" NULLS FIRST, cnpj LIMIT ?`,
+        [...params, limit]
+      );
     });
 
   const index = Effect.gen(function* () {
-    yield* db.delete(fornecedor);
+    yield* duck.create(fornecedorTable);
     yield* indexFornecedores;
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${fornecedor}`
-    ).pipe(Effect.map(({ rows }) => rows));
-    return pipe(
-      Arr.head(rows),
-      Option.map((row) => Number(row.count)),
-      Option.getOrElse(() => 0)
+    yield* duck.reindex(fornecedorTable);
+    const names = yield* duck.query(
+      Schema.Struct({ id: Schema.Finite, busca: Schema.String }),
+      `SELECT id::DOUBLE AS id, busca FROM fornecedor`
     );
+    yield* fuzzy.write(
+      "fornecedor",
+      Arr.map(names, (row): readonly [number, string] => [row.id, row.busca])
+    );
+    return yield* duck.count(fornecedorTable);
   });
 
   return { index, indexAll: index, buscar, habilitado, listar };
 });
 
-export class Sicaf extends Context.Service<
-  Sicaf,
-  Effect.Success<typeof makeSicaf>
->()("dados-publicos-mcp/sources/sicaf-fornecedores/store/Sicaf") {}
+export class Sicaf extends Context.Service<Sicaf, Effect.Success<typeof makeSicaf>>()(
+  "dados-publicos-mcp/sources/sicaf-fornecedores/store/Sicaf"
+) {}
 
 export const SicafLive = Layer.effect(Sicaf)(makeSicaf);

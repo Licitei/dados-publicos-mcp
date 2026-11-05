@@ -5,10 +5,10 @@ const NoInput = Schema.Struct({});
 
 const guiaUso = `# Guia de uso — dados-publicos-mcp (local-first, privacy-first)
 
-Este MCP expoe ferramentas locais sobre dados publicos brasileiros indexados em um unico PGlite (BM25 ⊕ vetorial por RRF, pg_trgm fuzzy, ltree hierarquico). Nao ha API ao vivo nem nuvem: toda resposta vem de indices locais.
+Este MCP expoe ferramentas locais sobre dados publicos brasileiros: fontes tabulares em SQLite local, CNPJ em um lake local (DuckDB), e os acervos de leis e precedentes em Markdown (buscar_/localizar_/ler_ leis|precedentes). Nao ha API ao vivo nem nuvem: toda resposta vem de indices locais. Fontes leves indexam sozinhas na primeira consulta.
 
 ## Dois contratos inegociaveis
-- Local-first: nada que o usuario pergunte (um CNPJ, um item de edital, uma consulta) sai da maquina. Indice vazio => responda "fonte ainda nao indexada; rode indexar_<fonte>", nunca um chute e nunca uma chamada remota.
+- Local-first: nada que o usuario pergunte (um CNPJ, um item de edital, uma consulta) sai da maquina. Indice vazio => responda "fonte ainda nao indexada; rode indexar({ fonte })", nunca um chute e nunca uma chamada remota.
 - Privacy-first, evidence-first: estas ferramentas produzem inteligencia preliminar, explicavel e verificavel — nunca parecer juridico, relatorio formal ou veredito final. Toda resposta de inteligencia carrega:
   privacidade: { modo: "local", dadosEnviadosParaTerceiros: false }
   fontes: [...]      # quais tools/indices originaram a resposta
@@ -25,7 +25,8 @@ Depois os buscar_* e os lookups por chave (consultar_cnpj, contratos_do_forneced
 
 ## Fluxos compostos (carregue o guia especifico antes de responder)
 - guia_pesquisar_preco — pesquisa preliminar de precos de compras publicas.
-- guia_triagem_fornecedor — due diligence de fornecedor por CNPJ (Receita ⊕ sancoes ⊕ SICAF ⊕ PNCP ⊕ socios).
+- guia_triagem_fornecedor — due diligence de fornecedor por CNPJ. Comece por perfil_fornecedor (Receita ⊕ sancoes ⊕ TCU ⊕ SICAF em uma chamada).
+- Base legal: buscar_leis / buscar_precedentes para fundamentar (cite o caminho do arquivo como fonte).
 - guia_mapear_mercado — visao de mercado por termo / categoria / UF / orgao / fornecedor.
 - guia_due_diligence_eleitoral — candidato e rastreio de doadores (TSE).
 
@@ -125,11 +126,7 @@ confianca: baixa | media | alta
 - Um vinculo (socio em comum, sancao, contrato publico) e uma pista a investigar, nunca prova — diga isso em limitacoes sempre.
 - Mantenha descritivo e com fontes; e reconhecimento sobre dados publicos do TSE, nao uma denuncia.`;
 
-const skill = (
-  name: string,
-  description: string,
-  conteudo: string
-) =>
+const skill = (name: string, description: string, conteudo: string) =>
   defineTool({
     name,
     description,

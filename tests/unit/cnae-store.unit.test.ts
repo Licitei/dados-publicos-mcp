@@ -2,12 +2,11 @@ import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
-import { sql } from "drizzle-orm";
-import { Db } from "../../src/kernel/db/client";
-import { Cnae, CnaeLive } from "../../src/sources/cnae/store";
-import { TestEmbedderLive } from "./support/test-embedder";
+import { Duck } from "../../src/kernel/duck/duck";
+import { Cnae, CnaeLive, cnaeTable } from "../../src/sources/cnae/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
-import { TestDbLive } from "./support/test-db";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
 
 const secaoJ = { id: "J", descricao: "Informacao e Comunicacao" };
 const secaoA = {
@@ -67,9 +66,7 @@ const quote = (value: string) => `"${value}"`;
 
 const subJson = (row: (typeof subclassesRows)[number]) =>
   `{"id":${quote(row.id)},"descricao":${quote(row.descricao)},"atividades":${
-    row.atividades === null
-      ? "null"
-      : `[${Arr.join(Arr.map(row.atividades, quote), ",")}]`
+    row.atividades === null ? "null" : `[${Arr.join(Arr.map(row.atividades, quote), ",")}]`
   },"classe":{"id":${quote(row.classe.id)},"descricao":${quote(
     row.classe.descricao
   )},"grupo":{"id":${quote(row.classe.grupo.id)},"descricao":${quote(
@@ -92,14 +89,9 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  CnaeLive.pipe(
-    Layer.provide(Layer.mergeAll(TestDbLive, TestEmbedderLive, HttpFixture))
-  ),
-  TestDbLive,
-  TestEmbedderLive,
-  HttpFixture
-);
+const Infra = Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture);
+
+const TestLayer = CnaeLive.pipe(Layer.provideMerge(Infra));
 
 const seeded = Effect.gen(function* () {
   const cnae = yield* Cnae;
@@ -107,10 +99,10 @@ const seeded = Effect.gen(function* () {
   return cnae;
 });
 
-layer(TestLayer, { timeout: Duration.seconds(60) })("cnae store + hybrid search", (it) => {
-  it.effect(
-    "resolve strips the mask and returns the full hierarchy, else NOT_FOUND",
-    () =>
+layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
+  "cnae store + bm25 + fuzzy search",
+  (it) => {
+    it.effect("resolve strips the mask and returns the full hierarchy, else NOT_FOUND", () =>
       Effect.gen(function* () {
         const cnae = yield* seeded;
         const found = yield* cnae.resolve("6201-5/01");
@@ -121,61 +113,55 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("cnae store + hybrid search"
         expect(error._tag).toBe("CnaeError");
         expect(error).toMatchObject({ code: "cnae.NOT_FOUND" });
         expect(error.message).toContain("nao encontrada");
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "search ranks by hybrid RRF relevance and honors the limit",
-    () =>
+    it.effect("search ranks by DuckDB bm25 relevance and honors the limit", () =>
       Effect.gen(function* () {
         const cnae = yield* seeded;
         const rows = yield* cnae.search("desenvolvimento de programas");
         expect(["6201501", "6202300"]).toContain(
           Option.getOrUndefined(Option.map(Arr.head(rows), (r) => r.id))
         );
-        expect(Option.map(Arr.head(rows), (r) => r.secaoId)).toEqual(
-          Option.some("J")
-        );
+        expect(Option.map(Arr.head(rows), (r) => r.secaoId)).toEqual(Option.some("J"));
         const licenciamento = yield* cnae.search("licenciamento");
-        expect(Option.map(Arr.head(licenciamento), (r) => r.id)).toEqual(
-          Option.some("6202300")
+        expect(Option.map(Arr.head(licenciamento), (r) => r.id)).toEqual(Option.some("6202300"));
+        expect(Option.map(Arr.head(licenciamento), (r) => Number(r.score) > 0)).toEqual(
+          Option.some(true)
         );
-        expect(
-          Option.map(Arr.head(licenciamento), (r) => Number(r.score) > 1 / 61 + 1e-9)
-        ).toEqual(Option.some(true));
         const limited = yield* cnae.search("desenvolvimento de programas", {
           limit: 1,
         });
         expect(limited).toHaveLength(1);
-        const semantico = yield* cnae.search("zzzz sem termo lexical");
-        expect(semantico.length).toBeGreaterThan(0);
-      }),
-  );
+        const semLexical = yield* cnae.search("zzzz sem termo lexical");
+        expect(semLexical).toHaveLength(0);
+      })
+    );
 
-  it.effect(
-    "search normalizes the accented query against the haystack",
-    () =>
+    it.effect("a typo with no bm25 hit falls back to fff fuzzy", () =>
+      Effect.gen(function* () {
+        const cnae = yield* seeded;
+        const rows = yield* cnae.search("licenciamnto");
+        expect(Option.map(Arr.head(rows), (r) => r.id)).toEqual(Option.some("6202300"));
+        expect(Option.map(Arr.head(rows), (r) => r.score)).toEqual(Option.some(0));
+      })
+    );
+
+    it.effect("search normalizes the accented query against the haystack", () =>
       Effect.gen(function* () {
         const cnae = yield* seeded;
         const rows = yield* cnae.search("pecuária");
-        expect(Option.map(Arr.head(rows), (r) => r.id)).toEqual(
-          Option.some("0111301")
-        );
-      }),
-  );
+        expect(Option.map(Arr.head(rows), (r) => r.id)).toEqual(Option.some("0111301"));
+      })
+    );
 
-  it.effect(
-    "listByLevel resolves each level and fails on an unknown format",
-    () =>
+    it.effect("listByLevel resolves each level and fails on an unknown format", () =>
       Effect.gen(function* () {
         const cnae = yield* seeded;
         const secao = yield* cnae.listByLevel("j");
         expect(secao.nivel).toBe("secao");
         expect(secao.codigo).toBe("J");
-        expect(Arr.map(secao.subclasses, (s) => s.id)).toEqual([
-          "6201501",
-          "6202300",
-        ]);
+        expect(Arr.map(secao.subclasses, (s) => s.id)).toEqual(["6201501", "6202300"]);
         const divisao = yield* cnae.listByLevel("62");
         expect(divisao.nivel).toBe("divisao");
         expect(divisao.total).toBe(2);
@@ -193,23 +179,18 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("cnae store + hybrid search"
         expect(error).toMatchObject({ code: "cnae.LEVEL_UNRECOGNIZED" });
         const empty = yield* Effect.flip(cnae.listByLevel(""));
         expect(empty).toMatchObject({ code: "cnae.LEVEL_UNRECOGNIZED" });
-      }),
-  );
+      })
+    );
 
-  it.effect(
-    "index returns the row count and persists rows queryable via the raw Db handle",
-    () =>
+    it.effect("index returns the row count and persists rows in the DuckDB file", () =>
       Effect.gen(function* () {
         const cnae = yield* Cnae;
         const indexed = yield* cnae.index;
+        const duck = yield* Duck;
+        const total = yield* duck.count(cnaeTable);
         expect(indexed).toBe(3);
-        const db = yield* Db;
-        const rows = yield* db.execute(
-          sql`select count(*)::int as count from cnae`
-        ).pipe(Effect.map(({ rows }) => rows));
-        expect(Option.map(Arr.head(rows), (r) => Number(r.count))).toEqual(
-          Option.some(3)
-        );
-      }),
-  );
-});
+        expect(total).toBe(3);
+      })
+    );
+  }
+);

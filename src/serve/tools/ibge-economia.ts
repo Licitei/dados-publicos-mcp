@@ -11,9 +11,7 @@ const economiaMunicipio = defineTool({
     "Retorna populacao estimada, PIB (mil reais) e PIB per capita de um municipio pelo codigo IBGE de 7 digitos (ultimo ano indexado).",
   input: CodigoInput,
   run: (args) =>
-    IbgeEconomia.pipe(
-      Effect.flatMap((service) => service.economiaPorCodigo(args.codigo))
-    ),
+    IbgeEconomia.pipe(Effect.flatMap((service) => service.economiaPorCodigo(args.codigo))),
 });
 
 const BuscarInput = Schema.Struct({
@@ -24,13 +22,11 @@ const BuscarInput = Schema.Struct({
 const buscarMunicipioEconomia = defineTool({
   name: "buscar_municipio_economia",
   description:
-    "Busca municipios por nome (fuzzy pg_trgm) e retorna populacao, PIB e PIB per capita.",
+    "Busca municipios por nome (tolera grafia parcial) e retorna populacao, PIB e PIB per capita.",
   input: BuscarInput,
   run: (args) =>
     IbgeEconomia.pipe(
-      Effect.flatMap((service) =>
-        service.buscarMunicipio(args.nome, args.limite ?? 20)
-      )
+      Effect.flatMap((service) => service.buscarMunicipio(args.nome, args.limite ?? 20))
     ),
 });
 
@@ -48,7 +44,9 @@ const rankingMunicipiosPib = defineTool({
   run: (args) =>
     IbgeEconomia.pipe(
       Effect.flatMap((service) =>
-        service.rankingPib(Struct.renameKeys(Struct.pick(args, ["uf", "ano", "limite"]), { limite: "limit" }))
+        service.rankingPib(
+          Struct.renameKeys(Struct.pick(args, ["uf", "ano", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });

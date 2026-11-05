@@ -3,12 +3,7 @@ import { Pncp } from "../../sources/pncp/store";
 import { NonEmptyString, Uf, positiveIntMax } from "../checks";
 import { defineTool } from "../tool";
 
-const Entidade = Schema.Literals([
-  "contratacoes",
-  "contratos",
-  "atas",
-  "todas",
-]);
+const Entidade = Schema.Literals(["contratacoes", "contratos", "atas", "todas"]);
 
 const toTipo = Match.type<(typeof Entidade)["Type"]>().pipe(
   Match.when("contratacoes", () => "contratacao" as const),
@@ -38,14 +33,7 @@ const buscarPncpLocal = defineTool({
       Effect.flatMap((service) =>
         service.buscarPncp({
           ...Struct.renameKeys(
-            Struct.pick(args, [
-              "termo",
-              "uf",
-              "municipio",
-              "orgaoCnpj",
-              "modalidade",
-              "limite",
-            ]),
+            Struct.pick(args, ["termo", "uf", "municipio", "orgaoCnpj", "modalidade", "limite"]),
             { limite: "limit" }
           ),
           ...Match.value(args.entidade).pipe(
@@ -70,7 +58,10 @@ const fornecedorPncpPorNome = defineTool({
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.fornecedorPncpPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.fornecedorPncpPorNome(
+          args.nome,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -88,7 +79,12 @@ const contratosDoFornecedor = defineTool({
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.contratosDoFornecedor(Struct.renameKeys(Struct.pick(args, ["ni", "limite"]), { ni: "niFornecedor", limite: "limit" }))
+        service.contratosDoFornecedor(
+          Struct.renameKeys(Struct.pick(args, ["ni", "limite"]), {
+            ni: "niFornecedor",
+            limite: "limit",
+          })
+        )
       )
     ),
 });
@@ -102,13 +98,17 @@ const AlertasInput = Schema.Struct({
 
 const alertasPncp = defineTool({
   name: "alertas_pncp",
-  description:
-    "Editais (contratacoes) novos, opcionalmente em UF Y, atualizados desde uma data.",
+  description: "Editais (contratacoes) novos, opcionalmente em UF Y, atualizados desde uma data.",
   input: AlertasInput,
   run: (args) =>
     Pncp.pipe(
       Effect.flatMap((service) =>
-        service.alertasPncp(Struct.renameKeys(Struct.pick(args, ["uf", "modalidade", "desde", "limite"]), { desde: "dataInicial", limite: "limit" }))
+        service.alertasPncp(
+          Struct.renameKeys(Struct.pick(args, ["uf", "modalidade", "desde", "limite"]), {
+            desde: "dataInicial",
+            limite: "limit",
+          })
+        )
       )
     ),
 });

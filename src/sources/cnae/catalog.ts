@@ -4,17 +4,16 @@ import { pipe } from "effect/Function";
 import * as Str from "effect/String";
 import { normalize } from "../../kernel/text/normalize";
 
-export const subclassesUrl =
-  "https://servicodados.ibge.gov.br/api/v2/cnae/subclasses";
+export const subclassesUrl = "https://servicodados.ibge.gov.br/api/v2/cnae/subclasses";
 
-export const levelDigits = {
+const levelDigits = {
   divisao: 2,
   grupo: 3,
   classe: 5,
   subclasse: 7,
 } as const;
 
-export const levels = [
+const levels = [
   { nivel: "secao", digits: null },
   { nivel: "divisao", digits: levelDigits.divisao },
   { nivel: "grupo", digits: levelDigits.grupo },
@@ -28,15 +27,11 @@ export const secaoNivel = levels[0].nivel;
 export const levelByDigits = new Map<number, CnaeNivel>(
   pipe(
     levels,
-    Arr.flatMap((level) =>
-      level.digits === null ? [] : [[level.digits, level.nivel] as const]
-    )
+    Arr.flatMap((level) => (level.digits === null ? [] : [[level.digits, level.nivel] as const]))
   )
 );
 
-const optionalTextList = Schema.optional(
-  Schema.NullOr(Schema.Array(Schema.String))
-);
+const optionalTextList = Schema.optional(Schema.NullOr(Schema.Array(Schema.String)));
 
 const SecaoRaw = Schema.Struct({
   id: Schema.String,
@@ -86,11 +81,8 @@ export const SubclasseFlat = Schema.Struct({
 });
 export type SubclasseFlat = (typeof SubclasseFlat)["Type"];
 
-export const CnaeErrorCode = Schema.Literals([
-  "cnae.NOT_FOUND",
-  "cnae.LEVEL_UNRECOGNIZED",
-]);
-export type CnaeErrorCode = (typeof CnaeErrorCode)["Type"];
+const CnaeErrorCode = Schema.Literals(["cnae.NOT_FOUND", "cnae.LEVEL_UNRECOGNIZED"]);
+type CnaeErrorCode = (typeof CnaeErrorCode)["Type"];
 
 export class CnaeError extends Schema.TaggedError<CnaeError, { readonly brand: unique symbol }>()(
   "CnaeError",
@@ -110,8 +102,7 @@ export class CnaeError extends Schema.TaggedError<CnaeError, { readonly brand: u
   }
 }
 
-const cleanText = (value: string) =>
-  pipe(value, Str.replace(/\s+/g, " "), Str.trim);
+const cleanText = (value: string) => pipe(value, Str.replace(/\s+/g, " "), Str.trim);
 
 const listText = (value: readonly string[] | null | undefined) =>
   Match.value(value).pipe(
@@ -159,17 +150,3 @@ const flattenSubclasse = (raw: SubclasseRaw) => {
 
 export const flatten = (payload: readonly SubclasseRaw[]) =>
   pipe(payload, Arr.map(flattenSubclasse));
-
-export const subclassePassage = (row: SubclasseFlat) =>
-  cleanText(
-    pipe(
-      [
-        row.descricao,
-        row.classeDescricao,
-        row.grupoDescricao,
-        row.divisaoDescricao,
-        row.secaoDescricao,
-      ],
-      Arr.join(" ")
-    )
-  );

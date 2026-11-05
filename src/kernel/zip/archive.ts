@@ -4,13 +4,16 @@ import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 
 const ZipErrorCode = Schema.Literals(["zip.MALFORMED", "zip.INFLATE"]);
-export type ZipErrorCode = (typeof ZipErrorCode)["Type"];
+type ZipErrorCode = (typeof ZipErrorCode)["Type"];
 
-export class ZipError extends Schema.TaggedError<ZipError, { readonly brand: unique symbol }>()("ZipError", {
-  code: ZipErrorCode,
-  entry: Schema.optional(Schema.String),
-  cause: Schema.optional(Schema.String),
-}) {
+export class ZipError extends Schema.TaggedError<ZipError, { readonly brand: unique symbol }>()(
+  "ZipError",
+  {
+    code: ZipErrorCode,
+    entry: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.String),
+  }
+) {
   override get message() {
     switch (this.code) {
       case "zip.MALFORMED":
@@ -21,17 +24,19 @@ export class ZipError extends Schema.TaggedError<ZipError, { readonly brand: uni
   }
 }
 
-export type ZipEntry = {
-  readonly name: string;
-  readonly data: Uint8Array;
-};
+const ZipEntry = Schema.Struct({
+  name: Schema.String,
+  data: Schema.Uint8Array,
+});
+export type ZipEntry = (typeof ZipEntry)["Type"];
 
-type RawEntry = {
-  readonly name: string;
-  readonly method: number;
-  readonly compressedSize: number;
-  readonly localOffset: number;
-};
+const RawEntry = Schema.Struct({
+  name: Schema.String,
+  method: Schema.Finite,
+  compressedSize: Schema.Finite,
+  localOffset: Schema.Finite,
+});
+type RawEntry = (typeof RawEntry)["Type"];
 
 const eocdSignature = 0x06054b50;
 
@@ -46,11 +51,7 @@ const findEocd = (view: DataView, size: number) => {
   );
 };
 
-const walkCentralDirectory = (
-  buf: Uint8Array,
-  view: DataView,
-  eocd: number
-) => {
+const walkCentralDirectory = (buf: Uint8Array, view: DataView, eocd: number) => {
   const total = view.getUint16(eocd + 10, true);
   const start = view.getUint32(eocd + 16, true);
   const decoder = new TextDecoder("utf-8");
@@ -68,9 +69,7 @@ const walkCentralDirectory = (
       const extraLength = view.getUint16(offset + 30, true);
       const commentLength = view.getUint16(offset + 32, true);
       const entry: RawEntry = {
-        name: decoder.decode(
-          buf.subarray(offset + 46, offset + 46 + nameLength)
-        ),
+        name: decoder.decode(buf.subarray(offset + 46, offset + 46 + nameLength)),
         method: view.getUint16(offset + 10, true),
         compressedSize: view.getUint32(offset + 20, true),
         localOffset: view.getUint32(offset + 42, true),
@@ -100,10 +99,7 @@ const entryData = (buf: Uint8Array, view: DataView, entry: RawEntry) =>
       }),
   });
 
-const unzipEntriesImpl = (
-  bytes: Uint8Array,
-  accept: (name: string) => boolean
-) =>
+const unzipEntriesImpl = (bytes: Uint8Array, accept: (name: string) => boolean) =>
   Effect.gen(function* () {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const eocd = findEocd(view, bytes.byteLength);
@@ -113,8 +109,7 @@ const unzipEntriesImpl = (
     );
     const directory = yield* Effect.try({
       try: () => walkCentralDirectory(bytes, view, eocd),
-      catch: (cause) =>
-        ZipError.make({ code: "zip.MALFORMED", cause: String(cause) }),
+      catch: (cause) => ZipError.make({ code: "zip.MALFORMED", cause: String(cause) }),
     });
     const selected = Arr.filter(directory, (entry) => accept(entry.name));
     return yield* Effect.forEach(
@@ -128,13 +123,8 @@ const unzipEntriesImpl = (
   });
 
 export const unzipEntries: {
-  (
-    accept: (name: string) => boolean
-  ): (bytes: Uint8Array) => ReturnType<typeof unzipEntriesImpl>;
-  (
-    bytes: Uint8Array,
-    accept: (name: string) => boolean
-  ): ReturnType<typeof unzipEntriesImpl>;
+  (accept: (name: string) => boolean): (bytes: Uint8Array) => ReturnType<typeof unzipEntriesImpl>;
+  (bytes: Uint8Array, accept: (name: string) => boolean): ReturnType<typeof unzipEntriesImpl>;
 } = dual(2, (bytes: Uint8Array, accept: (name: string) => boolean) =>
   unzipEntriesImpl(bytes, accept)
 );

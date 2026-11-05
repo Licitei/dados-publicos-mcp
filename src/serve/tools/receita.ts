@@ -10,10 +10,7 @@ const consultarCnpj = defineTool({
   description:
     "Consulta um CNPJ completo (14 digitos) no indice local da Receita Federal. Offline, sem rate limit.",
   input: ConsultarInput,
-  run: (args) =>
-    ReceitaCnpj.pipe(
-      Effect.flatMap((service) => service.consultarCnpj(args.cnpj))
-    ),
+  run: (args) => ReceitaCnpj.pipe(Effect.flatMap((service) => service.consultarCnpj(args.cnpj))),
 });
 
 const BuscarEmpresaInput = Schema.Struct({
@@ -23,13 +20,15 @@ const BuscarEmpresaInput = Schema.Struct({
 
 const buscarEmpresaPorNome = defineTool({
   name: "buscar_empresa_por_nome",
-  description:
-    "Busca empresas por razao social ou nome fantasia (BM25 com fallback fuzzy pg_trgm).",
+  description: "Busca empresas por razao social ou nome fantasia.",
   input: BuscarEmpresaInput,
   run: (args) =>
     ReceitaCnpj.pipe(
       Effect.flatMap((service) =>
-        service.buscarEmpresaPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarEmpresaPorNome(
+          args.nome,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -48,7 +47,13 @@ const buscarSocioPorNome = defineTool({
   run: (args) =>
     ReceitaCnpj.pipe(
       Effect.flatMap((service) =>
-        service.buscarSocioPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite", "cpf_visivel"]), { limite: "limit", cpf_visivel: "cpfVisivel" }))
+        service.buscarSocioPorNome(
+          args.nome,
+          Struct.renameKeys(Struct.pick(args, ["limite", "cpf_visivel"]), {
+            limite: "limit",
+            cpf_visivel: "cpfVisivel",
+          })
+        )
       )
     ),
 });
@@ -62,10 +67,7 @@ const sociosEmComum = defineTool({
   description:
     "Recebe dois ou mais CNPJs e retorna os socios compartilhados (deteccao de conluio/laranjas em licitacoes).",
   input: SociosEmComumInput,
-  run: (args) =>
-    ReceitaCnpj.pipe(
-      Effect.flatMap((service) => service.sociosEmComum(args.cnpjs))
-    ),
+  run: (args) => ReceitaCnpj.pipe(Effect.flatMap((service) => service.sociosEmComum(args.cnpjs))),
 });
 
 const FiltrarInput = Schema.Struct({
@@ -97,7 +99,12 @@ const filtrarEmpresas = defineTool({
   run: (args) =>
     ReceitaCnpj.pipe(
       Effect.flatMap((service) =>
-        service.filtrarEmpresas(Struct.renameKeys(Struct.pick(args, ["cnae", "uf", "municipio", "porte", "situacao", "limite"]), { limite: "limit" }))
+        service.filtrarEmpresas(
+          Struct.renameKeys(
+            Struct.pick(args, ["cnae", "uf", "municipio", "porte", "situacao", "limite"]),
+            { limite: "limit" }
+          )
+        )
       )
     ),
 });

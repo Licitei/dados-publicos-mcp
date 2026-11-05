@@ -1,13 +1,12 @@
 import type { ScratchStack } from "@alchemy.run/test/Vitest";
 import type { Input } from "alchemy/Input";
-import type * as Plan from "alchemy/Plan";
 import { Cause, Effect, Schema } from "effect";
 import { dual } from "effect/Function";
 
 export const StackOperation = Schema.Literals(["deploy", "plan", "destroy"]);
 export type StackOperation = (typeof StackOperation)["Type"];
 
-export class StackOperationError extends Schema.TaggedError<
+class StackOperationError extends Schema.TaggedError<
   StackOperationError,
   { readonly brand: unique symbol }
 >()("StackOperationError", {
@@ -30,14 +29,9 @@ type RawDeploy = <A, E, R>(
   effect: Effect.Effect<A, E, R>
 ) => Effect.Effect<Input.Resolve<A>, Error>;
 
-type RawPlan = <A, E, R>(
-  effect: Effect.Effect<A, E, R>
-) => Effect.Effect<Plan.Plan<A>, Error>;
-
 type RawDestroy = () => Effect.Effect<void, Error>;
 
 const rawDeploy = (stack: ScratchStack): RawDeploy => stack.deploy.bind(stack);
-const rawPlan = (stack: ScratchStack): RawPlan => stack.plan.bind(stack);
 const rawDestroy = (stack: ScratchStack): RawDestroy => stack.destroy.bind(stack);
 
 const toStackError = (op: StackOperation) => (error: Error) =>
@@ -46,9 +40,7 @@ const toStackError = (op: StackOperation) => (error: Error) =>
 export const deploy: {
   <A, E, R>(
     effect: Effect.Effect<A, E, R>
-  ): (
-    stack: ScratchStack
-  ) => ReturnType<typeof deployWith<A, E, R>>;
+  ): (stack: ScratchStack) => ReturnType<typeof deployWith<A, E, R>>;
   <A, E, R>(
     stack: ScratchStack,
     effect: Effect.Effect<A, E, R>
@@ -59,22 +51,7 @@ function deployWith<A, E, R>(stack: ScratchStack, effect: Effect.Effect<A, E, R>
   return rawDeploy(stack)(effect).pipe(Effect.mapError(toStackError("deploy")));
 }
 
-export const planStack: {
-  <A, E, R>(
-    effect: Effect.Effect<A, E, R>
-  ): (stack: ScratchStack) => ReturnType<typeof planWith<A, E, R>>;
-  <A, E, R>(
-    stack: ScratchStack,
-    effect: Effect.Effect<A, E, R>
-  ): ReturnType<typeof planWith<A, E, R>>;
-} = dual(2, planWith);
-
-function planWith<A, E, R>(stack: ScratchStack, effect: Effect.Effect<A, E, R>) {
-  return rawPlan(stack)(effect).pipe(Effect.mapError(toStackError("plan")));
-}
-
 export const destroy = (stack: ScratchStack) =>
   rawDestroy(stack)().pipe(Effect.mapError(toStackError("destroy")));
 
-export const destroyIgnored = (stack: ScratchStack) =>
-  Effect.ignore(destroy(stack));
+export const destroyIgnored = (stack: ScratchStack) => Effect.ignore(destroy(stack));

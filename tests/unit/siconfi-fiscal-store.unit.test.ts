@@ -3,11 +3,9 @@ import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
-import { TestDbLive } from "./support/test-db";
-import {
-  SiconfiFiscal,
-  SiconfiFiscalLive,
-} from "../../src/sources/siconfi-fiscal/store";
+import { TestDuckLive } from "./support/test-duck";
+import { TestFuzzyLive } from "./support/test-fuzzy";
+import { SiconfiFiscal, SiconfiFiscalLive } from "../../src/sources/siconfi-fiscal/store";
 
 const dca =
   '{"items":[{"exercicio":2022,"instituicao":"Uniao","cod_ibge":0,"uf":"BR","anexo":"DCA-Anexo I-AB","rotulo":"Padrão","coluna":"31/12/2022","cod_conta":"P1.0.0.0.0.00.00","conta":"1.0.0.0.0.00.00 - Ativo","valor":161770212909.33},{"exercicio":2022,"instituicao":"Uniao","cod_ibge":0,"uf":"BR","anexo":"DCA-Anexo I-C","rotulo":"Padrão","coluna":"31/12/2022","cod_conta":"P2.0.0.0.0.00.00","conta":"2.0.0.0.0.00.00 - Passivo","valor":50000000000}],"hasMore":false}';
@@ -26,10 +24,8 @@ const HttpFixture = fixtureLayer([
   { match: pathIncludes("/rgf"), respond: { body: rgf, headers: json } },
 ]);
 
-const TestLayer = Layer.mergeAll(
-  SiconfiFiscalLive.pipe(Layer.provide(Layer.mergeAll(TestDbLive, HttpFixture))),
-  TestDbLive,
-  HttpFixture
+const TestLayer = SiconfiFiscalLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
 const seeded = Effect.gen(function* () {
@@ -57,13 +53,8 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("siconfi-fiscal store + ords
         demonstrativo: "DCA",
       });
       expect(dcaRows).toHaveLength(2);
-      const ativo = Arr.findFirst(
-        dcaRows,
-        (r) => r.codConta === "P1.0.0.0.0.00.00"
-      );
-      expect(Option.map(ativo, (r) => Number(r.valor))).toEqual(
-        Option.some(161770212909.33)
-      );
+      const ativo = Arr.findFirst(dcaRows, (r) => r.codConta === "P1.0.0.0.0.00.00");
+      expect(Option.map(ativo, (r) => Number(r.valor))).toEqual(Option.some(161770212909.33));
     })
   );
 
@@ -71,12 +62,27 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("siconfi-fiscal store + ords
     Effect.gen(function* () {
       const siconfi = yield* seeded;
       const pessoal = yield* siconfi.buscarConta("despesa bruta pessoal");
-      expect(Arr.map(pessoal, (r) => r.codConta)).toContain(
-        "DespesaComPessoalBruta"
-      );
-      expect(Option.map(Arr.head(pessoal), (r) => Number(r.score) < 0)).toEqual(
-        Option.some(true)
-      );
+      expect(Arr.map(pessoal, (r) => r.codConta)).toContain("DespesaComPessoalBruta");
+      expect(Option.map(Arr.head(pessoal), (r) => Number(r.score) > 0)).toEqual(Option.some(true));
+    })
+  );
+
+  it.effect("buscarConta falls back to fuzzy for a typo", () =>
+    Effect.gen(function* () {
+      const siconfi = yield* seeded;
+      const typo = yield* siconfi.buscarConta("pesoal");
+      expect(Arr.map(typo, (r) => r.codConta)).toContain("DespesaComPessoalBruta");
+      expect(Option.map(Arr.head(typo), (r) => r.score)).toEqual(Option.some(0));
+    })
+  );
+
+  it.effect("indexarEnte replaces only that ente and exercise", () =>
+    Effect.gen(function* () {
+      const siconfi = yield* seeded;
+      const again = yield* siconfi.indexarEnte("1", 2022);
+      expect(again.inserted).toBe(4);
+      const all = yield* siconfi.fiscalPorEnte("1");
+      expect(all).toHaveLength(4);
     })
   );
 });

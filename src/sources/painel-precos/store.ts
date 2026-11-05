@@ -1,37 +1,56 @@
-import { Context, Effect, Layer, Match, Option } from "effect";
+import { Context, Effect, Layer, Option, Schema, Struct } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { catmatMaterial } from "../../kernel/db/schemas/catmat-material";
-import { precoPraticado } from "../../kernel/db/schemas/preco-praticado";
+import { bm25, Duck } from "../../kernel/duck/duck";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { PrecoFlat, precoPraticadoTable } from "./catalog";
 import { indexItens } from "./indexer";
+import { clamp } from "../../kernel/duck/search";
 
 const seedLimit = 300;
 
-const amostraView = sql`
-  id_compra as "idCompra", codigo_item_catalogo as "codigoItemCatalogo",
-  descricao_item as "descricaoItem", preco_unitario as "precoUnitario",
-  quantidade, unidade_fornecimento as "unidadeFornecimento",
-  ni_fornecedor as "niFornecedor", nome_fornecedor as "nomeFornecedor",
-  marca, data_compra as "dataCompra", estado, municipio,
-  codigo_uasg as "codigoUasg", nome_orgao as "nomeOrgao"
-`;
+const AmostraView = PrecoFlat.mapFields(
+  Struct.pick([
+    "idCompra",
+    "codigoItemCatalogo",
+    "descricaoItem",
+    "precoUnitario",
+    "quantidade",
+    "unidadeFornecimento",
+    "niFornecedor",
+    "nomeFornecedor",
+    "marca",
+    "dataCompra",
+    "estado",
+    "municipio",
+    "codigoUasg",
+    "nomeOrgao",
+  ])
+);
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const AmostraHit = Schema.Struct({ ...AmostraView.fields, score: Schema.Finite });
+
+const Stats = Schema.Struct({
+  n: Schema.Finite,
+  minimo: Schema.NullOr(Schema.Finite),
+  maximo: Schema.NullOr(Schema.Finite),
+  media: Schema.NullOr(Schema.Finite),
+  mediana: Schema.NullOr(Schema.Finite),
+});
+
+const viewSelect = `"idCompra", "codigoItemCatalogo", "descricaoItem", "precoUnitario", quantidade, "unidadeFornecimento", "niFornecedor", "nomeFornecedor", marca, "dataCompra", estado, municipio, "codigoUasg", "nomeOrgao"`;
 
 const makePainelPrecos = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
 
   const ufClause = (uf: string | undefined) =>
-    Match.value(uf).pipe(
-      Match.when(Match.string, (value) => sql`and estado = ${pipe(value, Str.toUpperCase)}`),
-      Match.orElse(() => sql``)
+    pipe(
+      Option.fromNullishOr(uf),
+      Option.match({
+        onNone: () => ({ clause: "", params: Arr.empty<string>() }),
+        onSome: (value) => ({ clause: "AND estado = ?", params: [Str.toUpperCase(value)] }),
+      })
     );
 
   const precoPorItem = (
@@ -40,101 +59,136 @@ const makePainelPrecos = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const limit = clamp(options?.limit, 50, 500);
-      const ufWhere: SQL = ufClause(options?.uf);
-      return yield* db.execute(sql`
-        select ${amostraView}
-        from ${precoPraticado}
-        where codigo_item_catalogo = ${onlyDigits(codigo)}
-          and preco_unitario is not null ${ufWhere}
-        order by data_compra desc nulls last, preco_unitario
-        limit ${sql.raw(String(limit))}
-      `).pipe(Effect.map(({ rows }) => rows));
+      const uf = ufClause(options?.uf);
+      return yield* duck.query(
+        AmostraView,
+        `SELECT ${viewSelect}
+         FROM preco_praticado
+         WHERE "codigoItemCatalogo" = ? AND "precoUnitario" IS NOT NULL ${uf.clause}
+         ORDER BY "dataCompra" DESC NULLS LAST, "precoUnitario", id
+         LIMIT ?`,
+        [onlyDigits(codigo), ...uf.params, limit]
+      );
     });
 
-  const estatisticaPreco = (
-    codigo: string,
-    options?: { readonly uf?: string }
-  ) =>
+  const estatisticaPreco = (codigo: string, options?: { readonly uf?: string }) =>
     Effect.gen(function* () {
-      const ufWhere: SQL = ufClause(options?.uf);
-      const rows = yield* db.execute(sql`
-        select
-          count(*)::int as n,
-          min(preco_unitario) as minimo,
-          max(preco_unitario) as maximo,
-          avg(preco_unitario) as media,
-          percentile_cont(0.5) within group (order by preco_unitario) as mediana
-        from ${precoPraticado}
-        where codigo_item_catalogo = ${onlyDigits(codigo)}
-          and preco_unitario is not null ${ufWhere}
-      `).pipe(Effect.map(({ rows }) => rows));
+      const uf = ufClause(options?.uf);
+      const rows = yield* duck.query(
+        Stats,
+        `SELECT
+           count(*)::INTEGER AS n,
+           min("precoUnitario")::DOUBLE AS minimo,
+           max("precoUnitario")::DOUBLE AS maximo,
+           avg("precoUnitario")::DOUBLE AS media,
+           median("precoUnitario")::DOUBLE AS mediana
+         FROM preco_praticado
+         WHERE "codigoItemCatalogo" = ? AND "precoUnitario" IS NOT NULL ${uf.clause}`,
+        [onlyDigits(codigo), ...uf.params]
+      );
+      const first = Arr.head(rows);
       return {
         codigoItemCatalogo: onlyDigits(codigo),
-        n: Number(rows[0]?.n ?? 0),
-        minimo: rows[0]?.minimo ?? null,
-        mediana: rows[0]?.mediana ?? null,
-        media: rows[0]?.media ?? null,
-        maximo: rows[0]?.maximo ?? null,
+        n: pipe(
+          first,
+          Option.map((row) => row.n),
+          Option.getOrElse(() => 0)
+        ),
+        minimo: pipe(
+          first,
+          Option.flatMapNullishOr((row) => row.minimo),
+          Option.getOrNull
+        ),
+        mediana: pipe(
+          first,
+          Option.flatMapNullishOr((row) => row.mediana),
+          Option.getOrNull
+        ),
+        media: pipe(
+          first,
+          Option.flatMapNullishOr((row) => row.media),
+          Option.getOrNull
+        ),
+        maximo: pipe(
+          first,
+          Option.flatMapNullishOr((row) => row.maximo),
+          Option.getOrNull
+        ),
       };
     });
 
-  const buscarPrecoPorDescricao = (
-    termo: string,
-    options?: { readonly limit?: number }
-  ) =>
+  const buscarPrecoPorDescricao = (termo: string, options?: { readonly limit?: number }) =>
     Effect.gen(function* () {
-      const q = normalize(termo);
       const limit = clamp(options?.limit, 50, 200);
-      return yield* db.execute(sql`
-        select ${amostraView}, -rk as score
-        from (
-          select
-            id_compra, codigo_item_catalogo, descricao_item, preco_unitario,
-            quantidade, unidade_fornecimento, ni_fornecedor, nome_fornecedor,
-            marca, data_compra, estado, municipio, codigo_uasg, nome_orgao,
-            row_number() over () as rk
-          from (
-            select
-              id_compra, codigo_item_catalogo, descricao_item, preco_unitario,
-              quantidade, unidade_fornecimento, ni_fornecedor, nome_fornecedor,
-              marca, data_compra, estado, municipio, codigo_uasg, nome_orgao
-            from ${precoPraticado}
-            order by busca <@> to_bm25query(${q})
-            limit ${sql.raw(String(limit))}
-          ) ranked
-        ) scored
-        order by rk
-      `).pipe(Effect.map(({ rows }) => rows));
+      const q = normalize(termo);
+      return Str.isNonEmpty(q)
+        ? yield* duck.query(
+            AmostraHit,
+            `SELECT ${viewSelect}, score
+             FROM (SELECT *, ${bm25(precoPraticadoTable)} AS score FROM preco_praticado)
+             WHERE score IS NOT NULL ORDER BY score DESC, id LIMIT ?`,
+            [q, limit]
+          )
+        : [];
     });
 
-  const seedCodigos = db
-    .select({ codigo: catmatMaterial.codigoItem })
-    .from(catmatMaterial)
-    .limit(seedLimit)
-    .pipe(Effect.map((rows) => Arr.map(rows, (row) => String(row.codigo))));
+  const seedCodigos = duck
+    .query(
+      Schema.Struct({ codigo: Schema.Finite }),
+      `SELECT "codigoItem"::INTEGER AS codigo FROM catmat_material ORDER BY "codigoItem" LIMIT ?`,
+      [seedLimit]
+    )
+    .pipe(
+      Effect.map((rows) => Arr.map(rows, (row) => String(row.codigo))),
+      Effect.catchTag("DuckError", () => Effect.succeed(Arr.empty<string>()))
+    );
+
+  const ensureTable = Effect.gen(function* () {
+    const present = yield* duck.query(
+      Schema.Struct({ n: Schema.Finite }),
+      `SELECT count(*)::INTEGER AS n FROM information_schema.tables WHERE table_name = ?`,
+      [precoPraticadoTable.name]
+    );
+    yield* Option.exists(Arr.head(present), (row) => row.n > 0)
+      ? Effect.void
+      : duck.create(precoPraticadoTable);
+  });
+
+  const nextId = duck
+    .query(
+      Schema.Struct({ next: Schema.Finite }),
+      `SELECT (coalesce(max(id), -1) + 1)::DOUBLE AS next FROM preco_praticado`
+    )
+    .pipe(
+      Effect.map((rows) =>
+        Option.getOrElse(
+          Option.map(Arr.head(rows), (row) => row.next),
+          () => 0
+        )
+      )
+    );
+
+  const harvest = (codigos: readonly string[]) =>
+    Effect.gen(function* () {
+      yield* ensureTable;
+      const firstId = yield* nextId;
+      const inserted = yield* indexItens({ codigos, firstId });
+      yield* duck.reindex(precoPraticadoTable);
+      return inserted;
+    });
 
   const index = Effect.gen(function* () {
-    yield* db.delete(precoPraticado);
+    yield* duck.create(precoPraticadoTable);
     const codigos = yield* seedCodigos;
-    const inserted = yield* indexItens(codigos);
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${precoPraticado}`
-    ).pipe(Effect.map(({ rows }) => rows));
-    return { itens: codigos.length, inserted, total: pipe(
-        Arr.head(rows),
-        Option.map((row) => Number(row.count)),
-        Option.getOrElse(() => 0)
-      ) };
+    const inserted = yield* harvest(codigos);
+    return { itens: codigos.length, inserted, total: yield* duck.count(precoPraticadoTable) };
   });
 
   return {
     index,
     indexAll: index,
     indexItens: (codigos: readonly string[]) =>
-      Effect.gen(function* () {
-        const inserted = yield* indexItens(codigos);
-        return { inserted };
-      }),
+      harvest(codigos).pipe(Effect.map((inserted) => ({ inserted }))),
     precoPorItem,
     estatisticaPreco,
     buscarPrecoPorDescricao,

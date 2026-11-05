@@ -1,40 +1,47 @@
-import { Context, Effect, Layer, Match } from "effect";
+import { Context, Effect, Layer, Match, Schema } from "effect";
+import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
-import { sql } from "drizzle-orm";
-import { Db, DbError } from "../../kernel/db/client";
-import { municipio } from "../../kernel/db/schemas/municipio";
-import { normalize, onlyDigits } from "../../kernel/text/normalize";
 import {
-  IbgeError,
-  codigoIbgeLength,
-  ufBySigla,
-  type MunicipioFlat,
-} from "./catalog";
+  bm25,
+  Duck,
+  type DuckParam,
+  type DuckTable,
+  idsParam,
+  inIds,
+} from "../../kernel/duck/duck";
+import { Fuzzy } from "../../kernel/search/fuzzy";
+import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { IbgeError, MunicipioFlat, codigoIbgeLength, ufBySigla } from "./catalog";
 import { fetchMunicipios } from "./indexer";
 
-export const replaceAll = (rows: readonly MunicipioFlat[]) =>
-  Effect.gen(function* () {
-    const db = yield* Db;
-    yield* db.transaction((tx) =>
-      Effect.gen(function* () {
-        yield* tx.delete(municipio);
-        yield* Match.value(rows.length).pipe(
-          Match.when(0, () => Effect.void),
-          Match.orElse(() => tx.insert(municipio).values([...rows]))
-        );
-      })
-    );
-  }).pipe(
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
-    )
-  );
+export const municipioTable: DuckTable = {
+  name: "municipio",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    nome: "VARCHAR",
+    nomeNormalizado: "VARCHAR",
+    ufSigla: "VARCHAR",
+    ufId: "INTEGER",
+    ufNome: "VARCHAR",
+    mesorregiaoId: "INTEGER",
+    mesorregiaoNome: "VARCHAR",
+    regiaoSigla: "VARCHAR",
+  },
+  search: ["nomeNormalizado"],
+};
+
+const MunicipioScored = Schema.Struct({ ...MunicipioFlat.fields, score: Schema.Finite });
+
+const municipioColumns = `id, nome, "nomeNormalizado", "ufSigla", "ufId"::INTEGER AS "ufId", "ufNome",
+  "mesorregiaoId"::INTEGER AS "mesorregiaoId", "mesorregiaoNome", "regiaoSigla"`;
 
 const defaultLimit = 10;
 
 const makeIbgeLocalidades = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
+  const fuzzy = yield* Fuzzy;
 
   const validateUf = (sigla: string) =>
     Match.value(ufBySigla.get(pipe(sigla, Str.trim, Str.toUpperCase))).pipe(
@@ -50,111 +57,92 @@ const makeIbgeLocalidades = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const ufFilter = yield* Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) =>
-          validateUf(uf).pipe(Effect.map((found) => found.sigla))
-        ),
+        Match.when(Match.string, (uf) => validateUf(uf).pipe(Effect.map((found) => found.sigla))),
         Match.orElse(() => Effect.undefined)
       );
       const normalized = normalize(termo);
-      const limit = Math.min(
-        Math.max(Math.trunc(options?.limit ?? defaultLimit), 1),
-        50
+      const limit = Math.min(Math.max(Math.trunc(options?.limit ?? defaultLimit), 1), 50);
+      const ufClause = Match.value(ufFilter).pipe(
+        Match.when(Match.string, () => `"ufSigla" = ?`),
+        Match.orElse(() => `true`)
       );
-      const ufWhere = Match.value(ufFilter).pipe(
-        Match.when(Match.string, (uf) => sql`uf_sigla = ${uf}`),
-        Match.orElse(() => sql`true`)
+      const ufParams: readonly DuckParam[] = Match.value(ufFilter).pipe(
+        Match.when(Match.string, (uf): readonly DuckParam[] => [uf]),
+        Match.orElse((): readonly DuckParam[] => [])
       );
-      const rank = sql`greatest(
-        similarity(nome_normalizado, ${normalized}),
-        word_similarity(${normalized}, nome_normalizado),
-        strict_word_similarity(${normalized}, nome_normalizado)
-      )`;
-      const select = (condition: typeof ufWhere) =>
-        db.execute(sql`
-          select
-            id, nome, nome_normalizado as "nomeNormalizado",
-            uf_sigla as "ufSigla", uf_id as "ufId", uf_nome as "ufNome",
-            mesorregiao_id as "mesorregiaoId",
-            mesorregiao_nome as "mesorregiaoNome", regiao_sigla as "regiaoSigla",
-            ${rank} as score
-          from ${municipio}
-          where ${condition}
-          order by score desc, id
-          limit ${sql.raw(String(limit))}
-        `).pipe(Effect.map(({ rows }) => rows));
-      const matched = yield* select(
-        sql`${ufWhere} and (nome_normalizado % ${normalized} or ${normalized} <% nome_normalizado)`
+      const exact = yield* duck.query(
+        MunicipioScored,
+        `SELECT ${municipioColumns}, score
+         FROM (SELECT *, ${bm25(municipioTable)} AS score FROM municipio)
+         WHERE score IS NOT NULL AND ${ufClause} ORDER BY score DESC, id LIMIT ?`,
+        [normalized, ...ufParams, limit]
       );
-      const rows = matched.length > 0 ? matched : yield* select(ufWhere);
+      const ids = Arr.isReadonlyArrayNonEmpty(exact)
+        ? []
+        : yield* fuzzy.match("municipio", normalized, { limit: 50 });
+      const candidates = Arr.isReadonlyArrayNonEmpty(ids)
+        ? yield* duck.query(
+            MunicipioScored,
+            `SELECT ${municipioColumns}, 0::DOUBLE AS score FROM municipio WHERE ${inIds("id")} AND ${ufClause}`,
+            [idsParam(ids), ...ufParams]
+          )
+        : [];
+      const matched = Arr.isReadonlyArrayNonEmpty(exact)
+        ? exact
+        : Arr.take(
+            Arr.getSomes(Arr.map(ids, (id) => Arr.findFirst(candidates, (row) => row.id === id))),
+            limit
+          );
+      const rows = Arr.isReadonlyArrayNonEmpty(matched)
+        ? matched
+        : yield* duck.query(
+            MunicipioScored,
+            `SELECT ${municipioColumns}, 0::DOUBLE AS score FROM municipio WHERE ${ufClause} ORDER BY id LIMIT ?`,
+            [...ufParams, limit]
+          );
       return yield* Match.value(rows.length).pipe(
         Match.when(0, () =>
-          Effect.fail(
-            IbgeError.make({
-              code: "ibge.MUNICIPIO_NOT_FOUND",
-              termo,
-              uf: ufFilter,
-            })
-          )
+          Effect.fail(IbgeError.make({ code: "ibge.MUNICIPIO_NOT_FOUND", termo, uf: ufFilter }))
         ),
         Match.orElse(() => Effect.succeed(rows))
       );
-    }).pipe(
-      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
-        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
-      )
-    );
+    });
 
   const municipioByCodigo = (codigo: string) =>
     Effect.gen(function* () {
       const normalizado = pipe(onlyDigits(codigo), Str.padStart(codigoIbgeLength, "0"));
-      const found = yield* db.query.municipio.findFirst({
-        where: { id: normalizado },
-      });
-      return yield* Match.value(found).pipe(
-        Match.when(Match.undefined, () =>
-          Effect.fail(
-            IbgeError.make({ code: "ibge.CODE_NOT_FOUND", codigo, normalizado })
-          )
-        ),
-        Match.orElse((row) => Effect.succeed(row))
+      const found = yield* duck.query(
+        MunicipioFlat,
+        `SELECT ${municipioColumns} FROM municipio WHERE id = ?`,
+        [normalizado]
       );
-    }).pipe(
-      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
-        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
-      )
-    );
+      return yield* Effect.fromOption(Arr.head(found)).pipe(
+        Effect.mapError(() => IbgeError.make({ code: "ibge.CODE_NOT_FOUND", codigo, normalizado }))
+      );
+    });
 
   const listByUf = (uf: string) =>
     Effect.gen(function* () {
       const validated = yield* validateUf(uf);
-      const municipios = yield* db.query.municipio.findMany({
-        where: { ufSigla: validated.sigla },
-        orderBy: (m, { asc }) => [asc(m.nomeNormalizado), asc(m.id)],
-      });
-      return {
-        uf: validated.sigla,
-        ufId: validated.id,
-        total: municipios.length,
-        municipios,
-      };
-    }).pipe(
-      Effect.catchTag("EffectDrizzleQueryError", (cause) =>
-        Effect.fail(DbError.make({ code: "db.QUERY", cause: String(cause) }))
-      )
+      const municipios = yield* duck.query(
+        MunicipioFlat,
+        `SELECT ${municipioColumns} FROM municipio WHERE "ufSigla" = ? ORDER BY "nomeNormalizado", id`,
+        [validated.sigla]
+      );
+      return { uf: validated.sigla, ufId: validated.id, total: municipios.length, municipios };
+    });
+
+  const index = Effect.gen(function* () {
+    const flat = yield* fetchMunicipios;
+    const loaded = yield* duck.replace(municipioTable, flat);
+    yield* fuzzy.write(
+      "municipio",
+      Arr.map(flat, (row): readonly [string, string] => [row.id, row.nomeNormalizado])
     );
+    return loaded;
+  });
 
-  const index = fetchMunicipios.pipe(
-    Effect.flatMap((flat) => replaceAll(flat).pipe(Effect.as(flat.length)))
-  );
-
-  return {
-    index,
-    indexAll: index,
-    resolveMunicipio,
-    municipioByCodigo,
-    validateUf,
-    listByUf,
-  };
+  return { index, indexAll: index, resolveMunicipio, municipioByCodigo, validateUf, listByUf };
 });
 
 export class IbgeLocalidades extends Context.Service<
@@ -162,6 +150,4 @@ export class IbgeLocalidades extends Context.Service<
   Effect.Success<typeof makeIbgeLocalidades>
 >()("dados-publicos-mcp/sources/ibge-localidades/store/IbgeLocalidades") {}
 
-export const IbgeLocalidadesLive = Layer.effect(IbgeLocalidades)(
-  makeIbgeLocalidades
-);
+export const IbgeLocalidadesLive = Layer.effect(IbgeLocalidades)(makeIbgeLocalidades);

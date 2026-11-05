@@ -6,8 +6,7 @@ import { normalize } from "../../kernel/text/normalize";
 
 export const codigoIbgeLength = 7;
 
-export const municipiosUrl =
-  "https://servicodados.ibge.gov.br/api/v1/localidades/municipios";
+export const municipiosUrl = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios";
 
 const RegiaoRaw = Schema.Struct({
   id: Schema.Finite,
@@ -65,7 +64,7 @@ export const MunicipioFlat = Schema.Struct({
 });
 export type MunicipioFlat = (typeof MunicipioFlat)["Type"];
 
-export const ufs = [
+const ufs = [
   { sigla: "RO", id: 11, nome: "Rondonia" },
   { sigla: "AC", id: 12, nome: "Acre" },
   { sigla: "AM", id: 13, nome: "Amazonas" },
@@ -94,29 +93,27 @@ export const ufs = [
   { sigla: "GO", id: 52, nome: "Goias" },
   { sigla: "DF", id: 53, nome: "Distrito Federal" },
 ];
-export type Uf = (typeof ufs)[number];
-
 export const ufBySigla = new Map(Arr.map(ufs, (uf) => [uf.sigla, uf] as const));
 
-export const IbgeErrorCode = Schema.Literals([
+const IbgeErrorCode = Schema.Literals([
   "ibge.MUNICIPIO_NOT_FOUND",
   "ibge.CODE_NOT_FOUND",
   "ibge.UF_INVALID",
   "ibge.PARSE",
 ]);
-export type IbgeErrorCode = (typeof IbgeErrorCode)["Type"];
+type IbgeErrorCode = (typeof IbgeErrorCode)["Type"];
 
-export class IbgeError extends Schema.TaggedError<
-  IbgeError,
-  { readonly brand: unique symbol }
->()("IbgeError", {
-  code: IbgeErrorCode,
-  termo: Schema.optional(Schema.String),
-  uf: Schema.optional(Schema.String),
-  codigo: Schema.optional(Schema.String),
-  normalizado: Schema.optional(Schema.String),
-  municipio: Schema.optional(Schema.String),
-}) {
+export class IbgeError extends Schema.TaggedError<IbgeError, { readonly brand: unique symbol }>()(
+  "IbgeError",
+  {
+    code: IbgeErrorCode,
+    termo: Schema.optional(Schema.String),
+    uf: Schema.optional(Schema.String),
+    codigo: Schema.optional(Schema.String),
+    normalizado: Schema.optional(Schema.String),
+    municipio: Schema.optional(Schema.String),
+  }
+) {
   override get message() {
     switch (this.code) {
       case "ibge.MUNICIPIO_NOT_FOUND":
@@ -131,8 +128,26 @@ export class IbgeError extends Schema.TaggedError<
   }
 }
 
-const formatCodigoIbge = (id: number) =>
-  pipe(String(id), Str.padStart(codigoIbgeLength, "0"));
+const formatCodigoIbge = (id: number) => pipe(String(id), Str.padStart(codigoIbgeLength, "0"));
+
+type UfRaw = NonNullable<MunicipioRaw["microrregiao"]>["mesorregiao"]["UF"];
+
+const municipioFlat = (
+  raw: MunicipioRaw,
+  uf: UfRaw,
+  mesorregiao: { readonly id: number; readonly nome: string } | null
+) =>
+  Effect.succeed({
+    id: formatCodigoIbge(raw.id),
+    nome: raw.nome,
+    nomeNormalizado: normalize(raw.nome),
+    ufSigla: uf.sigla,
+    ufId: uf.id,
+    ufNome: uf.nome,
+    mesorregiaoId: mesorregiao?.id ?? null,
+    mesorregiaoNome: mesorregiao?.nome ?? null,
+    regiaoSigla: uf.regiao.sigla,
+  } satisfies MunicipioFlat);
 
 const flattenMunicipio = (raw: MunicipioRaw) =>
   Match.value(raw.microrregiao).pipe(
@@ -146,36 +161,10 @@ const flattenMunicipio = (raw: MunicipioRaw) =>
             })
           )
         ),
-        Match.orElse((fallback) => {
-          const uf = fallback["regiao-intermediaria"].UF;
-          return Effect.succeed({
-            id: formatCodigoIbge(raw.id),
-            nome: raw.nome,
-            nomeNormalizado: normalize(raw.nome),
-            ufSigla: uf.sigla,
-            ufId: uf.id,
-            ufNome: uf.nome,
-            mesorregiaoId: null,
-            mesorregiaoNome: null,
-            regiaoSigla: uf.regiao.sigla,
-          } satisfies MunicipioFlat);
-        })
+        Match.orElse((fallback) => municipioFlat(raw, fallback["regiao-intermediaria"].UF, null))
       )
     ),
-    Match.orElse((micro) => {
-      const uf = micro.mesorregiao.UF;
-      return Effect.succeed({
-        id: formatCodigoIbge(raw.id),
-        nome: raw.nome,
-        nomeNormalizado: normalize(raw.nome),
-        ufSigla: uf.sigla,
-        ufId: uf.id,
-        ufNome: uf.nome,
-        mesorregiaoId: micro.mesorregiao.id,
-        mesorregiaoNome: micro.mesorregiao.nome,
-        regiaoSigla: uf.regiao.sigla,
-      } satisfies MunicipioFlat);
-    })
+    Match.orElse((micro) => municipioFlat(raw, micro.mesorregiao.UF, micro.mesorregiao))
   );
 
 export const flatten = (payload: readonly MunicipioRaw[]) =>

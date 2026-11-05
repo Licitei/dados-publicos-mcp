@@ -1,14 +1,13 @@
+import { numeroBr } from "../../kernel/csv/fields";
 import { Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Str from "effect/String";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
-export const precosPage =
-  "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos";
+export const precosPage = "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos";
 
-export const arquivosBase =
-  "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos/arquivos";
+const arquivosBase = "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos/arquivos";
 
 export const browserUserAgent =
   "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0";
@@ -28,8 +27,7 @@ export const downloadUrlFromPage = (html: string) =>
     })
   );
 
-const headerKey = (header: string) =>
-  pipe(normalize(header), Str.replace(/\s+/g, " "), Str.trim);
+const headerKey = (header: string) => pipe(normalize(header), Str.replace(/\s+/g, " "), Str.trim);
 
 const buildHeaderMap = (row: readonly string[]) =>
   new Map(
@@ -45,25 +43,12 @@ const findHeaderIndex = (rows: readonly (readonly string[])[]) =>
     Arr.findFirstIndex((row) => headerKey(row[0] ?? "") === "substancia")
   );
 
-const cell = (
-  row: readonly string[],
-  map: Map<string, number>,
-  label: string
-) => {
-  const index = map.get(headerKey(label))
+const cell = (row: readonly string[], map: Map<string, number>, label: string) => {
+  const index = map.get(headerKey(label));
   return index === undefined ? "" : pipe(row[index] ?? "", Str.trim);
 };
 
 const orNull = (value: string) => (value === "" ? null : value);
-
-const preco = (value: string) => {
-  const cleaned = pipe(value, Str.replace(/\*/g, ""), Str.trim);
-  const normalized = pipe(cleaned, Str.includes(","))
-    ? pipe(cleaned, Str.replace(/\./g, ""), Str.replace(",", "."))
-    : cleaned;
-  const parsed = Number(normalized);
-  return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
-};
 
 export const MedicamentoFlat = Schema.Struct({
   substancia: Schema.NullOr(Schema.String),
@@ -102,17 +87,13 @@ const mapRow = (map: Map<string, number>) => (row: readonly string[]) => {
     apresentacao: orNull(apresentacao),
     classeTerapeutica: orNull(classe),
     tarja: orNull(cell(row, map, "TARJA")),
-    pfSemImpostos: preco(cell(row, map, "PF Sem Impostos")),
-    pmvgSemImpostos: preco(cell(row, map, "PMVG Sem Impostos")),
-    busca: normalize(
-      pipe([substancia, produto, apresentacao, laboratorio, classe], Arr.join(" "))
-    ),
+    pfSemImpostos: numeroBr(cell(row, map, "PF Sem Impostos")),
+    pmvgSemImpostos: numeroBr(cell(row, map, "PMVG Sem Impostos")),
+    busca: normalize(pipe([substancia, produto, apresentacao, laboratorio, classe], Arr.join(" "))),
   } satisfies MedicamentoFlat;
 };
 
-export const mapMedicamentos = (
-  rows: readonly (readonly string[])[]
-): readonly MedicamentoFlat[] =>
+export const mapMedicamentos = (rows: readonly (readonly string[])[]): readonly MedicamentoFlat[] =>
   pipe(
     findHeaderIndex(rows),
     Option.flatMap((headerIndex) =>
@@ -131,12 +112,15 @@ export const mapMedicamentos = (
     Option.getOrElse((): readonly MedicamentoFlat[] => [])
   );
 
-export const CmedErrorCode = Schema.Literals(["cmed.FILE_NOT_LISTED"]);
-export type CmedErrorCode = (typeof CmedErrorCode)["Type"];
+const CmedErrorCode = Schema.Literals(["cmed.FILE_NOT_LISTED"]);
+type CmedErrorCode = (typeof CmedErrorCode)["Type"];
 
-export class CmedError extends Schema.TaggedError<CmedError, { readonly brand: unique symbol }>()("CmedError", {
-  code: CmedErrorCode,
-}) {
+export class CmedError extends Schema.TaggedError<CmedError, { readonly brand: unique symbol }>()(
+  "CmedError",
+  {
+    code: CmedErrorCode,
+  }
+) {
   override get message() {
     switch (this.code) {
       case "cmed.FILE_NOT_LISTED":

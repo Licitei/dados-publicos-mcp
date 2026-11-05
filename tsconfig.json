@@ -10,7 +10,7 @@
     "strict": true,
     "skipLibCheck": true,
     "types": [
-      "bun-types"
+      "bun"
     ],
     "plugins": [
       {
@@ -168,12 +168,12 @@
         "allowedUnstableApis": [
           "effect/http",
           "effect/cli",
-          "effect/sql",
           "effect/reactivity",
           "effect/testing",
           "@effect/vitest",
           "@effect/platform-bun",
-          "@effect/sql-pg",
+          "@duckdb/node-api",
+          "effect/process",
           "effect/FileSystem",
           "effect/Path",
           "@effect/platform-node"

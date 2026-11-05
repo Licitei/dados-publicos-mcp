@@ -9,9 +9,7 @@ const numberAt = (values: readonly number[], index: number) =>
   Arr.get(values, index).pipe(Option.getOrElse(() => 0));
 
 const crcTable = Arr.makeBy(256, (n) =>
-  Arr.reduce(Arr.range(1, 8), n, (c) =>
-    (c & 1) === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-  )
+  Arr.reduce(Arr.range(1, 8), n, (c) => ((c & 1) === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1))
 );
 
 const crc32 = (bytes: Uint8Array) =>
@@ -28,9 +26,7 @@ const encoder = new TextEncoder();
 export const utf8 = (text: string) => encoder.encode(text);
 
 const concat = (chunks: readonly Uint8Array[]) => {
-  const out = new Uint8Array(
-    Arr.reduce(chunks, 0, (sum, chunk) => sum + chunk.length)
-  );
+  const out = new Uint8Array(Arr.reduce(chunks, 0, (sum, chunk) => sum + chunk.length));
   Arr.reduce(chunks, 0, (position, chunk) => {
     out.set(chunk, position);
     return position + chunk.length;
@@ -80,27 +76,15 @@ const assemble = (parts: readonly ZipPart[]) => {
     header.set(item.nameBytes, 46);
     return header;
   });
-  const centralSize = Arr.reduce(
-    central,
-    0,
-    (sum, header) => sum + header.length
-  );
+  const centralSize = Arr.reduce(central, 0, (sum, header) => sum + header.length);
   const eocd = new Uint8Array(22);
   const eocdView = new DataView(eocd.buffer);
   eocdView.setUint32(0, 0x06054b50, true);
   eocdView.setUint16(8, parts.length, true);
   eocdView.setUint16(10, parts.length, true);
   eocdView.setUint32(12, centralSize, true);
-  eocdView.setUint32(
-    16,
-    Arr.last(offsets).pipe(Option.getOrElse(() => 0)),
-    true
-  );
-  return concat([
-    ...Arr.flatMap(local, (item) => [item.header, item.part.data]),
-    ...central,
-    eocd,
-  ]);
+  eocdView.setUint32(16, Arr.last(offsets).pipe(Option.getOrElse(() => 0)), true);
+  return concat([...Arr.flatMap(local, (item) => [item.header, item.part.data]), ...central, eocd]);
 };
 
 export const storedZip = (entries: readonly ZipEntry[]) =>
@@ -121,9 +105,9 @@ const deflateRaw = (bytes: Uint8Array) =>
   ).pipe(Effect.map((buffer) => new Uint8Array(buffer)));
 
 export const zip: {
-  (
-    options: { readonly method: ZipMethod }
-  ): (entries: readonly ZipEntry[]) => Effect.Effect<Uint8Array>;
+  (options: {
+    readonly method: ZipMethod;
+  }): (entries: readonly ZipEntry[]) => Effect.Effect<Uint8Array>;
   (
     entries: readonly ZipEntry[],
     options: { readonly method: ZipMethod }

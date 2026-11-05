@@ -1,0 +1,73 @@
+import { eslintCompatPlugin } from "@oxlint/plugins";
+
+import * as errors from "./rules/errors.ts";
+import * as hygiene from "./rules/hygiene.ts";
+import * as infra from "./rules/infra.ts";
+import * as strict from "./rules/strict.ts";
+import * as tests from "./rules/tests.ts";
+
+const plugin = eslintCompatPlugin({
+  meta: { name: "dados-publicos" },
+  rules: {
+    "no-throw": errors.noThrow,
+    "no-instanceof": errors.noInstanceof,
+    "no-statement-try-catch-finally": errors.noStatementTryCatchFinally,
+    "no-error-helper-functions": errors.noErrorHelperFunctions,
+    "no-thin-error-factories": errors.noThinErrorFactories,
+    "no-wrap-only-errors": errors.noWrapOnlyErrors,
+    "no-swallowed-try-promise": errors.noSwallowedTryPromise,
+    "no-swallowed-promise-catch": errors.noSwallowedPromiseCatch,
+    "no-data-tagged-error": errors.noDataTaggedError,
+    "error-class-must-use-tagged-error": errors.errorClassMustUseTaggedError,
+    "error-code-discrimination": errors.errorCodeDiscrimination,
+    "tagged-error-needs-message-getter": errors.taggedErrorNeedsMessageGetter,
+    "error-code-must-be-literals": errors.errorCodeMustBeLiterals,
+    "no-widened-effect-error-channel": errors.noWidenedEffectErrorChannel,
+    "no-as-cast": strict.noAsCast,
+    "no-let-var": strict.noLetVar,
+    "no-enum": strict.noEnum,
+    "no-imperative-while-loop": strict.noImperativeWhileLoop,
+    "no-mutation-accumulator": strict.noMutationAccumulator,
+    "no-mutable-mapped-type": strict.noMutableMappedType,
+    "switch-only-in-get-message": strict.switchOnlyInGetMessage,
+    "no-barrel-passthrough-reexport": strict.noBarrelPassthroughReexport,
+    "retry-must-classify-errors": strict.retryMustClassifyErrors,
+    "no-unbounded-concurrency": strict.noUnboundedConcurrency,
+    "no-v3-service-api": strict.noV3ServiceApi,
+    "no-context-tag": strict.noContextTag,
+    "no-effect-service": strict.noEffectService,
+    "service-needs-layer": strict.serviceNeedsLayer,
+    "config-via-context-reference": strict.configViaContextReference,
+    "no-raw-json": strict.noRawJson,
+    "no-source-comments": hygiene.noSourceComments,
+    "filename-case": hygiene.filenameCase,
+    "no-in-operator": hygiene.noInOperator,
+    "no-reflect-get": hygiene.noReflectGet,
+    "no-reflect-apply": hygiene.noReflectApply,
+    "no-handwritten-type-predicates": hygiene.noHandwrittenTypePredicates,
+    "no-json-string-comparison": hygiene.noJsonStringComparison,
+    "no-generic-json-codec-wrappers": hygiene.noGenericJsonCodecWrappers,
+    "prefer-effect-foreach": hygiene.preferEffectForeach,
+    "no-service-option": hygiene.noServiceOption,
+    "no-then-in-effect-gen": hygiene.noThenInEffectGen,
+    "no-unowned-effect-run": hygiene.noUnownedEffectRun,
+    "no-extra-managed-runtime": hygiene.noExtraManagedRuntime,
+    "no-direct-fetch": hygiene.noDirectFetch,
+    "no-generic-helper-names": hygiene.noGenericHelperNames,
+    "no-thin-forwarding-wrappers": hygiene.noThinForwardingWrappers,
+    "no-unknown-type-aliases": hygiene.noUnknownTypeAliases,
+    "no-unsafe-dictionary-type": hygiene.noUnsafeDictionaryType,
+    "require-test-assertion": tests.requireTestAssertion,
+    "no-test-in-loop": tests.noTestInLoop,
+    "no-test-timeout-or-skip": tests.noTestTimeoutOrSkip,
+    "no-real-time-wait-in-tests": tests.noRealTimeWaitInTests,
+    "no-manual-effect-runtime-in-tests": tests.noManualEffectRuntimeInTests,
+    "no-module-mocking": tests.noModuleMocking,
+    "no-tautological-assertion": tests.noTautologicalAssertion,
+    "no-process-env-in-alchemy-run": infra.noProcessEnvInAlchemyRun,
+    "no-stack-as-void": infra.noStackAsVoid,
+    "no-yield-resource-constructor": infra.noYieldResourceConstructor,
+  },
+});
+
+export default plugin;

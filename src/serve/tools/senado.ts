@@ -11,12 +11,10 @@ const BuscarSenadorInput = Schema.Struct({
 const buscarSenador = defineTool({
   name: "buscar_senador",
   description:
-    "Busca senadores em exercicio por nome (fuzzy pg_trgm), retornando partido, UF e contato.",
+    "Busca senadores em exercicio por nome (tolera grafia parcial), retornando partido, UF e contato.",
   input: BuscarSenadorInput,
   run: (args) =>
-    SenadoFederal.pipe(
-      Effect.flatMap((service) => service.buscarSenador(args.nome, args.limite))
-    ),
+    SenadoFederal.pipe(Effect.flatMap((service) => service.buscarSenador(args.nome, args.limite))),
 });
 
 const FornecedorInput = Schema.Struct({
@@ -26,13 +24,15 @@ const FornecedorInput = Schema.Struct({
 
 const fornecedorCeapsSenado = defineTool({
   name: "fornecedor_ceaps_senado",
-  description:
-    "Busca despesas da cota parlamentar do Senado (CEAPS) por fornecedor/detalhamento usando BM25 com fallback fuzzy pg_trgm.",
+  description: "Busca despesas da cota parlamentar do Senado (CEAPS) por fornecedor/detalhamento.",
   input: FornecedorInput,
   run: (args) =>
     SenadoFederal.pipe(
       Effect.flatMap((service) =>
-        service.buscarFornecedorCeaps(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarFornecedorCeaps(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -45,9 +45,7 @@ const gastosSenadoPorFornecedor = defineTool({
     "Soma e lista as despesas CEAPS do Senado pagas a um CNPJ/CPF (due diligence de fornecedor de gabinete).",
   input: GastosInput,
   run: (args) =>
-    SenadoFederal.pipe(
-      Effect.flatMap((service) => service.gastosPorFornecedor(args.documento))
-    ),
+    SenadoFederal.pipe(Effect.flatMap((service) => service.gastosPorFornecedor(args.documento))),
 });
 
 export const senadoTools = [

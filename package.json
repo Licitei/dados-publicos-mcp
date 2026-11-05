@@ -8,22 +8,31 @@
     "dados-publicos-mcp": "./src/index.ts"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint:errors && bun run test:unit",
+    "bench": "bun tooling/bench/search.ts",
+    "check": "bun run typecheck && bun run lint && bun run test:unit",
+    "format": "oxfmt --config tooling/lint/oxfmt.json --write \"src/**/*.ts\" \"infra/**/*.ts\" \"tests/**/*.ts\" \"tooling/**/*.ts\"",
     "index": "bun src/index.ts index",
     "infra:deploy": "bun alchemy deploy ./infra/alchemy.run.ts",
     "infra:destroy": "bun alchemy destroy ./infra/alchemy.run.ts",
-    "lint:errors": "bun tooling/static-checks/check-declarative-errors.ts",
+    "lint": "bun tooling/lint/lint-runner.ts",
+    "lint:format": "oxfmt --config tooling/lint/oxfmt.json --check \"src/**/*.ts\" \"infra/**/*.ts\" \"tests/**/*.ts\" \"tooling/**/*.ts\"",
+    "lint:knip": "knip --config tooling/lint/knip.ts",
+    "lint:oxlint": "effect-tsgo oxlint --type-aware -c tooling/lint/oxlint.json --max-warnings=0 src infra tests tooling",
+    "lint:reuse-policy": "bun tooling/lint/reuse-policy.ts",
+    "lint:source-policy": "bun tooling/lint/source-policy.ts",
+    "lint:structure": "konsistent check --config-path tooling/lint/konsistent.json",
     "prepublishOnly": "bun run check",
     "start": "bun src/index.ts",
     "test": "vitest run",
-    "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:unit": "vitest run",
     "typecheck": "effect-tsgo tsrs --noEmit --fast"
   },
   "keywords": [
     "mcp",
     "dados-publicos",
-    "legislacao",
+    "leis",
+    "precedentes",
     "brasil",
     "licitacoes",
     "planalto"
@@ -49,15 +58,11 @@
     "bun": ">=1.1.0"
   },
   "dependencies": {
+    "@duckdb/node-api": "2.0.0-r.1",
     "@effect/platform-bun": "4.1.2",
-    "@effect/sql-pg": "4.1.2",
-    "@electric-sql/pglite": "^0.4.5",
-    "@electric-sql/pglite-socket": "0.2.2",
-    "@huggingface/transformers": "^4.2.0",
+    "@ff-labs/fff-node": "0.11.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "alchemy": "2.0.0-beta.85",
-    "cheerio": "^1.2.0",
-    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.1.2"
   },
   "devDependencies": {
@@ -65,12 +70,14 @@
     "@effect/platform-node": "4.1.2",
     "@effect/tsgo": "0.64.1",
     "@effect/vitest": "4.1.2",
+    "@oxlint/plugins": "1.90.0",
     "@types/bun": "latest",
+    "knip": "6.44.1",
+    "konsistent": "1.0.0-beta.13",
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005",
     "tsrs": "0.20.1-ts7.1.0-beta",
     "vitest": "^5.1.0"
-  },
-  "trustedDependencies": [
-    "onnxruntime-node",
-    "protobufjs"
-  ]
+  }
 }

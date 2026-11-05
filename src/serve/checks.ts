@@ -18,3 +18,19 @@ export const ceapYear = Schema.Finite.pipe(
     Schema.isLessThanOrEqualTo(2026)
   )
 );
+
+const MinTwoString = Schema.String.pipe(Schema.check(Schema.isMinLength(2)));
+
+export const VerificarDocumentoInput = Schema.Struct({ documento: NonEmptyString });
+
+export const buscarNomeInput = (max: number) =>
+  Schema.Struct({
+    nome: MinTwoString,
+    limite: Schema.optionalKey(positiveIntMax(max)),
+  });
+
+export const BuscarTermoUfInput = Schema.Struct({
+  termo: MinTwoString,
+  uf: Schema.optionalKey(Uf),
+  limite: Schema.optionalKey(positiveIntMax(200)),
+});

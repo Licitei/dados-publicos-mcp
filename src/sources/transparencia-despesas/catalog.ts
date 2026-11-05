@@ -1,11 +1,40 @@
-import { Option, Schema } from "effect";
+import { Schema } from "effect";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
-import * as Rec from "effect/Record";
 import * as Str from "effect/String";
+import type { DuckTable } from "../../kernel/duck/duck";
 import { normalize } from "../../kernel/text/normalize";
+import type { CsvRecord } from "../../kernel/csv/parse";
+import { indexByKey, pickOne, numeroBr } from "../../kernel/csv/fields";
 
-export const cdnBase =
+export const despesaFederalTable: DuckTable = {
+  name: "despesa_federal",
+  key: "id",
+  columns: {
+    id: "BIGINT",
+    anoMes: "VARCHAR",
+    codOrgaoSuperior: "VARCHAR",
+    nomeOrgaoSuperior: "VARCHAR",
+    codOrgao: "VARCHAR",
+    nomeOrgao: "VARCHAR",
+    codFuncao: "VARCHAR",
+    nomeFuncao: "VARCHAR",
+    codPrograma: "VARCHAR",
+    nomePrograma: "VARCHAR",
+    codAcao: "VARCHAR",
+    nomeAcao: "VARCHAR",
+    uf: "VARCHAR",
+    municipio: "VARCHAR",
+    nomeElemento: "VARCHAR",
+    valorEmpenhado: "DOUBLE",
+    valorLiquidado: "DOUBLE",
+    valorPago: "DOUBLE",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+
+const cdnBase =
   "https://dadosabertos-download.cgu.gov.br/PortalDaTransparencia/saida/despesas-execucao";
 
 export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
@@ -16,37 +45,7 @@ export const zipUrl = (anoMes: string) => `${cdnBase}/${anoMes}_Despesas.zip`;
 
 export const toAnoMes = (mes: string) => pipe(mes, Str.replace(/-/g, ""));
 
-const headerKey = (header: string) =>
-  pipe(
-    header,
-    Str.normalize("NFD"),
-    Str.replace(/\p{Diacritic}/gu, ""),
-    Str.toLowerCase,
-    Str.replace(/\s+/g, " "),
-    Str.trim
-  );
-
-const indexByKey = (record: Record<string, string>) =>
-  new Map(
-    pipe(
-      Rec.toEntries(record),
-      Arr.map(([key, value]) => [headerKey(key), value] as const)
-    )
-  );
-
-const pick = (byKey: Map<string, string>, candidate: string) =>
-  pipe(byKey.get(headerKey(candidate)) ?? "", Str.trim);
-
 const orNull = (value: string) => (value === "" ? null : value);
-
-const numeroBr = (value: string) => {
-  const trimmed = pipe(value, Str.trim);
-  const normalized = pipe(trimmed, Str.includes(","))
-    ? pipe(trimmed, Str.replace(/\./g, ""), Str.replace(",", "."))
-    : trimmed;
-  const parsed = Number(normalized);
-  return normalized === "" || !Number.isFinite(parsed) ? null : parsed;
-};
 
 export const DespesaFederalFlat = Schema.Struct({
   anoMes: Schema.NullOr(Schema.String),
@@ -70,32 +69,32 @@ export const DespesaFederalFlat = Schema.Struct({
 });
 export type DespesaFederalFlat = (typeof DespesaFederalFlat)["Type"];
 
-const mapRecord = (record: Record<string, string>) => {
+const mapRecord = (record: CsvRecord) => {
   const byKey = indexByKey(record);
-  const nomeOrgaoSuperior = pick(byKey, "Nome Orgao Superior");
-  const nomeOrgao = pick(byKey, "Nome Orgao Subordinado");
-  const nomeFuncao = pick(byKey, "Nome Funcao");
-  const nomePrograma = pick(byKey, "Nome Programa Orcamentario");
-  const nomeAcao = pick(byKey, "Nome Acao");
-  const nomeElemento = pick(byKey, "Nome Elemento de Despesa");
+  const nomeOrgaoSuperior = pickOne(byKey, "Nome Orgao Superior");
+  const nomeOrgao = pickOne(byKey, "Nome Orgao Subordinado");
+  const nomeFuncao = pickOne(byKey, "Nome Funcao");
+  const nomePrograma = pickOne(byKey, "Nome Programa Orcamentario");
+  const nomeAcao = pickOne(byKey, "Nome Acao");
+  const nomeElemento = pickOne(byKey, "Nome Elemento de Despesa");
   return {
-    anoMes: orNull(pick(byKey, "Ano e mes do lancamento")),
-    codOrgaoSuperior: orNull(pick(byKey, "Codigo Orgao Superior")),
+    anoMes: orNull(pickOne(byKey, "Ano e mes do lancamento")),
+    codOrgaoSuperior: orNull(pickOne(byKey, "Codigo Orgao Superior")),
     nomeOrgaoSuperior: orNull(nomeOrgaoSuperior),
-    codOrgao: orNull(pick(byKey, "Codigo Orgao Subordinado")),
+    codOrgao: orNull(pickOne(byKey, "Codigo Orgao Subordinado")),
     nomeOrgao: orNull(nomeOrgao),
-    codFuncao: orNull(pick(byKey, "Codigo Funcao")),
+    codFuncao: orNull(pickOne(byKey, "Codigo Funcao")),
     nomeFuncao: orNull(nomeFuncao),
-    codPrograma: orNull(pick(byKey, "Codigo Programa Orcamentario")),
+    codPrograma: orNull(pickOne(byKey, "Codigo Programa Orcamentario")),
     nomePrograma: orNull(nomePrograma),
-    codAcao: orNull(pick(byKey, "Codigo Acao")),
+    codAcao: orNull(pickOne(byKey, "Codigo Acao")),
     nomeAcao: orNull(nomeAcao),
-    uf: orNull(pick(byKey, "UF")),
-    municipio: orNull(pick(byKey, "Municipio")),
+    uf: orNull(pickOne(byKey, "UF")),
+    municipio: orNull(pickOne(byKey, "Municipio")),
     nomeElemento: orNull(nomeElemento),
-    valorEmpenhado: numeroBr(pick(byKey, "Valor Empenhado (R$)")),
-    valorLiquidado: numeroBr(pick(byKey, "Valor Liquidado (R$)")),
-    valorPago: numeroBr(pick(byKey, "Valor Pago (R$)")),
+    valorEmpenhado: numeroBr(pickOne(byKey, "Valor Empenhado (R$)")),
+    valorLiquidado: numeroBr(pickOne(byKey, "Valor Liquidado (R$)")),
+    valorPago: numeroBr(pickOne(byKey, "Valor Pago (R$)")),
     busca: normalize(
       pipe(
         [nomeAcao, nomePrograma, nomeElemento, nomeOrgaoSuperior, nomeFuncao],
@@ -106,30 +105,24 @@ const mapRecord = (record: Record<string, string>) => {
   } satisfies DespesaFederalFlat;
 };
 
-export const mapDespesas = (
-  records: readonly Record<string, string>[]
-): readonly DespesaFederalFlat[] =>
+export const mapDespesas = (records: readonly CsvRecord[]): readonly DespesaFederalFlat[] =>
   pipe(
     records,
     Arr.map(mapRecord),
     Arr.filter(
-      (row) =>
-        row.nomeAcao !== null ||
-        row.nomePrograma !== null ||
-        row.nomeOrgaoSuperior !== null
+      (row) => row.nomeAcao !== null || row.nomePrograma !== null || row.nomeOrgaoSuperior !== null
     )
   );
 
-export const DespesaErrorCode = Schema.Literals(["transparencia.MES_MISSING"]);
-export type DespesaErrorCode = (typeof DespesaErrorCode)["Type"];
+const DespesaErrorCode = Schema.Literals(["transparencia.MES_MISSING"]);
 
-export class DespesaError extends Schema.TaggedError<DespesaError, { readonly brand: unique symbol }>()(
-  "DespesaError",
-  {
-    code: DespesaErrorCode,
-    anoMes: Schema.optional(Schema.String),
-  }
-) {
+export class DespesaError extends Schema.TaggedError<
+  DespesaError,
+  { readonly brand: unique symbol }
+>()("DespesaError", {
+  code: DespesaErrorCode,
+  anoMes: Schema.optional(Schema.String),
+}) {
   override get message() {
     switch (this.code) {
       case "transparencia.MES_MISSING":

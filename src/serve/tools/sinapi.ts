@@ -1,23 +1,20 @@
 import { Effect, Schema, Struct } from "effect";
 import { Sinapi } from "../../sources/sinapi/store";
-import { NonEmptyString, positiveIntMax, Uf } from "../checks";
+import { BuscarTermoUfInput, NonEmptyString, Uf } from "../checks";
 import { defineTool } from "../tool";
-
-const BuscarInput = Schema.Struct({
-  termo: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  uf: Schema.optionalKey(Uf),
-  limite: Schema.optionalKey(positiveIntMax(200)),
-});
 
 const buscarInsumoSinapi = defineTool({
   name: "buscar_insumo_sinapi",
   description:
-    "Busca insumos de construcao na tabela SINAPI (Caixa) por descricao usando BM25 e retorna o preco mediano por UF (referencia para obras), opcionalmente filtrando por UF.",
-  input: BuscarInput,
+    "Busca insumos de construcao na tabela SINAPI (Caixa) por descricao e retorna o preco mediano por UF (referencia para obras), opcionalmente filtrando por UF.",
+  input: BuscarTermoUfInput,
   run: (args) =>
     Sinapi.pipe(
       Effect.flatMap((service) =>
-        service.buscarInsumo(args.termo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
+        service.buscarInsumo(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -33,9 +30,7 @@ const precoInsumoSinapi = defineTool({
     "Retorna o preco mediano SINAPI de um insumo de construcao pelo codigo, por UF (referencia de preco para obras publicas).",
   input: CodigoInput,
   run: (args) =>
-    Sinapi.pipe(
-      Effect.flatMap((service) => service.precoPorCodigo(args.codigo, args.uf))
-    ),
+    Sinapi.pipe(Effect.flatMap((service) => service.precoPorCodigo(args.codigo, args.uf))),
 });
 
 export const sinapiTools = [buscarInsumoSinapi, precoInsumoSinapi] as const;

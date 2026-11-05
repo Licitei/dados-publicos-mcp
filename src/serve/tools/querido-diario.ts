@@ -17,7 +17,10 @@ const buscarDiarios = defineTool({
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.buscarDiarios(args.termo, Struct.renameKeys(Struct.pick(args, ["territoryId", "limite"]), { limite: "limit" }))
+        service.buscarDiarios(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["territoryId", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -35,7 +38,10 @@ const buscarCnpjEmDiario = defineTool({
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.buscarCnpjEmDiario(args.cnpj, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarCnpjEmDiario(
+          args.cnpj,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -47,19 +53,17 @@ const DiariosPorMunicipioInput = Schema.Struct({
 
 const diariosPorMunicipio = defineTool({
   name: "diarios_por_municipio",
-  description:
-    "Lista diarios oficiais de um municipio pelo codigo IBGE (territory_id).",
+  description: "Lista diarios oficiais de um municipio pelo codigo IBGE (territory_id).",
   input: DiariosPorMunicipioInput,
   run: (args) =>
     QueridoDiario.pipe(
       Effect.flatMap((service) =>
-        service.diariosPorMunicipio(args.territoryId, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.diariosPorMunicipio(
+          args.territoryId,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
-export const queridoDiarioTools = [
-  buscarDiarios,
-  buscarCnpjEmDiario,
-  diariosPorMunicipio,
-] as const;
+export const queridoDiarioTools = [buscarDiarios, buscarCnpjEmDiario, diariosPorMunicipio] as const;

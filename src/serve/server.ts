@@ -1,9 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import { runtime } from "../runtime";
@@ -17,13 +14,12 @@ const runTool = (tool: Tool, args: unknown) =>
 const dispatch = (name: string, args: unknown) =>
   Arr.findFirst(tools, (tool) => tool.name === name).pipe(
     Option.match({
-      onNone: () =>
-        Promise.resolve(errorContent(`Ferramenta desconhecida: ${name}`)),
+      onNone: () => Promise.resolve(errorContent(`Ferramenta desconhecida: ${name}`)),
       onSome: (tool) => runTool(tool, args),
     })
   );
 
-export const makeServer = () => {
+const makeServer = () => {
   const server = new Server(
     { name: "dados-publicos-mcp", version: "0.1.0" },
     { capabilities: { tools: { listChanged: false } } }

@@ -1,9 +1,9 @@
-import { Clock, Effect, Match, pipe } from "effect";
+import { Clock, Effect, pipe } from "effect";
 import * as Arr from "effect/Array";
-import { Db } from "../../kernel/db/client";
 import { parseCsvRecords } from "../../kernel/csv/parse";
-import { sancao } from "../../kernel/db/schemas/sancao";
-import { Http, HttpError } from "../../kernel/http/client";
+import { appendRows } from "../../kernel/duck/append";
+import { Http } from "../../kernel/http/client";
+import { failMissing } from "../../kernel/http/missing";
 import { unzipEntries } from "../../kernel/zip/archive";
 import {
   acceptCsv,
@@ -12,72 +12,34 @@ import {
   isEfeitosCsv,
   lookbackDays,
   mapSancoes,
-  missingStatus,
   SancaoError,
+  sancaoTable,
   yyyymmdd,
   zipUrl,
   type DatasetSpec,
   type SancaoFlat,
 } from "./catalog";
 
-const chunkSize = 2_000;
+const range = (count: number) => Array.from({ length: count }, (_, index) => index);
 
-const range = (count: number) =>
-  Array.from({ length: count }, (_, index) => index);
+const idStride = 10_000_000;
 
-const chunks = <A>(items: readonly A[]) =>
-  pipe(
-    range(Math.ceil(items.length / chunkSize)),
-    Arr.map((position) =>
-      items.slice(position * chunkSize, position * chunkSize + chunkSize)
-    )
-  );
-
-const insertSancoes = (rows: readonly SancaoFlat[]) =>
-  Effect.forEach(
-    chunks(rows),
-    (batch) => Effect.flatMap(Db, (db) => db.insert(sancao).values([...batch])),
-    { concurrency: 1, discard: true }
+const insertSancoes = (rows: readonly SancaoFlat[], datasetPosition: number) =>
+  appendRows(
+    sancaoTable,
+    Arr.map(rows, (row, position) => ({ id: datasetPosition * idStride + position, ...row }))
   );
 
 const downloadZip = (url: string) =>
-  Effect.flatMap(Http, (http) =>
-    http.bytes(url, { headers: { accept: "application/zip" } })
-  );
-
-const tolerateMissing = <R>(
-  effect: Effect.Effect<Uint8Array, HttpError, R>,
-  dataset: DatasetSpec
-) =>
-  effect.pipe(
-    Effect.catchTag("HttpError", (error) =>
-      Match.value(error).pipe(
-        Match.when({ code: "http.STATUS" }, (status) =>
-          Match.value(missingStatus.has(status.status ?? -1)).pipe(
-            Match.when(true, () =>
-              Effect.fail(
-                SancaoError.make({
-                  code: "sancoes.SNAPSHOT_MISSING",
-                  dataset: dataset.key,
-                })
-              )
-            ),
-            Match.orElse(() => Effect.fail(error))
-          )
-        ),
-        Match.orElse(() => Effect.fail(error))
-      )
-    )
-  );
+  Effect.flatMap(Http, (http) => http.bytes(url, { headers: { accept: "application/zip" } }));
 
 const snapshotOf = (dataset: DatasetSpec, millis: number) =>
   Effect.firstSuccessOf(
     pipe(
       range(lookbackDays),
       Arr.map((offset) =>
-        tolerateMissing(
-          downloadZip(zipUrl(dataset, yyyymmdd(millis, offset + 1))),
-          dataset
+        failMissing(downloadZip(zipUrl(dataset, yyyymmdd(millis, offset + 1))), () =>
+          SancaoError.make({ code: "sancoes.SNAPSHOT_MISSING", dataset: dataset.key })
         )
       )
     )
@@ -89,31 +51,27 @@ const rowsFromZip = (dataset: DatasetSpec, bytes: Uint8Array) =>
       pipe(
         entries,
         Arr.filter((entry) => !isEfeitosCsv(entry.name)),
-        Arr.flatMap((entry) =>
-          mapSancoes(dataset.key, parseCsvRecords(entry.data, csvOptions))
-        )
+        Arr.flatMap((entry) => mapSancoes(dataset.key, parseCsvRecords(entry.data, csvOptions)))
       )
     )
   );
 
-const indexDataset = (dataset: DatasetSpec, millis: number) =>
+const indexDataset = (dataset: DatasetSpec, millis: number, datasetPosition: number) =>
   snapshotOf(dataset, millis).pipe(
     Effect.flatMap((bytes) => rowsFromZip(dataset, bytes)),
     Effect.catchCause(() => Effect.succeed([])),
-    Effect.flatMap((rows) =>
-      insertSancoes(rows).pipe(Effect.as(rows.length))
-    )
+    Effect.flatMap((rows) => insertSancoes(rows, datasetPosition).pipe(Effect.as(rows.length)))
   );
 
-export const indexSnapshots = Effect.flatMap(
-  Clock.currentTimeMillis,
-  (millis) =>
-    Effect.forEach(datasets, (dataset) => indexDataset(dataset, millis), {
-      concurrency: 2,
-    }).pipe(Effect.map((counts) =>
+export const indexSnapshots = Effect.flatMap(Clock.currentTimeMillis, (millis) =>
+  Effect.forEach(datasets, (dataset, position) => indexDataset(dataset, millis, position), {
+    concurrency: 2,
+  }).pipe(
+    Effect.map((counts) =>
       pipe(
         counts,
         Arr.reduce(0, (acc, n) => acc + n)
       )
-    ))
+    )
+  )
 );

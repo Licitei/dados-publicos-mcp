@@ -1,5 +1,6 @@
 import { skillTools } from "./skills";
 import { statusIndices } from "./status";
+import { withLazyIndex } from "./lazy";
 import type { Tool } from "./tool";
 import { camaraTools } from "./tools/camara";
 import { capagTools } from "./tools/capag";
@@ -9,7 +10,8 @@ import { cnaeTools } from "./tools/cnae";
 import { ibgeTools } from "./tools/ibge";
 import { ibgeEconomiaTools } from "./tools/ibge-economia";
 import { indexTools } from "./tools/index-tools";
-import { legislacaoTools } from "./tools/legislacao";
+import { acervoTools } from "./tools/acervos";
+import { perfilTools } from "./tools/perfil";
 import { painelPrecosTools } from "./tools/painel-precos";
 import { pncpTools } from "./tools/pncp";
 import { queridoDiarioTools } from "./tools/querido-diario";
@@ -24,23 +26,24 @@ import { transparenciaDespesasTools } from "./tools/transparencia-despesas";
 import { transferegovTools } from "./tools/transferegov";
 import { tseTools } from "./tools/tse";
 
-export const queryTools: readonly Tool[] = [
-  ...legislacaoTools,
-  ...ibgeTools,
-  ...cnaeTools,
-  ...catmatCatserTools,
-  ...sicafTools,
-  ...sancoesTools,
+const queryTools: readonly Tool[] = [
+  ...acervoTools,
+  ...perfilTools,
+  ...withLazyIndex(ibgeTools, "ibge-localidades"),
+  ...withLazyIndex(cnaeTools, "cnae"),
+  ...withLazyIndex(catmatCatserTools, "catmat-catser"),
+  ...withLazyIndex(sicafTools, "sicaf-fornecedores"),
+  ...withLazyIndex(sancoesTools, "sancoes-cgu"),
   ...receitaTools,
   ...tseTools,
   ...camaraTools,
   ...queridoDiarioTools,
-  ...capagTools,
+  ...withLazyIndex(capagTools, "capag"),
   ...pncpTools,
-  ...tcuTools,
-  ...ibgeEconomiaTools,
-  ...senadoTools,
-  ...cmedTools,
+  ...withLazyIndex(tcuTools, "tcu-inidoneos"),
+  ...withLazyIndex(ibgeEconomiaTools, "ibge-economia"),
+  ...withLazyIndex(senadoTools, "senado"),
+  ...withLazyIndex(cmedTools, "cmed-anvisa"),
   ...siconfiFiscalTools,
   ...transferegovTools,
   ...painelPrecosTools,
@@ -48,9 +51,4 @@ export const queryTools: readonly Tool[] = [
   ...sinapiTools,
 ];
 
-export const tools: readonly Tool[] = [
-  ...queryTools,
-  ...indexTools,
-  statusIndices,
-  ...skillTools,
-];
+export const tools: readonly Tool[] = [...queryTools, ...indexTools, statusIndices, ...skillTools];

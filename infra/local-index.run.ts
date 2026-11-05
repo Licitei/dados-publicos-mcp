@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Alchemy from "alchemy";
 import * as Provider from "alchemy/Provider";
@@ -9,17 +9,10 @@ import { ArtifactStore, createArtifactStore } from "alchemy/Artifacts";
 import { AuthProvidersLive } from "alchemy/Auth/Registry";
 import * as Interaction from "alchemy/Interaction";
 import { PlatformServices } from "alchemy/Util/PlatformServices";
-import { provisionSchema } from "../src/kernel/db/provision";
-import {
-  FonteKey,
-  IndexFailure,
-  indexRegistry,
-  type Scope,
-} from "../src/serve/index-registry";
-import { failureText } from "../src/serve/tool";
+import { FonteKey, IndexFailure, indexRegistry, type Scope } from "../src/serve/index-registry";
+import { failureText, type AppServices } from "../src/serve/tool";
 import { runtime } from "../src/runtime";
 import { McpProviders } from "./providers";
-import { LocalDatabaseClass, LocalDatabaseProvider } from "./local-database";
 import {
   LocalIndex,
   LocalIndexClass,
@@ -36,26 +29,29 @@ export class IndexDeployFailure extends Schema.TaggedError<
   }
 }
 
+const inRuntime = <A>(effect: Effect.Effect<A, IndexFailure, AppServices>) =>
+  Effect.promise(() => runtime.runPromiseExit(effect)).pipe(
+    Effect.flatten,
+    Effect.mapError((error) => IndexFailure.make({ text: failureText(error) }))
+  );
+
 export const defaultConfig: LocalIndexConfig = {
   registry: indexRegistry,
+  version: (entry) =>
+    Option.fromNullishOr(entry.version).pipe(
+      Option.match({
+        onNone: () => Effect.succeed(null),
+        onSome: inRuntime,
+      })
+    ),
   run: (entry, scope) =>
-    Effect.promise(() =>
-      runtime.runPromiseExit(
-        provisionSchema.pipe(Effect.andThen(entry.run(scope)))
-      )
-    ).pipe(
+    Effect.promise(() => runtime.runPromiseExit(entry.run(scope))).pipe(
       Effect.flatten,
-      Effect.mapError((error) =>
-        IndexFailure.make({ text: failureText(error) })
-      )
+      Effect.mapError((error) => IndexFailure.make({ text: failureText(error) }))
     ),
 };
 
-export const providers = Layer.effect(
-  McpProviders,
-  Provider.collection([LocalDatabaseClass, LocalIndexClass])
-).pipe(
-  Layer.provide(LocalDatabaseProvider),
+export const providers = Layer.effect(McpProviders, Provider.collection([LocalIndexClass])).pipe(
   Layer.provide(LocalIndexProvider(defaultConfig)),
   Layer.orDie
 );
@@ -96,36 +92,27 @@ const indexStack = (targets: ReadonlyArray<IndexTarget>) =>
 
 const makeDeployer = Effect.gen(function* () {
   const context = yield* Layer.build(deployDeps).pipe(
-    Effect.mapError((error) =>
-      IndexDeployFailure.make({ text: failureText(error) })
-    )
+    Effect.mapError((error) => IndexDeployFailure.make({ text: failureText(error) }))
   );
 
   const deployIndex = (fonte: FonteKey, scope: Scope) =>
     deploy({ stack: indexStack([{ fonte, scope }]), stage: "local" }).pipe(
       Effect.provideContext(context),
-      Effect.mapError((error) =>
-        IndexDeployFailure.make({ text: failureText(error) })
-      )
+      Effect.mapError((error) => IndexDeployFailure.make({ text: failureText(error) }))
     );
 
   const deployAll = (includeHeavy: boolean, scope: Scope) =>
     deploy({
       stack: indexStack(
         Arr.map(
-          Arr.filter(
-            FonteKey.literals,
-            (fonte) => includeHeavy || !indexRegistry[fonte].heavy
-          ),
+          Arr.filter(FonteKey.literals, (fonte) => includeHeavy || !indexRegistry[fonte].heavy),
           (fonte) => ({ fonte, scope })
         )
       ),
       stage: "local",
     }).pipe(
       Effect.provideContext(context),
-      Effect.mapError((error) =>
-        IndexDeployFailure.make({ text: failureText(error) })
-      )
+      Effect.mapError((error) => IndexDeployFailure.make({ text: failureText(error) }))
     );
 
   return { deployIndex, deployAll };

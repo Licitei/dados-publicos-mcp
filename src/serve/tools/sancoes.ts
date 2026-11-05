@@ -1,43 +1,34 @@
 import { Effect, Schema, Struct } from "effect";
 import { SancoesCgu } from "../../sources/sancoes-cgu/store";
-import { NonEmptyString, positiveIntMax } from "../checks";
+import { buscarNomeInput, positiveIntMax, VerificarDocumentoInput } from "../checks";
 import { defineTool } from "../tool";
-
-const VerificarInput = Schema.Struct({ documento: NonEmptyString });
 
 const verificarSancoes = defineTool({
   name: "verificar_sancoes",
   description:
     "Verifica se um CNPJ ou CPF esta sancionado/inidoneo, cruzando CEIS+CNEP+CEPIM+CEAF+Leniencia numa unica consulta.",
-  input: VerificarInput,
-  run: (args) =>
-    SancoesCgu.pipe(
-      Effect.flatMap((service) => service.verificar(args.documento))
-    ),
-});
-
-const BuscarNomeInput = Schema.Struct({
-  nome: Schema.String.pipe(Schema.check(Schema.isMinLength(2))),
-  limite: Schema.optionalKey(positiveIntMax(500)),
+  input: VerificarDocumentoInput,
+  run: (args) => SancoesCgu.pipe(Effect.flatMap((service) => service.verificar(args.documento))),
 });
 
 const buscarSancionadoPorNome = defineTool({
   name: "buscar_sancionado_por_nome",
   description:
     "Busca sancionados (empresa ou pessoa) por nome / razao social nas 5 listas, usando indice de texto (FTS).",
-  input: BuscarNomeInput,
+  input: buscarNomeInput(500),
   run: (args) =>
     SancoesCgu.pipe(
       Effect.flatMap((service) =>
-        service.buscarPorNome(args.nome, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarPorNome(
+          args.nome,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
 
 const VigentesInput = Schema.Struct({
-  data: Schema.String.pipe(
-    Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))
-  ),
+  data: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
   lista: Schema.optionalKey(
     Schema.Literals(["ceis", "cnep", "ceaf", "cepim", "acordos-leniencia"])
   ),
@@ -52,7 +43,10 @@ const sancoesVigentesNaData = defineTool({
   run: (args) =>
     SancoesCgu.pipe(
       Effect.flatMap((service) =>
-        service.vigentesNaData(args.data, Struct.renameKeys(Struct.pick(args, ["lista", "limite"]), { limite: "limit" }))
+        service.vigentesNaData(
+          args.data,
+          Struct.renameKeys(Struct.pick(args, ["lista", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });

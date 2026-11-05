@@ -10,13 +10,15 @@ const BuscarMaterialInput = Schema.Struct({
 
 const buscarMaterial = defineTool({
   name: "buscar_material",
-  description:
-    "Busca materiais do CATMAT por nome/descricao (BM25 + vetorial fundidos por RRF, com fallback fuzzy pg_trgm).",
+  description: "Busca materiais do CATMAT por nome/descricao.",
   input: BuscarMaterialInput,
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.buscarMaterial(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarMaterial(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -28,13 +30,15 @@ const BuscarServicoInput = Schema.Struct({
 
 const buscarServico = defineTool({
   name: "buscar_servico",
-  description:
-    "Busca servicos do CATSER por nome (BM25 + vetorial fundidos por RRF, com fallback fuzzy pg_trgm).",
+  description: "Busca servicos do CATSER por nome.",
   input: BuscarServicoInput,
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.buscarServico(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarServico(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -50,9 +54,7 @@ const resolverCatmatCatser = defineTool({
     "Resolve um codigoItem (CATMAT) ou codigoServico (CATSER) para descricao e hierarquia.",
   input: ResolverInput,
   run: (args) =>
-    CatmatCatser.pipe(
-      Effect.flatMap((service) => service.resolver(args.codigo, args.tipo))
-    ),
+    CatmatCatser.pipe(Effect.flatMap((service) => service.resolver(args.codigo, args.tipo))),
 });
 
 const NormalizarInput = Schema.Struct({
@@ -68,7 +70,10 @@ const normalizarItemEdital = defineTool({
   run: (args) =>
     CatmatCatser.pipe(
       Effect.flatMap((service) =>
-        service.normalizarItemEdital(args.descricao, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.normalizarItemEdital(
+          args.descricao,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });

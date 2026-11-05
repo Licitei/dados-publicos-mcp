@@ -18,7 +18,12 @@ const fiscalEnte = defineTool({
   run: (args) =>
     SiconfiFiscal.pipe(
       Effect.flatMap((service) =>
-        service.fiscalPorEnte(args.idEnte, Struct.renameKeys(Struct.pick(args, ["demonstrativo", "exercicio", "limite"]), { limite: "limit" }))
+        service.fiscalPorEnte(
+          args.idEnte,
+          Struct.renameKeys(Struct.pick(args, ["demonstrativo", "exercicio", "limite"]), {
+            limite: "limit",
+          })
+        )
       )
     ),
 });
@@ -31,12 +36,15 @@ const BuscarContaInput = Schema.Struct({
 const buscarConta = defineTool({
   name: "buscar_conta_siconfi",
   description:
-    "Busca linhas de contas fiscais SICONFI por texto (ex: 'despesa com pessoal', 'receita corrente liquida') usando BM25 com fallback fuzzy pg_trgm.",
+    "Busca linhas de contas fiscais SICONFI por texto (ex: 'despesa com pessoal', 'receita corrente liquida').",
   input: BuscarContaInput,
   run: (args) =>
     SiconfiFiscal.pipe(
       Effect.flatMap((service) =>
-        service.buscarConta(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarConta(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });

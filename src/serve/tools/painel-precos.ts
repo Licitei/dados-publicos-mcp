@@ -17,7 +17,10 @@ const precoPraticadoItem = defineTool({
   run: (args) =>
     PainelPrecos.pipe(
       Effect.flatMap((service) =>
-        service.precoPorItem(args.codigoItemCatalogo, Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" }))
+        service.precoPorItem(
+          args.codigoItemCatalogo,
+          Struct.renameKeys(Struct.pick(args, ["uf", "limite"]), { limite: "limit" })
+        )
       )
     ),
 });
@@ -48,12 +51,15 @@ const BuscarInput = Schema.Struct({
 const buscarPrecoPorDescricao = defineTool({
   name: "buscar_preco_por_descricao",
   description:
-    "Busca precos praticados em compras federais por descricao do item (BM25), retornando amostras com preco unitario e fornecedor.",
+    "Busca precos praticados em compras federais por descricao do item, retornando amostras com preco unitario e fornecedor.",
   input: BuscarInput,
   run: (args) =>
     PainelPrecos.pipe(
       Effect.flatMap((service) =>
-        service.buscarPrecoPorDescricao(args.termo, Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" }))
+        service.buscarPrecoPorDescricao(
+          args.termo,
+          Struct.renameKeys(Struct.pick(args, ["limite"]), { limite: "limit" })
+        )
       )
     ),
 });

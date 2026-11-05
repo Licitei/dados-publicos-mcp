@@ -1,94 +1,45 @@
-import { Context, Effect, Layer, Match } from "effect";
-import { pipe } from "effect/Function";
-import * as Str from "effect/String";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { despesaFederal } from "../../kernel/db/schemas/despesa-federal";
-import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { Context, Effect, Layer, Schema, Struct } from "effect";
+import { Duck } from "../../kernel/duck/duck";
+import { onlyDigits } from "../../kernel/text/normalize";
+import { despesaFederalTable, toAnoMes, DespesaFederalFlat } from "./catalog";
 import { defaultAnoMes, indexMes } from "./indexer";
-import { toAnoMes } from "./catalog";
+import { clamp } from "../../kernel/duck/search";
 
-const despesaView = sql`
-  ano_mes as "anoMes", cod_orgao_superior as "codOrgaoSuperior",
-  nome_orgao_superior as "nomeOrgaoSuperior", cod_orgao as "codOrgao",
-  nome_orgao as "nomeOrgao", cod_funcao as "codFuncao",
-  nome_funcao as "nomeFuncao", cod_programa as "codPrograma",
-  nome_programa as "nomePrograma", cod_acao as "codAcao",
-  nome_acao as "nomeAcao", uf, municipio, nome_elemento as "nomeElemento",
-  valor_empenhado as "valorEmpenhado", valor_liquidado as "valorLiquidado",
-  valor_pago as "valorPago"
-`;
+const DespesaView = DespesaFederalFlat.mapFields(Struct.omit(["busca"]));
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const DespesaHit = Schema.Struct({ ...DespesaView.fields, score: Schema.Finite });
+
+const viewSelect = `"anoMes", "codOrgaoSuperior", "nomeOrgaoSuperior", "codOrgao", "nomeOrgao", "codFuncao", "nomeFuncao", "codPrograma", "nomePrograma", "codAcao", "nomeAcao", uf, municipio, "nomeElemento", "valorEmpenhado", "valorLiquidado", "valorPago"`;
 
 const makeTransparenciaDespesas = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
 
   const despesasPorOrgao = (codOrgaoSuperior: string, limit: number) =>
-    db.execute(sql`
-      select ${despesaView}
-      from ${despesaFederal}
-      where cod_orgao_superior = ${onlyDigits(codOrgaoSuperior)}
-      order by valor_pago desc nulls last, cod_acao
-      limit ${sql.raw(String(limit))}
-    `).pipe(Effect.map(({ rows }) => rows));
-
-  const bm25Despesa = (q: string, limit: number, ufWhere: SQL) =>
-    db.execute(sql`
-      select ${despesaView}, score
-      from (
-        select
-          ano_mes, cod_orgao_superior, nome_orgao_superior, cod_orgao,
-          nome_orgao, cod_funcao, nome_funcao, cod_programa, nome_programa,
-          cod_acao, nome_acao, uf, municipio, nome_elemento, valor_empenhado,
-          valor_liquidado, valor_pago, -rk as score
-        from (
-          select
-            ano_mes, cod_orgao_superior, nome_orgao_superior, cod_orgao,
-            nome_orgao, cod_funcao, nome_funcao, cod_programa, nome_programa,
-            cod_acao, nome_acao, uf, municipio, nome_elemento, valor_empenhado,
-            valor_liquidado, valor_pago, row_number() over () as rk
-          from (
-            select
-              ano_mes, cod_orgao_superior, nome_orgao_superior, cod_orgao,
-              nome_orgao, cod_funcao, nome_funcao, cod_programa, nome_programa,
-              cod_acao, nome_acao, uf, municipio, nome_elemento, valor_empenhado,
-              valor_liquidado, valor_pago
-            from ${despesaFederal}
-            order by busca <@> to_bm25query(${q})
-            limit ${sql.raw(String(limit))}
-          ) ranked
-        ) numbered
-      ) scored
-      ${ufWhere}
-      order by score desc
-    `).pipe(Effect.map(({ rows }) => rows));
+    duck.query(
+      DespesaView,
+      `SELECT ${viewSelect} FROM despesa_federal WHERE "codOrgaoSuperior" = ?
+       ORDER BY "valorPago" DESC NULLS LAST, "codAcao", id LIMIT ?`,
+      [onlyDigits(codOrgaoSuperior), limit]
+    );
 
   const buscarDespesa = (
     termo: string,
     options?: { readonly uf?: string; readonly limit?: number }
   ) =>
-    Effect.gen(function* () {
-      const q = normalize(termo);
-      const limit = clamp(options?.limit, 50, 200);
-      const ufWhere: SQL = Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) => sql`where uf = ${pipe(uf, Str.toUpperCase)}`),
-        Match.orElse(() => sql``)
-      );
-      return yield* bm25Despesa(q, limit, ufWhere);
+    duck.ranked(DespesaHit, despesaFederalTable, {
+      select: viewSelect,
+      tie: "id",
+      termo,
+      uf: options?.uf,
+      limit: clamp(options?.limit, 50, 200),
     });
 
   const indexMesParam = (anoMes: string) =>
     Effect.gen(function* () {
-      yield* db.delete(despesaFederal);
+      yield* duck.create(despesaFederalTable);
       const inserted = yield* indexMes(anoMes);
-      const rows = yield* db.execute(
-        sql`select count(*)::int as count from ${despesaFederal}`
-      ).pipe(Effect.map(({ rows }) => rows));
-      return { anoMes, inserted, total: Number(rows[0]?.count ?? 0) };
+      yield* duck.reindex(despesaFederalTable);
+      return { anoMes, inserted, total: yield* duck.count(despesaFederalTable) };
     });
 
   const index = Effect.gen(function* () {
@@ -109,6 +60,5 @@ export class TransparenciaDespesas extends Context.Service<
   Effect.Success<typeof makeTransparenciaDespesas>
 >()("dados-publicos-mcp/sources/transparencia-despesas/store/TransparenciaDespesas") {}
 
-export const TransparenciaDespesasLive = Layer.effect(TransparenciaDespesas)(
-  makeTransparenciaDespesas
-);
+export const TransparenciaDespesasLive =
+  Layer.effect(TransparenciaDespesas)(makeTransparenciaDespesas);

@@ -1,112 +1,88 @@
-import * as Str from "effect/String";
-import { Context, Effect, Layer, Match } from "effect";
-import { sql, type SQL } from "drizzle-orm";
-import { Db } from "../../kernel/db/client";
-import { sinapiInsumo } from "../../kernel/db/schemas/sinapi-insumo";
-import { normalize, onlyDigits } from "../../kernel/text/normalize";
+import { Context, Effect, Layer, Schema, Struct } from "effect";
+import * as Arr from "effect/Array";
+import { Duck, type DuckTable } from "../../kernel/duck/duck";
+import { onlyDigits } from "../../kernel/text/normalize";
+import { SinapiInsumoFlat } from "./catalog";
 import { defaultReferencia, indexReferencia } from "./indexer";
+import { clamp, conditions, ufClause } from "../../kernel/duck/search";
 
-const insumoView = sql`
-  mes_referencia as "mesReferencia", codigo, descricao, unidade, origem,
-  classificacao, uf, preco_mediano as "precoMediano"
-`;
+export const sinapiInsumoTable: DuckTable = {
+  name: "sinapi_insumo",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    mesReferencia: "VARCHAR",
+    codigo: "VARCHAR",
+    descricao: "VARCHAR",
+    unidade: "VARCHAR",
+    origem: "VARCHAR",
+    classificacao: "VARCHAR",
+    uf: "VARCHAR",
+    precoMediano: "DOUBLE",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
 
-const clamp = (value: number | undefined, fallback: number, max: number) =>
-  value === undefined || value < 1
-    ? fallback
-    : Math.min(Math.trunc(value), max);
+const InsumoRow = SinapiInsumoFlat.mapFields(Struct.omit(["busca"]));
+
+const InsumoScored = Schema.Struct({ ...InsumoRow.fields, score: Schema.Finite });
+
+const insumoColumns = `"mesReferencia", codigo, descricao, unidade, origem, classificacao, uf, "precoMediano"`;
 
 const makeSinapi = Effect.gen(function* () {
-  const db = yield* Db;
+  const duck = yield* Duck;
 
   const precoPorCodigo = (codigo: string, uf: string | undefined) =>
     Effect.gen(function* () {
-      const ufWhere: SQL = Match.value(uf).pipe(
-        Match.when(Match.string, (value) => sql`and uf = ${Str.toUpperCase(value)}`),
-        Match.orElse(() => sql``)
+      const filter = conditions([ufClause(uf)]);
+      return yield* duck.query(
+        InsumoRow,
+        `SELECT ${insumoColumns} FROM sinapi_insumo WHERE codigo = ?${filter.sql} ORDER BY uf`,
+        [onlyDigits(codigo), ...filter.params]
       );
-      return yield* db.execute(sql`
-        select ${insumoView}
-        from ${sinapiInsumo}
-        where codigo = ${onlyDigits(codigo)} ${ufWhere}
-        order by uf
-      `).pipe(Effect.map(({ rows }) => rows));
     });
-
-  const bm25Insumo = (q: string, limit: number, ufWhere: SQL) =>
-    db.execute(sql`
-      select ${insumoView}, score
-      from (
-        select
-          mes_referencia, codigo, descricao, unidade, origem, classificacao,
-          uf, preco_mediano, -rk as score
-        from (
-          select
-            mes_referencia, codigo, descricao, unidade, origem, classificacao,
-            uf, preco_mediano, row_number() over () as rk
-          from (
-            select
-              mes_referencia, codigo, descricao, unidade, origem,
-              classificacao, uf, preco_mediano
-            from ${sinapiInsumo}
-            order by busca <@> to_bm25query(${q})
-            limit ${sql.raw(String(limit))}
-          ) ranked
-        ) numbered
-      ) scored
-      ${ufWhere}
-      order by score desc
-    `).pipe(Effect.map(({ rows }) => rows));
 
   const buscarInsumo = (
     termo: string,
     options?: { readonly uf?: string; readonly limit?: number }
   ) =>
+    duck.ranked(InsumoScored, sinapiInsumoTable, {
+      select: insumoColumns,
+      tie: "id",
+      termo,
+      uf: options?.uf,
+      limit: clamp(options?.limit, 50, 200),
+    });
+
+  const load = (ano: number, mes: number) =>
     Effect.gen(function* () {
-      const q = normalize(termo);
-      const limit = clamp(options?.limit, 50, 200);
-      const ufWhere: SQL = Match.value(options?.uf).pipe(
-        Match.when(Match.string, (uf) => sql`where uf = ${Str.toUpperCase(uf)}`),
-        Match.orElse(() => sql``)
-      );
-      return yield* bm25Insumo(q, limit, ufWhere);
+      const flat = yield* indexReferencia(ano, mes);
+      const rows = Arr.map(flat, (row, position) => ({ ...row, id: String(position) }));
+      return yield* duck.replace(sinapiInsumoTable, rows);
     });
 
   const index = Effect.gen(function* () {
-    yield* db.delete(sinapiInsumo);
     const referencia = yield* defaultReferencia;
-    const inserted = yield* indexReferencia(referencia.ano, referencia.mes);
-    const rows = yield* db.execute(
-      sql`select count(*)::int as count from ${sinapiInsumo}`
-    ).pipe(Effect.map(({ rows }) => rows));
-    return { inserted, total: Number(rows[0]?.count ?? 0) };
+    const inserted = yield* load(referencia.ano, referencia.mes);
+    return { inserted, total: yield* duck.count(sinapiInsumoTable) };
   });
 
   const indexAno = (ano: number) =>
     Effect.gen(function* () {
-      yield* db.delete(sinapiInsumo);
       const referencia = yield* defaultReferencia;
-      const inserted = yield* indexReferencia(ano, referencia.mes);
+      const inserted = yield* load(ano, referencia.mes);
       return { inserted };
     });
 
-  return {
-    index,
-    indexAno,
-    indexReferencia: (ano: number, mes: number) =>
-      Effect.gen(function* () {
-        yield* db.delete(sinapiInsumo);
-        const inserted = yield* indexReferencia(ano, mes);
-        return { inserted };
-      }),
-    precoPorCodigo,
-    buscarInsumo,
-  };
+  const indexReferenciaStore = (ano: number, mes: number) =>
+    load(ano, mes).pipe(Effect.map((inserted) => ({ inserted })));
+
+  return { index, indexAno, indexReferencia: indexReferenciaStore, precoPorCodigo, buscarInsumo };
 });
 
-export class Sinapi extends Context.Service<
-  Sinapi,
-  Effect.Success<typeof makeSinapi>
->()("dados-publicos-mcp/sources/sinapi/store/Sinapi") {}
+export class Sinapi extends Context.Service<Sinapi, Effect.Success<typeof makeSinapi>>()(
+  "dados-publicos-mcp/sources/sinapi/store/Sinapi"
+) {}
 
 export const SinapiLive = Layer.effect(Sinapi)(makeSinapi);

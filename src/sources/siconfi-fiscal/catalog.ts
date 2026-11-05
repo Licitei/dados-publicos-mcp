@@ -3,10 +3,9 @@ import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 import { normalize } from "../../kernel/text/normalize";
 
-export const siconfiBase =
-  "https://apidatalake.tesouro.gov.br/ords/siconfi/tt";
+const siconfiBase = "https://apidatalake.tesouro.gov.br/ords/siconfi/tt";
 
-export const pageSize = 5_000;
+const pageSize = 5_000;
 
 export const defaultAno = 2022;
 
@@ -14,13 +13,11 @@ export const uniaoEnte = "1";
 
 export type Demonstrativo = "DCA" | "RREO" | "RGF";
 
-type DemonstrativoUrl = {
-  (ano: number, offset: number): (idEnte: string) => string;
-  (idEnte: string, ano: number, offset: number): string;
-};
-
-const demonstrativoUrl = (path: string, query: string): DemonstrativoUrl =>
-  dual(
+const demonstrativoUrl = (path: string, query: string) =>
+  dual<
+    (ano: number, offset: number) => (idEnte: string) => string,
+    (idEnte: string, ano: number, offset: number) => string
+  >(
     3,
     (idEnte: string, ano: number, offset: number) =>
       `${siconfiBase}/${path}?an_exercicio=${ano}${query}&id_ente=${idEnte}&limit=${pageSize}&offset=${offset}`
@@ -28,10 +25,7 @@ const demonstrativoUrl = (path: string, query: string): DemonstrativoUrl =>
 
 export const dcaUrl = demonstrativoUrl("dca", "");
 
-export const rreoUrl = demonstrativoUrl(
-  "rreo",
-  "&nr_periodo=6&co_tipo_demonstrativo=RREO"
-);
+export const rreoUrl = demonstrativoUrl("rreo", "&nr_periodo=6&co_tipo_demonstrativo=RREO");
 
 export const rgfUrl = demonstrativoUrl(
   "rgf",
