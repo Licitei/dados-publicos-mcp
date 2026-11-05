@@ -122,26 +122,3 @@ export const extractCnpjs = (texto: string): readonly string[] =>
     Arr.filter((digits) => digits.length === 14),
     Arr.dedupe
   );
-
-export const excerpt: {
-  (limit: number): (conteudo: string) => string;
-  (conteudo: string, limit: number): string;
-} = dual(2, (conteudo: string, limit: number) =>
-  conteudo.length > limit ? `${pipe(conteudo, Str.slice(0, limit))}...` : conteudo
-);
-
-const QueridoDiarioErrorCode = Schema.Literals(["querido-diario.MISSING_TERMO"]);
-
-export class QueridoDiarioError extends Schema.TaggedError<
-  QueridoDiarioError,
-  { readonly brand: unique symbol }
->()("QueridoDiarioError", {
-  code: QueridoDiarioErrorCode,
-}) {
-  override get message() {
-    switch (this.code) {
-      case "querido-diario.MISSING_TERMO":
-        return "Informe um termo de busca para pesquisar nos diarios oficiais.";
-    }
-  }
-}

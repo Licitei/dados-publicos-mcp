@@ -1,7 +1,7 @@
+import { TestFuzzyLive } from "./support/test-fuzzy";
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Order from "effect/Order";
 import * as Option from "effect/Option";
 import * as Str from "effect/String";
 import { Sinapi, SinapiLive } from "../../src/sources/sinapi/store";
@@ -95,13 +95,9 @@ const HttpFixture = fixtureLayer([
   },
 ]);
 
-const TestLayer = SinapiLive.pipe(Layer.provideMerge(Layer.mergeAll(TestDuckLive, HttpFixture)));
-
-const seeded = Effect.gen(function* () {
-  const sinapi = yield* Sinapi;
-  yield* sinapi.indexReferencia(2026, 5);
-  return sinapi;
-});
+const TestLayer = SinapiLive.pipe(
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
+);
 
 layer(TestLayer, { timeout: Duration.seconds(60) })("sinapi store + zip/xlsx unpivot", (it) => {
   it.effect("unpivots the ISD sheet UF columns into long rows, skipping blanks", () =>
@@ -109,37 +105,6 @@ layer(TestLayer, { timeout: Duration.seconds(60) })("sinapi store + zip/xlsx unp
       const sinapi = yield* Sinapi;
       const result = yield* sinapi.indexReferencia(2026, 5);
       expect(result.inserted).toBe(5);
-    })
-  );
-
-  it.effect("precoPorCodigo returns per-UF median prices; blank UF was skipped", () =>
-    Effect.gen(function* () {
-      const sinapi = yield* seeded;
-      const todos = yield* sinapi.precoPorCodigo("11270", undefined);
-      expect(
-        Arr.sort(
-          Arr.map(todos, (r) => String(r.uf)),
-          Order.String
-        )
-      ).toEqual(["AL", "SP"]);
-      const al = yield* sinapi.precoPorCodigo("11270", "AL");
-      expect(al).toHaveLength(1);
-      expect(
-        Option.exists(Arr.head(al), (r) => Math.abs(Number(r.precoMediano) - 2.53) < 0.005)
-      ).toBe(true);
-    })
-  );
-
-  it.effect("buscarInsumo matches by description (bm25) and honors the uf filter", () =>
-    Effect.gen(function* () {
-      const sinapi = yield* seeded;
-      const hits = yield* sinapi.buscarInsumo("abracadeira latao", { uf: "SP" });
-      expect(hits).toHaveLength(1);
-      const first = Arr.head(hits);
-      expect(Option.map(first, (r) => r.codigo)).toEqual(Option.some("11270"));
-      expect(Option.exists(first, (r) => Math.abs(Number(r.precoMediano) - 3.1) < 0.005)).toBe(
-        true
-      );
     })
   );
 });

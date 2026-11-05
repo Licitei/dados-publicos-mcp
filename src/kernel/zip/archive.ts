@@ -1,5 +1,5 @@
 import { inflateRawSync } from "node:zlib";
-import { Effect, Match, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 
@@ -99,28 +99,50 @@ const entryData = (buf: Uint8Array, view: DataView, entry: RawEntry) =>
       }),
   });
 
-const unzipEntriesImpl = (bytes: Uint8Array, accept: (name: string) => boolean) =>
+const directoryOf = (bytes: Uint8Array) =>
   Effect.gen(function* () {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const eocd = findEocd(view, bytes.byteLength);
-    yield* Match.value(eocd).pipe(
-      Match.when(-1, () => Effect.fail(ZipError.make({ code: "zip.MALFORMED" }))),
-      Match.orElse(() => Effect.void)
-    );
+    yield* eocd === -1 ? Effect.fail(ZipError.make({ code: "zip.MALFORMED" })) : Effect.void;
     const directory = yield* Effect.try({
       try: () => walkCentralDirectory(bytes, view, eocd),
       catch: (cause) => ZipError.make({ code: "zip.MALFORMED", cause: String(cause) }),
     });
-    const selected = Arr.filter(directory, (entry) => accept(entry.name));
-    return yield* Effect.forEach(
-      selected,
-      (entry) =>
-        entryData(bytes, view, entry).pipe(
-          Effect.map((data) => ({ name: entry.name, data }) satisfies ZipEntry)
-        ),
-      { concurrency: 1 }
-    );
+    return { view, directory };
   });
+
+const unzipEntriesImpl = (bytes: Uint8Array, accept: (name: string) => boolean) =>
+  forEachZipEntry(bytes, accept, Effect.succeed);
+
+export const forEachZipEntry: {
+  <A, E, R>(
+    accept: (name: string) => boolean,
+    process: (entry: ZipEntry) => Effect.Effect<A, E, R>
+  ): (bytes: Uint8Array) => Effect.Effect<readonly A[], ZipError | E, R>;
+  <A, E, R>(
+    bytes: Uint8Array,
+    accept: (name: string) => boolean,
+    process: (entry: ZipEntry) => Effect.Effect<A, E, R>
+  ): Effect.Effect<readonly A[], ZipError | E, R>;
+} = dual(
+  3,
+  <A, E, R>(
+    bytes: Uint8Array,
+    accept: (name: string) => boolean,
+    process: (entry: ZipEntry) => Effect.Effect<A, E, R>
+  ) =>
+    Effect.gen(function* () {
+      const { view, directory } = yield* directoryOf(bytes);
+      return yield* Effect.forEach(
+        Arr.filter(directory, (entry) => accept(entry.name)),
+        (entry) =>
+          entryData(bytes, view, entry).pipe(
+            Effect.flatMap((data) => process({ name: entry.name, data }))
+          ),
+        { concurrency: 1 }
+      );
+    })
+);
 
 export const unzipEntries: {
   (accept: (name: string) => boolean): (bytes: Uint8Array) => ReturnType<typeof unzipEntriesImpl>;

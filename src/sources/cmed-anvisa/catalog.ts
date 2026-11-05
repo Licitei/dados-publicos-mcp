@@ -50,7 +50,7 @@ const cell = (row: readonly string[], map: Map<string, number>, label: string) =
 
 const orNull = (value: string) => (value === "" ? null : value);
 
-export const MedicamentoFlat = Schema.Struct({
+const MedicamentoFlat = Schema.Struct({
   substancia: Schema.NullOr(Schema.String),
   cnpj: Schema.NullOr(Schema.String),
   docNormalizado: Schema.NullOr(Schema.String),
@@ -66,7 +66,7 @@ export const MedicamentoFlat = Schema.Struct({
   pmvgSemImpostos: Schema.NullOr(Schema.Finite),
   busca: Schema.String,
 });
-export type MedicamentoFlat = (typeof MedicamentoFlat)["Type"];
+type MedicamentoFlat = (typeof MedicamentoFlat)["Type"];
 
 const mapRow = (map: Map<string, number>) => (row: readonly string[]) => {
   const substancia = cell(row, map, "SUBSTANCIA");

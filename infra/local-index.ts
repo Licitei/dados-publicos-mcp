@@ -25,6 +25,8 @@ const ScopeKey = Schema.fromJsonString(
     ufs: Schema.String.pipe(Schema.Array, Schema.NullOr),
     anos: Schema.Finite.pipe(Schema.Array, Schema.NullOr),
     mes: Schema.NullOr(Schema.String),
+    orgaos: Schema.String.pipe(Schema.Array, Schema.NullOr),
+    uasgs: Schema.String.pipe(Schema.Array, Schema.NullOr),
   })
 );
 
@@ -33,6 +35,8 @@ const scopeHash = (scope: Scope | undefined) =>
     ufs: scope?.ufs ?? null,
     anos: scope?.anos ?? null,
     mes: scope?.mes ?? null,
+    orgaos: scope?.orgaos ?? null,
+    uasgs: scope?.uasgs ?? null,
   }).pipe(Effect.orDie, Effect.flatMap(sha256Hex));
 
 export type LocalIndexProps = {

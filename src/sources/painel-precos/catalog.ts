@@ -70,7 +70,7 @@ const RecordRaw = Schema.Struct({
   codigoClasse: Escalar,
   nomeClasse: Schema.optional(Schema.NullOr(Schema.String)),
 });
-export type RecordRaw = (typeof RecordRaw)["Type"];
+type RecordRaw = (typeof RecordRaw)["Type"];
 
 export const PrecoPayload = Schema.Struct({
   resultado: Schema.optional(Schema.NullOr(Schema.Array(RecordRaw))),

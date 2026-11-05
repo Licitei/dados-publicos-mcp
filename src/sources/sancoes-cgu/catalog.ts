@@ -40,7 +40,7 @@ export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
 export const lookbackDays = 7;
 
 const DatasetKey = Schema.Literals(["ceis", "cnep", "ceaf", "cepim", "acordos-leniencia"]);
-export type DatasetKey = (typeof DatasetKey)["Type"];
+type DatasetKey = (typeof DatasetKey)["Type"];
 
 const DatasetSpec = Schema.Struct({
   key: DatasetKey,

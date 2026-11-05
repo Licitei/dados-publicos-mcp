@@ -6,7 +6,20 @@ import { ToolFailure, defineTool } from "../tool";
 
 const lightFontes = Arr.filter(Rec.keys(indexRegistry), (fonte) => !indexRegistry[fonte].heavy);
 
-const IndexarInput = Schema.Struct({ fonte: FonteKey });
+const IndexarInput = Schema.Struct({
+  fonte: FonteKey,
+  escopo: Schema.optionalKey(
+    Schema.Struct({
+      orgaos: Schema.optionalKey(Schema.Array(Schema.String)),
+      uasgs: Schema.optionalKey(Schema.Array(Schema.String)),
+      ufs: Schema.optionalKey(Schema.Array(Schema.String)),
+      anos: Schema.optionalKey(Schema.Array(Schema.Finite.pipe(Schema.check(Schema.isInt())))),
+      mes: Schema.optionalKey(
+        Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{4}-(0[1-9]|1[0-2])$/)))
+      ),
+    })
+  ),
+});
 
 const indexar = defineTool({
   name: "indexar",
@@ -21,7 +34,7 @@ const indexar = defineTool({
           })
         )
       ),
-      Match.orElse((entry) => entry.run({}))
+      Match.orElse((entry) => entry.run(args.escopo ?? {}))
     ),
 });
 

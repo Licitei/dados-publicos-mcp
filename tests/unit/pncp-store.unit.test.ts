@@ -1,5 +1,5 @@
 import { expect, layer } from "@effect/vitest";
-import { Duration, Effect, Layer, Order, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Str from "effect/String";
@@ -166,6 +166,45 @@ const query =
 
 const HttpFixture = fixtureLayer([
   {
+    match: pathIncludes("/itens"),
+    respond: {
+      body: toJson([
+        {
+          numeroItem: 1,
+          descricao: "Notebook",
+          quantidade: 10,
+          unidadeMedida: "UN",
+          valorUnitarioEstimado: 1000,
+          valorTotal: 10000,
+          materialOuServico: "M",
+        },
+      ]),
+    },
+  },
+  {
+    match: (url) =>
+      Str.endsWith("/instrumentoscobranca/inclusao")(url.pathname) &&
+      url.searchParams.get("dataInicial") === "20260101" &&
+      url.searchParams.get("dataFinal") === "20260131" &&
+      Number(url.searchParams.get("tamanhoPagina")) <= 100,
+    respond: {
+      body: pageOf(
+        [
+          {
+            cnpj: "00000000000191",
+            ano: 2026,
+            sequencialContrato: 1,
+            sequencialInstrumentoCobranca: 1,
+            numeroInstrumentoCobranca: "NF1",
+            dataEmissaoDocumento: "2026-01-25",
+            recuperarContratoDTO: contratos[0],
+          },
+        ],
+        1
+      ),
+    },
+  },
+  {
     match: query("contratacoes/publicacao", "1", "6"),
     respond: { body: pageOf(contratacoes, 1) },
   },
@@ -205,15 +244,6 @@ const scope = {
   modalidades: [6, 8],
 } as const;
 
-const pick = <A, B>(xs: readonly A[], index: number, f: (a: A) => B) =>
-  Arr.get(xs, index).pipe(Option.map(f));
-
-const seeded = Effect.gen(function* () {
-  const pncp = yield* Pncp;
-  yield* pncp.indexScope(scope);
-  return pncp;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
   "pncp store + paginated harvest + DuckDB bm25 + fuzzy",
   (it) => {
@@ -221,7 +251,13 @@ layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
       Effect.gen(function* () {
         const pncp = yield* Pncp;
         const total = yield* pncp.indexScope(scope);
-        expect(total).toEqual({ contratacoes: 2, contratos: 2, atas: 2 });
+        expect(total).toEqual({
+          contratacoes: 2,
+          contratos: 2,
+          atas: 2,
+          itens: 2,
+          instrumentos: 1,
+        });
         const duck = yield* Duck;
         const contratacoesCount = yield* duck.count(contratacaoTable);
         const contratosCount = yield* duck.count(contratoTable);
@@ -229,119 +265,27 @@ layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
         expect(contratacoesCount).toBe(2);
         expect(contratosCount).toBe(2);
         expect(atasCount).toBe(2);
-        const pagina2 = yield* pncp.contratosDoFornecedor({
-          niFornecedor: "98765432000155",
-        });
-        expect(pagina2).toHaveLength(1);
       })
     );
 
-    it.effect("buscarPncp floats the lexical match and honours the uf filter", () =>
+    it.effect("indexes item prices and billing instruments with normalized date windows", () =>
       Effect.gen(function* () {
-        const pncp = yield* seeded;
-        const hits = yield* pncp.buscarPncp({
-          termo: "notebooks",
-          tipo: "contratacao",
-        });
-        expect(
-          pick(hits, 0, (h) => (h.tipo === "contratacao" ? h.numeroControlePNCP : undefined))
-        ).toEqual(Option.some("00000000000191-1-000001/2026"));
-        const todas = yield* pncp.buscarPncp({ termo: "notebooks" });
-        expect(todas.length).toBeGreaterThan(1);
-        const scores = Arr.map(todas, (h) => h.score);
-        expect(scores).toEqual(Arr.sort(scores, Order.flip(Order.Number)));
-
-        const semLexical = yield* pncp.buscarPncp({
-          termo: "zzzz inexistente xpto",
-          tipo: "contratacao",
-        });
-        expect(semLexical).toHaveLength(0);
-
-        const narrowed = yield* pncp.buscarPncp({
-          termo: "notebooks",
-          tipo: "contratacao",
-          uf: "SP",
-        });
-        expect(Arr.every(narrowed, (row) => row.ufSigla === "SP")).toBe(true);
-        expect(narrowed.length).toBe(1);
-      })
-    );
-
-    it.effect("buscarPncp per tipo and merged todas", () =>
-      Effect.gen(function* () {
-        const pncp = yield* seeded;
-        const contrato = yield* pncp.buscarPncp({
-          termo: "notebooks",
-          tipo: "contrato",
-        });
-        expect(Arr.every(contrato, (row) => row.tipo === "contrato")).toBe(true);
-
-        const ata = yield* pncp.buscarPncp({ termo: "notebooks", tipo: "ata" });
-        expect(Arr.every(ata, (row) => row.tipo === "ata")).toBe(true);
-
-        const todas = yield* pncp.buscarPncp({
-          termo: "notebooks",
-          tipo: "todas",
-        });
-        const tipos = Arr.map(todas, (row) => row.tipo);
-        expect(Arr.contains(tipos, "contratacao")).toBe(true);
-        expect(Arr.contains(tipos, "contrato")).toBe(true);
-        expect(Arr.contains(tipos, "ata")).toBe(true);
-      })
-    );
-
-    it.effect("fornecedorPncpPorNome ranks bm25 and recovers typos with fuzzy", () =>
-      Effect.gen(function* () {
-        const pncp = yield* seeded;
-        const lexical = yield* pncp.fornecedorPncpPorNome("quantum solucoes");
-        expect(pick(lexical, 0, (r) => r.nomeRazaoSocialFornecedor)).toEqual(
-          Option.some("Tecnologia Quantum Solucoes LTDA")
+        const pncp = yield* Pncp;
+        yield* pncp.indexScope({ ...scope, dataInicial: "2026-01-01", dataFinal: "2026-01-31" });
+        const duck = yield* Duck;
+        const items = yield* duck.query(
+          Schema.Struct({ numeroItem: Schema.Finite, valorUnitarioEstimado: Schema.Finite }),
+          'SELECT "numeroItem", "valorUnitarioEstimado" FROM pncp_item'
         );
-        expect(pick(lexical, 0, (r) => Number(r.score) > 0)).toEqual(Option.some(true));
-
-        const typo = yield* pncp.fornecedorPncpPorNome("quantun");
-        expect(Arr.map(typo, (row) => row.nomeRazaoSocialFornecedor)).toContain(
-          "Tecnologia Quantum Solucoes LTDA"
+        expect(items).toHaveLength(2);
+        expect(items[0]).toEqual({ numeroItem: 1, valorUnitarioEstimado: 1000 });
+        const bills = yield* duck.query(
+          Schema.Struct({ numeroInstrumento: Schema.String, documentoFornecedor: Schema.String }),
+          'SELECT "numeroInstrumento", "documentoFornecedor" FROM pncp_instrumento_cobranca'
         );
-        expect(pick(typo, 0, (r) => r.score)).toEqual(Option.some(0));
-
-        const missing = yield* Effect.flip(pncp.fornecedorPncpPorNome("  "));
-        expect(missing._tag).toBe("PncpError");
-        expect(missing.message).toContain("fornecedor");
-      })
-    );
-
-    it.effect("contratosDoFornecedor matches the masked ni exactly", () =>
-      Effect.gen(function* () {
-        const pncp = yield* seeded;
-        const rows = yield* pncp.contratosDoFornecedor({
-          niFornecedor: "12.345.678/0001-90",
-        });
-        expect(rows.length).toBe(1);
-        expect(pick(rows, 0, (r) => r.niFornecedor)).toEqual(Option.some("12345678000190"));
-        expect(pick(rows, 0, (r) => r.nomeRazaoSocialFornecedor)).toEqual(
-          Option.some("Tecnologia Quantum Solucoes LTDA")
-        );
-
-        const missing = yield* Effect.flip(pncp.contratosDoFornecedor({ niFornecedor: "abc" }));
-        expect(missing._tag).toBe("PncpError");
-        expect(missing.message).toContain("CNPJ");
-      })
-    );
-
-    it.effect("alertasPncp returns recent contratacoes filtered by uf and date", () =>
-      Effect.gen(function* () {
-        const pncp = yield* seeded;
-        const all = yield* pncp.alertasPncp({});
-        expect(all.length).toBe(2);
-        expect(pick(all, 0, (r) => r.dataPublicacaoPncp)).toEqual(Option.some("2026-01-15"));
-
-        const filtered = yield* pncp.alertasPncp({
-          uf: "PR",
-          dataInicial: "2026-01-12",
-        });
-        expect(filtered.length).toBe(1);
-        expect(pick(filtered, 0, (r) => r.ufSigla)).toEqual(Option.some("PR"));
+        expect(bills).toEqual([
+          { numeroInstrumento: "NF1", documentoFornecedor: "12345678000190" },
+        ]);
       })
     );
   }

@@ -1,3 +1,13 @@
+import { TceRsLive } from "../../../src/sources/tce-rs/store";
+import { TcePrLive } from "../../../src/sources/tce-pr/store";
+import { ComprasGovLive } from "../../../src/sources/compras-gov/store";
+import { BndesLive } from "../../../src/sources/bndes/store";
+import { IbamaLive } from "../../../src/sources/ibama/store";
+import { ListaSujaLive } from "../../../src/sources/mte-lista-suja/store";
+import { PortalTransparenciaLive } from "../../../src/sources/portal-transparencia/store";
+import { CvmLive } from "../../../src/sources/cvm/store";
+import { PgfnLive } from "../../../src/sources/pgfn/store";
+import { IndicesReajusteLive } from "../../../src/sources/indices-reajuste/store";
 import { Effect, Layer } from "effect";
 import { fixtureLayer } from "../../unit/support/fixture-server";
 import { TestDuckLive } from "../../unit/support/test-duck";
@@ -48,7 +58,17 @@ const offlineSources = Layer.mergeAll(
   TransferegovLive,
   PainelPrecosLive,
   TransparenciaDespesasLive,
-  SinapiLive
+  SinapiLive,
+  IndicesReajusteLive,
+  PgfnLive,
+  CvmLive,
+  PortalTransparenciaLive,
+  ListaSujaLive,
+  IbamaLive,
+  BndesLive,
+  ComprasGovLive,
+  TcePrLive,
+  TceRsLive
 ).pipe(Layer.provideMerge(Infra));
 
 export const withOfflineSources = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

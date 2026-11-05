@@ -12,8 +12,3 @@ export const normalize = (value: string) =>
   );
 
 export const onlyDigits = (value: string) => pipe(value, Str.replace(/\D/g, ""));
-
-export const ehDocumento = (termo: string) => {
-  const digits = onlyDigits(termo);
-  return digits.length >= 11 && digits.length === pipe(termo, Str.replace(/[.\-/\s]/g, "")).length;
-};

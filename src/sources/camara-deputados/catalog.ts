@@ -39,7 +39,7 @@ const idFromUri = (uri: string) =>
     Option.getOrElse(() => "")
   );
 
-export const DeputadoFlat = Schema.Struct({
+const DeputadoFlat = Schema.Struct({
   id: Schema.String,
   uri: Schema.String,
   nome: Schema.String,
@@ -53,7 +53,7 @@ export const DeputadoFlat = Schema.Struct({
   idLegislaturaInicial: Schema.NullOr(Schema.Finite),
   idLegislaturaFinal: Schema.NullOr(Schema.Finite),
 });
-export type DeputadoFlat = (typeof DeputadoFlat)["Type"];
+type DeputadoFlat = (typeof DeputadoFlat)["Type"];
 
 export const CotaFlat = Schema.Struct({
   nuDeputadoId: Schema.NullOr(Schema.Finite),
@@ -216,20 +216,3 @@ export const mapProposicaoAutores = (records: readonly CsvRecord[]) =>
     Arr.map((record) => mapProposicaoAutor(indexByKey(record))),
     Arr.filter((row) => row.idProposicao !== "")
   );
-
-const CamaraErrorCode = Schema.Literals(["camara.MISSING_FILTRO"]);
-type CamaraErrorCode = (typeof CamaraErrorCode)["Type"];
-
-export class CamaraError extends Schema.TaggedError<
-  CamaraError,
-  { readonly brand: unique symbol }
->()("CamaraError", {
-  code: CamaraErrorCode,
-}) {
-  override get message() {
-    switch (this.code) {
-      case "camara.MISSING_FILTRO":
-        return "Informe um nome de fornecedor ou um cnpj/cpf para a busca de gastos.";
-    }
-  }
-}

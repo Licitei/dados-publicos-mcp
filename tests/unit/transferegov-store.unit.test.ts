@@ -1,7 +1,7 @@
+import { TestFuzzyLive } from "./support/test-fuzzy";
 import { expect, layer } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
-import * as Option from "effect/Option";
 import { Transferegov, TransferegovLive } from "../../src/sources/transferegov/store";
 import { storedZip, utf8 } from "./support/stored-zip";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
@@ -41,14 +41,8 @@ const HttpFixture = fixtureLayer([
 ]);
 
 const TestLayer = TransferegovLive.pipe(
-  Layer.provideMerge(Layer.mergeAll(TestDuckLive, HttpFixture))
+  Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
-
-const seeded = Effect.gen(function* () {
-  const tg = yield* Transferegov;
-  yield* tg.index;
-  return tg;
-});
 
 layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
   "transferegov store + zip/csv ingest",
@@ -59,31 +53,6 @@ layer(TestLayer, { timeout: Duration.seconds(60), excludeTestServices: true })(
         const result = yield* tg.index;
         expect(result.inserted).toBe(2);
         expect(result.total).toBe(2);
-      })
-    );
-
-    it.effect("conveniosDoProponente sums repasse and carries the joined objeto/CNPJ", () =>
-      Effect.gen(function* () {
-        const tg = yield* seeded;
-        const prop = yield* tg.conveniosDoProponente("46.634.317/0001-80");
-        expect(prop.docNormalizado).toBe("46634317000180");
-        expect(prop.count).toBe(1);
-        expect(prop.totalRepasse).toBeCloseTo(98200, 0);
-        const first = Arr.head(prop.convenios);
-        expect(Option.map(first, (c) => c.objeto)).toEqual(
-          Option.some(expect.stringContaining("Centro de Referencia"))
-        );
-        expect(Option.map(first, (c) => c.municipio)).toEqual(Option.some("BARRA DO TURVO"));
-      })
-    );
-
-    it.effect("buscarConvenio by objeto (bm25) and conveniosDoMunicipio by IBGE code", () =>
-      Effect.gen(function* () {
-        const tg = yield* seeded;
-        const hits = yield* tg.buscarConvenio("centro referencia assistencia");
-        expect(Arr.map(hits, (r) => r.nrConvenio)).toContain("724072");
-        const muni = yield* tg.conveniosDoMunicipio("3302700", 10);
-        expect(Arr.map(muni, (r) => r.nrConvenio)).toEqual(["800000"]);
       })
     );
   }

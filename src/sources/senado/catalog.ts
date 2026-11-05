@@ -39,7 +39,7 @@ export const SenadoresPayload = Schema.Struct({
 });
 export type SenadoresPayload = (typeof SenadoresPayload)["Type"];
 
-export const SenadorFlat = Schema.Struct({
+const SenadorFlat = Schema.Struct({
   codigo: Schema.NullOr(Schema.String),
   nome: Schema.NullOr(Schema.String),
   nomeCompleto: Schema.NullOr(Schema.String),
@@ -49,7 +49,7 @@ export const SenadorFlat = Schema.Struct({
   email: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type SenadorFlat = (typeof SenadorFlat)["Type"];
+type SenadorFlat = (typeof SenadorFlat)["Type"];
 
 const orNull = (value: string | undefined) =>
   value === undefined || Str.trim(value) === "" ? null : Str.trim(value);
@@ -80,7 +80,7 @@ export const dropFirstLine = (bytes: Uint8Array) => {
   return newline === -1 ? bytes : bytes.slice(newline + 1);
 };
 
-export const CeapsFlat = Schema.Struct({
+const CeapsFlat = Schema.Struct({
   ano: Schema.NullOr(Schema.Finite),
   mes: Schema.NullOr(Schema.Finite),
   senador: Schema.NullOr(Schema.String),
@@ -95,7 +95,7 @@ export const CeapsFlat = Schema.Struct({
   codDocumento: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type CeapsFlat = (typeof CeapsFlat)["Type"];
+type CeapsFlat = (typeof CeapsFlat)["Type"];
 
 const orNullStr = (value: string) => (value === "" ? null : value);
 

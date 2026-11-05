@@ -24,6 +24,7 @@ import {
   SOCIOS_COLUNAS,
   webdavFileUrl,
   yyyymm,
+  receitaTables,
 } from "./catalog";
 
 const txt = (col: string) => `coalesce(trim("${col}"), '')`;
@@ -41,77 +42,6 @@ const num = (col: string) =>
 const cnpjCompleto = `lpad(${dig("cnpj_basico")}, 8, '0') || lpad(${dig("cnpj_ordem")}, 4, '0') || lpad(${dig("cnpj_dv")}, 2, '0')`;
 
 const cpfVisivelSql = `CASE WHEN length(${dig("cnpj_cpf_socio")}) = 11 THEN substr(${dig("cnpj_cpf_socio")}, 4, 6) ELSE substr(${dig("cnpj_cpf_socio")}, 1, 6) END`;
-
-const Table = Schema.Struct({ name: Schema.String, columns: Schema.String });
-type Table = (typeof Table)["Type"];
-
-const varchars = (names: readonly string[]) =>
-  pipe(
-    names,
-    Arr.map((name) => `${name} VARCHAR`),
-    Arr.join(", ")
-  );
-
-const tables: readonly Table[] = [
-  { name: "dominio", columns: varchars(["tabela", "codigo", "descricao"]) },
-  {
-    name: "empresa",
-    columns: `${varchars(["cnpj_basico", "razao_social", "natureza_juridica", "qualificacao_responsavel"])}, capital_social DOUBLE, ${varchars(["porte", "busca"])}`,
-  },
-  {
-    name: "estabelecimento",
-    columns: varchars([
-      "cnpj_completo",
-      "cnpj_basico",
-      "cnpj_ordem",
-      "cnpj_dv",
-      "matriz_filial",
-      "nome_fantasia",
-      "situacao_cadastral",
-      "data_situacao",
-      "motivo_situacao",
-      "data_inicio_atividade",
-      "cnae_principal",
-      "cnae_secundario",
-      "uf",
-      "municipio",
-      "bairro",
-      "logradouro",
-      "numero",
-      "complemento",
-      "cep",
-      "ddd",
-      "telefone",
-      "email",
-    ]),
-  },
-  {
-    name: "socio",
-    columns: varchars([
-      "cnpj_basico",
-      "identificador_socio",
-      "nome_socio",
-      "cnpj_cpf_socio",
-      "cpf_visivel",
-      "qualificacao",
-      "data_entrada",
-      "faixa_etaria",
-      "busca",
-    ]),
-  },
-  {
-    name: "simples",
-    columns: varchars([
-      "cnpj_basico",
-      "opcao_simples",
-      "data_opcao_simples",
-      "data_exclusao_simples",
-      "opcao_mei",
-      "data_opcao_mei",
-      "data_exclusao_mei",
-    ]),
-  },
-];
 
 const Loader = Schema.Struct({
   table: Schema.String,
@@ -158,14 +88,7 @@ const insertSql = (loader: Loader) =>
   )}})`;
 
 const resetTables = Effect.flatMap(Duck, (duck) =>
-  Effect.forEach(
-    tables,
-    (table) =>
-      duck
-        .run(`DROP TABLE IF EXISTS ${table.name}`)
-        .pipe(Effect.andThen(duck.run(`CREATE TABLE ${table.name} (${table.columns})`))),
-    { concurrency: 1, discard: true }
-  )
+  Effect.forEach(receitaTables, (table) => duck.create(table), { concurrency: 1, discard: true })
 );
 
 const stageEntry = (

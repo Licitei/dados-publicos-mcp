@@ -21,7 +21,7 @@ export const siconfiPageSize = 6_000;
 
 export const csvOptions = { encoding: "utf-8", delimiter: ";" } as const;
 
-export const codigoIbgeLength = 7;
+const codigoIbgeLength = 7;
 
 const looseText = Schema.optional(Schema.NullOr(Schema.Union([Schema.String, Schema.Finite])));
 
@@ -50,7 +50,7 @@ const SiconfiEnteRaw = Schema.Struct({
   cnpj: looseText,
   exercicio: looseText,
 });
-export type SiconfiEnteRaw = (typeof SiconfiEnteRaw)["Type"];
+type SiconfiEnteRaw = (typeof SiconfiEnteRaw)["Type"];
 
 export const SiconfiEntesPayload = Schema.Struct({
   items: Schema.optional(Schema.NullOr(Schema.Array(SiconfiEnteRaw))),
@@ -60,7 +60,7 @@ export const SiconfiEntesPayload = Schema.Struct({
 });
 export type SiconfiEntesPayload = (typeof SiconfiEntesPayload)["Type"];
 
-export const Indicadores = Schema.Struct({
+const Indicadores = Schema.Struct({
   indicador1: Schema.NullOr(Schema.Finite),
   nota1: Schema.NullOr(Schema.String),
   indicador2: Schema.NullOr(Schema.Finite),
@@ -69,7 +69,7 @@ export const Indicadores = Schema.Struct({
   nota3: Schema.NullOr(Schema.String),
 });
 
-export const EstadoFlat = Schema.Struct({
+const EstadoFlat = Schema.Struct({
   uf: Schema.String,
   ano: Schema.Finite,
   ...Indicadores.fields,
@@ -77,9 +77,9 @@ export const EstadoFlat = Schema.Struct({
   qualidadeInfo: Schema.NullOr(Schema.String),
   observacao: Schema.NullOr(Schema.String),
 });
-export type EstadoFlat = (typeof EstadoFlat)["Type"];
+type EstadoFlat = (typeof EstadoFlat)["Type"];
 
-export const MunicipioFlat = Schema.Struct({
+const MunicipioFlat = Schema.Struct({
   codIbge: Schema.String,
   nome: Schema.String,
   nomeNorm: Schema.String,
@@ -90,9 +90,9 @@ export const MunicipioFlat = Schema.Struct({
   capag: Schema.NullOr(Schema.String),
   busca: Schema.String,
 });
-export type MunicipioFlat = (typeof MunicipioFlat)["Type"];
+type MunicipioFlat = (typeof MunicipioFlat)["Type"];
 
-export const EnteFlat = Schema.Struct({
+const EnteFlat = Schema.Struct({
   codIbge: Schema.String,
   ente: Schema.String,
   uf: Schema.NullOr(Schema.String),
@@ -103,7 +103,7 @@ export const EnteFlat = Schema.Struct({
   exercicio: Schema.NullOr(Schema.Finite),
   busca: Schema.String,
 });
-export type EnteFlat = (typeof EnteFlat)["Type"];
+type EnteFlat = (typeof EnteFlat)["Type"];
 
 const CapagErrorCode = Schema.Literals([
   "capag.RESOURCE_MISSING",

@@ -38,7 +38,17 @@ const buildScope = (input: {
   readonly ufs: Option.Option<string>;
   readonly anos: Option.Option<string>;
   readonly mes: Option.Option<string>;
+  readonly orgaos: Option.Option<string>;
+  readonly uasgs: Option.Option<string>;
 }): Scope => ({
+  ...Option.match(input.orgaos, {
+    onNone: () => ({}),
+    onSome: (value) => ({ orgaos: splitParts(value) }),
+  }),
+  ...Option.match(input.uasgs, {
+    onNone: () => ({}),
+    onSome: (value) => ({ uasgs: splitParts(value) }),
+  }),
   ...Option.match(input.ufs, {
     onNone: () => ({}),
     onSome: (value) => ({ ufs: splitUpper(value) }),
@@ -104,6 +114,16 @@ const indexCommand = Command.make(
     anos: Flag.String("anos").pipe(
       Flag.optional,
       Flag.withDescription("Recorte de anos (separados por virgula). Ex: 2024,2025")
+    ),
+    orgaos: Flag.String("orgaos").pipe(
+      Flag.optional,
+      Flag.withDescription("Órgãos do Compras.gov.br, separados por vírgula. Ex: 26000")
+    ),
+    uasgs: Flag.String("uasgs").pipe(
+      Flag.optional,
+      Flag.withDescription(
+        "UASGs para restringir a carga do Compras.gov.br, separadas por vírgula."
+      )
     ),
     mes: Flag.String("mes").pipe(
       Flag.optional,

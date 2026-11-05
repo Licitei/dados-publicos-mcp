@@ -1,8 +1,8 @@
+import type { DuckTable } from "../../kernel/duck/duck";
 import { DateTime, Schema } from "effect";
 import * as Arr from "effect/Array";
 import { dual, pipe } from "effect/Function";
 import * as Str from "effect/String";
-import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 const RFB_BASE = "https://arquivos.receitafederal.gov.br";
 
@@ -124,69 +124,6 @@ export const SIMPLES_COLUNAS = [
 
 export const DOMINIO_COLUNAS = ["codigo", "descricao"] as const;
 
-const CodeMap = Schema.Record(Schema.String, Schema.String);
-type CodeMap = (typeof CodeMap)["Type"];
-
-export const SITUACAO_CADASTRAL: CodeMap = {
-  "1": "nula",
-  "01": "nula",
-  "2": "ativa",
-  "02": "ativa",
-  "3": "suspensa",
-  "03": "suspensa",
-  "4": "inapta",
-  "04": "inapta",
-  "8": "baixada",
-  "08": "baixada",
-};
-
-export const PORTE_EMPRESA: CodeMap = {
-  "00": "nao informado",
-  "01": "micro empresa",
-  "03": "empresa de pequeno porte",
-  "05": "demais",
-};
-
-export const MATRIZ_FILIAL: CodeMap = {
-  "1": "matriz",
-  "2": "filial",
-};
-
-export const IDENTIFICADOR_SOCIO: CodeMap = {
-  "1": "pessoa juridica",
-  "2": "pessoa fisica",
-  "3": "estrangeiro",
-};
-
-const situacaoMap: CodeMap = {
-  nula: "1",
-  ativa: "2",
-  suspensa: "3",
-  inapta: "4",
-  baixada: "8",
-};
-
-export const situacaoCodigo = (value: string) => {
-  const digits = onlyDigits(value);
-  return digits !== "" ? digits : (situacaoMap[normalize(value)] ?? null);
-};
-
-const porteMap: CodeMap = {
-  me: "01",
-  micro: "01",
-  microempresa: "01",
-  "micro empresa": "01",
-  epp: "03",
-  "empresa de pequeno porte": "03",
-  "pequeno porte": "03",
-  demais: "05",
-};
-
-export const porteCodigo = (value: string) => {
-  const digits = onlyDigits(value);
-  return digits !== "" ? pipe(digits, Str.padStart(2, "0")) : (porteMap[normalize(value)] ?? null);
-};
-
 const ReceitaCnpjErrorCode = Schema.Literals([
   "receita.CNPJ_INVALIDO",
   "receita.SNAPSHOT_MISSING",
@@ -211,3 +148,84 @@ export class ReceitaCnpjError extends Schema.TaggedError<
     }
   }
 }
+
+export const receitaTables: readonly DuckTable[] = [
+  {
+    name: "dominio",
+    key: "codigo",
+    columns: {
+      tabela: "VARCHAR",
+      codigo: "VARCHAR",
+      descricao: "VARCHAR",
+    },
+  },
+  {
+    name: "empresa",
+    key: "cnpj_basico",
+    columns: {
+      cnpj_basico: "VARCHAR",
+      razao_social: "VARCHAR",
+      natureza_juridica: "VARCHAR",
+      qualificacao_responsavel: "VARCHAR",
+      capital_social: "DOUBLE",
+      porte: "VARCHAR",
+      busca: "VARCHAR",
+    },
+  },
+  {
+    name: "estabelecimento",
+    key: "cnpj_completo",
+    columns: {
+      cnpj_completo: "VARCHAR",
+      cnpj_basico: "VARCHAR",
+      cnpj_ordem: "VARCHAR",
+      cnpj_dv: "VARCHAR",
+      matriz_filial: "VARCHAR",
+      nome_fantasia: "VARCHAR",
+      situacao_cadastral: "VARCHAR",
+      data_situacao: "VARCHAR",
+      motivo_situacao: "VARCHAR",
+      data_inicio_atividade: "VARCHAR",
+      cnae_principal: "VARCHAR",
+      cnae_secundario: "VARCHAR",
+      uf: "VARCHAR",
+      municipio: "VARCHAR",
+      bairro: "VARCHAR",
+      logradouro: "VARCHAR",
+      numero: "VARCHAR",
+      complemento: "VARCHAR",
+      cep: "VARCHAR",
+      ddd: "VARCHAR",
+      telefone: "VARCHAR",
+      email: "VARCHAR",
+    },
+  },
+  {
+    name: "socio",
+    key: "cnpj_basico",
+    columns: {
+      cnpj_basico: "VARCHAR",
+      identificador_socio: "VARCHAR",
+      nome_socio: "VARCHAR",
+      cnpj_cpf_socio: "VARCHAR",
+      cpf_visivel: "VARCHAR",
+      qualificacao: "VARCHAR",
+      data_entrada: "VARCHAR",
+      faixa_etaria: "VARCHAR",
+      busca: "VARCHAR",
+    },
+  },
+  {
+    name: "simples",
+    key: "cnpj_basico",
+    columns: {
+      cnpj_basico: "VARCHAR",
+      opcao_simples: "VARCHAR",
+      data_opcao_simples: "VARCHAR",
+      data_exclusao_simples: "VARCHAR",
+      opcao_mei: "VARCHAR",
+      data_opcao_mei: "VARCHAR",
+      data_exclusao_mei: "VARCHAR",
+    },
+  },
+];

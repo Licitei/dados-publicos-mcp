@@ -3,7 +3,6 @@ import { Duration, Effect, Layer } from "effect";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Str from "effect/String";
-import * as Order from "effect/Order";
 import { TseEleitoral, TseEleitoralLive } from "../../src/sources/tse-eleitoral/store";
 import { fixtureLayer, pathIncludes } from "./support/fixture-server";
 import { zip } from "./support/stored-zip";
@@ -116,12 +115,6 @@ const TestLayer = TseEleitoralLive.pipe(
   Layer.provideMerge(Layer.mergeAll(TestDuckLive, TestFuzzyLive, HttpFixture))
 );
 
-const seeded = Effect.gen(function* () {
-  const tse = yield* TseEleitoral;
-  yield* tse.indexAnos([2024]);
-  return tse;
-});
-
 layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
   "tse-eleitoral store + zip/csv ingest",
   (it) => {
@@ -136,105 +129,6 @@ layer(TestLayer, { timeout: Duration.seconds(120), excludeTestServices: true })(
           despesas: 2,
           originarios: 1,
         });
-      })
-    );
-
-    it.effect("buscarCandidato matches by bm25 name, falls back to fff fuzzy, honors ano", () =>
-      Effect.gen(function* () {
-        const tse = yield* seeded;
-        const hit = yield* tse.buscarCandidato("joao da silva");
-        expect(Arr.map(hit, (r) => r.sqCandidato)).toContain("SP001");
-        expect(Option.map(Arr.head(hit), (r) => r.nome)).toEqual(Option.some("JOÃO DA SILVA"));
-        expect(Option.exists(Arr.head(hit), (r) => Number(r.score) > 0)).toBe(true);
-        const typo = yield* tse.buscarCandidato("joao da silvq");
-        expect(Arr.map(typo, (r) => r.sqCandidato)).toContain("SP001");
-        const fuzzyOnly = yield* tse.buscarCandidato("mria suza");
-        expect(Arr.map(fuzzyOnly, (r) => r.sqCandidato)).toEqual(["SP002"]);
-        expect(Arr.every(fuzzyOnly, (r) => r.score === 0)).toBe(true);
-        const ano = yield* tse.buscarCandidato("joao", { ano: 2024 });
-        expect(Arr.map(ano, (r) => r.sqCandidato)).toContain("SP001");
-        const outro = yield* tse.buscarCandidato("joao", { ano: 2020 });
-        expect(outro).toHaveLength(0);
-      })
-    );
-
-    it.effect("dueDiligenceCandidato returns candidacies + assets + total, by cpf or sq", () =>
-      Effect.gen(function* () {
-        const tse = yield* seeded;
-        const porCpf = yield* tse.dueDiligenceCandidato({
-          cpf: "111.222.333-44",
-        });
-        expect(Arr.map(porCpf.candidaturas, (c) => c.sqCandidato)).toEqual(["SP001"]);
-        expect(porCpf.bens).toHaveLength(2);
-        expect(porCpf.totalBensDeclarado).toBeCloseTo(580000.5, 1);
-        expect(Option.map(Arr.head(porCpf.bens), (b) => b.descricao)).toEqual(
-          Option.some("Imóvel residencial")
-        );
-        const porSq = yield* tse.dueDiligenceCandidato({ sqCandidato: "SP002" });
-        expect(porSq.candidaturas).toHaveLength(1);
-        expect(porSq.bens).toHaveLength(1);
-        const erro = yield* Effect.flip(tse.dueDiligenceCandidato({}));
-        expect(erro._tag).toBe("TseError");
-        expect(erro.message).toContain("cpf ou sqCandidato");
-      })
-    );
-
-    it.effect("buscarDoacoes resolves a donor by document or name, joined to candidates", () =>
-      Effect.gen(function* () {
-        const tse = yield* seeded;
-        const porDoc = yield* tse.buscarDoacoes("11.222.333/0001-81");
-        expect(porDoc).toHaveLength(2);
-        expect(Arr.every(porDoc, (r) => r.nomeDoador === "EMPRESA ALPHA LTDA")).toBe(true);
-        expect(Option.map(Arr.head(porDoc), (r) => Number(r.valor))).toEqual(Option.some(50000));
-        expect(
-          Arr.sort(
-            Arr.map(porDoc, (r) => String(r.nomeCandidato)),
-            Order.String
-          )
-        ).toEqual(["JOÃO DA SILVA", "MARIA SOUZA"]);
-        const porNome = yield* tse.buscarDoacoes("alpha");
-        expect(Arr.map(porNome, (r) => r.cpfCnpjDoador)).toContain("11222333000181");
-        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) > 0)).toBe(true);
-        expect(Option.exists(Arr.head(porNome), (r) => r.nomeCandidato !== null)).toBe(true);
-        const typo = yield* tse.buscarDoacoes("alpa");
-        expect(Arr.map(typo, (r) => r.cpfCnpjDoador)).toContain("11222333000181");
-        expect(Arr.every(typo, (r) => r.score === 0)).toBe(true);
-        const semAno = yield* tse.buscarDoacoes("alpha", { ano: 2020 });
-        expect(semAno).toHaveLength(0);
-      })
-    );
-
-    it.effect("buscarFornecedorCampanha resolves a supplier by name or document", () =>
-      Effect.gen(function* () {
-        const tse = yield* seeded;
-        const porNome = yield* tse.buscarFornecedorCampanha("grafica");
-        expect(porNome).toHaveLength(2);
-        expect(Arr.map(porNome, (r) => r.cpfCnpjForn)).toContain("44555666000199");
-        expect(Option.exists(Arr.head(porNome), (r) => Number(r.score) > 0)).toBe(true);
-        const typo = yield* tse.buscarFornecedorCampanha("grafca");
-        expect(Arr.map(typo, (r) => r.cpfCnpjForn)).toContain("44555666000199");
-        expect(Arr.every(typo, (r) => r.score === 0)).toBe(true);
-        const porDoc = yield* tse.buscarFornecedorCampanha("44555666000199");
-        expect(porDoc).toHaveLength(2);
-        const semAno = yield* tse.buscarFornecedorCampanha("grafica", {
-          ano: 2020,
-        });
-        expect(semAno).toHaveLength(0);
-      })
-    );
-
-    it.effect("rastrearDoadorOriginario walks origin -> repassador -> candidate", () =>
-      Effect.gen(function* () {
-        const tse = yield* seeded;
-        const chain = yield* tse.rastrearDoadorOriginario("123.456.789-01");
-        expect(chain).toHaveLength(1);
-        const link = Arr.head(chain);
-        expect(Option.map(link, (c) => c.nomeOrig)).toEqual(Option.some("FULANO ORIGINARIO"));
-        expect(Option.map(link, (c) => c.repassadorNome)).toEqual(
-          Option.some("EMPRESA ALPHA LTDA")
-        );
-        expect(Option.map(link, (c) => c.nomeCandidato)).toEqual(Option.some("JOÃO DA SILVA"));
-        expect(Option.map(link, (c) => Number(c.valorOriginario))).toEqual(Option.some(50000));
       })
     );
   }

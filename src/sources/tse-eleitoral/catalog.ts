@@ -18,7 +18,7 @@ const cdnBase = "https://cdn.tse.jus.br/estatistica/sead/odsele";
 
 export const csvOptions = { encoding: "iso-8859-1", delimiter: ";" } as const;
 
-export type DatasetTipo = "consulta_cand" | "bem_candidato" | "prestacao_contas";
+type DatasetTipo = "consulta_cand" | "bem_candidato" | "prestacao_contas";
 
 export const zipUrl: {
   (ano: number): (tipo: DatasetTipo) => string;
@@ -35,7 +35,7 @@ export const bemFile = /bem_candidato/i;
 export const acceptBrasil = (pattern: RegExp) => (name: string) =>
   /_BRASIL\.csv$/i.test(name) && pattern.test(name);
 
-export type TabelaPrestacao = "receita" | "receita_originario" | "despesa";
+type TabelaPrestacao = "receita" | "receita_originario" | "despesa";
 
 export const classifyPrestacao = (name: string): TabelaPrestacao | null => {
   const lower = Str.toLowerCase(name);
@@ -71,7 +71,7 @@ const CandidatoFlat = Schema.Struct({
 });
 type CandidatoFlat = (typeof CandidatoFlat)["Type"];
 
-export const BemFlat = Schema.Struct({
+const BemFlat = Schema.Struct({
   sqCandidato: Schema.String,
   anoEleicao: Schema.NullOr(Schema.Finite),
   ufSigla: Schema.String,
@@ -81,7 +81,7 @@ export const BemFlat = Schema.Struct({
   descricao: Schema.String,
   valor: Schema.NullOr(Schema.Finite),
 });
-export type BemFlat = (typeof BemFlat)["Type"];
+type BemFlat = (typeof BemFlat)["Type"];
 
 const mapCandidato = (byKey: HeaderIndex) => {
   const nome = pickClean(byKey, ["NM_CANDIDATO"]);
@@ -168,7 +168,7 @@ const DespesaFlat = Schema.Struct({
 });
 type DespesaFlat = (typeof DespesaFlat)["Type"];
 
-export const ReceitaOrigFlat = Schema.Struct({
+const ReceitaOrigFlat = Schema.Struct({
   sqReceita: Schema.String,
   anoEleicao: Schema.NullOr(Schema.Finite),
   cpfCnpjOrig: Schema.String,
@@ -179,7 +179,7 @@ export const ReceitaOrigFlat = Schema.Struct({
   valor: Schema.NullOr(Schema.Finite),
   data: Schema.String,
 });
-export type ReceitaOrigFlat = (typeof ReceitaOrigFlat)["Type"];
+type ReceitaOrigFlat = (typeof ReceitaOrigFlat)["Type"];
 
 const mapReceita = (byKey: HeaderIndex) => {
   const nomeDoador = pickClean(byKey, ["NM_DOADOR"]);
@@ -256,19 +256,3 @@ export const mapReceitasOriginario = (records: readonly CsvRecord[]) =>
     records,
     Arr.map((record) => mapReceitaOriginario(indexByKey(record)))
   );
-
-const TseErrorCode = Schema.Literals(["tse.MISSING_IDENTIFIER"]);
-
-export class TseError extends Schema.TaggedError<TseError, { readonly brand: unique symbol }>()(
-  "TseError",
-  {
-    code: TseErrorCode,
-  }
-) {
-  override get message() {
-    switch (this.code) {
-      case "tse.MISSING_IDENTIFIER":
-        return "Informe cpf ou sqCandidato para a due diligence do candidato.";
-    }
-  }
-}

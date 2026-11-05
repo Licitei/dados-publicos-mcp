@@ -13,6 +13,7 @@ import {
   toBool,
   type Loose,
 } from "../../kernel/schema/loose";
+import { publicDocument, publicText } from "../../kernel/text/document";
 import { normalize, onlyDigits } from "../../kernel/text/normalize";
 
 const base = "https://pncp.gov.br/api/consulta/v1";
@@ -21,6 +22,7 @@ export const endpoints = {
   contratacoes: "contratacoes/publicacao",
   contratos: "contratos",
   atas: "atas",
+  instrumentos: "instrumentoscobranca/inclusao",
 } as const;
 
 export const pageSizes = { min: 10, max: 50 } as const;
@@ -45,8 +47,8 @@ export const pageUrl = (opts: PageUrlOptions) => {
   const entries: ReadonlyArray<readonly [string, string | number | undefined | null]> = [
     ["pagina", opts.pagina],
     ["tamanhoPagina", tamanho],
-    ["dataInicial", opts.dataInicial],
-    ["dataFinal", opts.dataFinal],
+    ["dataInicial", Str.replaceAll("-", "")(opts.dataInicial)],
+    ["dataFinal", Str.replaceAll("-", "")(opts.dataFinal)],
     ["codigoModalidadeContratacao", opts.codigoModalidadeContratacao],
     ["uf", opts.uf],
   ];
@@ -83,7 +85,7 @@ const unidadeOrgaoRaw = Schema.optional(
   )
 );
 
-export const ContratacaoRaw = Schema.Struct({
+const ContratacaoRaw = Schema.Struct({
   numeroControlePNCP: looseText,
   anoCompra: looseText,
   sequencialCompra: looseText,
@@ -102,9 +104,9 @@ export const ContratacaoRaw = Schema.Struct({
   orgaoEntidade: orgaoEntidadeRaw,
   unidadeOrgao: unidadeOrgaoRaw,
 });
-export type ContratacaoRaw = (typeof ContratacaoRaw)["Type"];
+type ContratacaoRaw = (typeof ContratacaoRaw)["Type"];
 
-export const ContratoRaw = Schema.Struct({
+const ContratoRaw = Schema.Struct({
   numeroControlePNCP: looseText,
   numeroControlePncpCompra: looseString,
   anoContrato: looseText,
@@ -128,9 +130,9 @@ export const ContratoRaw = Schema.Struct({
   orgaoEntidade: orgaoEntidadeRaw,
   unidadeOrgao: unidadeOrgaoRaw,
 });
-export type ContratoRaw = (typeof ContratoRaw)["Type"];
+type ContratoRaw = (typeof ContratoRaw)["Type"];
 
-export const AtaRaw = Schema.Struct({
+const AtaRaw = Schema.Struct({
   numeroControlePNCPAta: looseString,
   numeroControlePncpAta: looseString,
   numeroControlePNCP: looseString,
@@ -149,7 +151,7 @@ export const AtaRaw = Schema.Struct({
   codigoUnidadeOrgao: looseString,
   ufSigla: looseString,
 });
-export type AtaRaw = (typeof AtaRaw)["Type"];
+type AtaRaw = (typeof AtaRaw)["Type"];
 
 export const ContratacaoPayload = Schema.Struct({
   data: Schema.Array(ContratacaoRaw),
@@ -336,6 +338,8 @@ const PncpErrorCode = Schema.Literals([
   "pncp.MISSING_TERMO",
   "pncp.MISSING_FORNECEDOR",
   "pncp.MISSING_NI",
+  "pncp.LIMIT",
+  "pncp.PARSE",
 ]);
 
 export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: unique symbol }>()(
@@ -346,6 +350,10 @@ export class PncpError extends Schema.TaggedError<PncpError, { readonly brand: u
 ) {
   override get message() {
     switch (this.code) {
+      case "pncp.PARSE":
+        return "Resposta inválida dos itens ou instrumentos de cobrança do PNCP.";
+      case "pncp.LIMIT":
+        return "O recorte PNCP excedeu o limite de contratações ou páginas de itens; restrinja o período antes de indexar.";
       case "pncp.MISSING_TERMO":
         return "Informe um termo de busca para consultar o PNCP.";
       case "pncp.MISSING_FORNECEDOR":
@@ -483,3 +491,152 @@ export const ymd = (millis: number) => {
 
 export const defaultWindowStart = (millis: number) =>
   ymd(millis - defaultWindowDays * 24 * 60 * 60 * 1000);
+
+export const pncpItemTable: DuckTable = {
+  name: "pncp_item",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    numeroControlePNCP: "VARCHAR",
+    orgaoCnpj: "VARCHAR",
+    anoCompra: "INTEGER",
+    sequencialCompra: "INTEGER",
+    numeroItem: "INTEGER",
+    descricao: "VARCHAR",
+    materialOuServico: "VARCHAR",
+    codigoItemCatalogo: "VARCHAR",
+    quantidade: "DOUBLE",
+    unidadeMedida: "VARCHAR",
+    valorUnitarioEstimado: "DOUBLE",
+    valorTotalEstimado: "DOUBLE",
+    situacaoCompraItem: "INTEGER",
+    fonte: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+export const pncpInstrumentoTable: DuckTable = {
+  name: "pncp_instrumento_cobranca",
+  key: "id",
+  columns: {
+    id: "VARCHAR",
+    orgaoCnpj: "VARCHAR",
+    anoContrato: "INTEGER",
+    sequencialContrato: "INTEGER",
+    sequencialInstrumento: "INTEGER",
+    numeroInstrumento: "VARCHAR",
+    tipoId: "INTEGER",
+    tipoNome: "VARCHAR",
+    dataEmissao: "VARCHAR",
+    observacao: "VARCHAR",
+    chaveNFe: "VARCHAR",
+    statusNFe: "VARCHAR",
+    dataInclusao: "VARCHAR",
+    dataAtualizacao: "VARCHAR",
+    numeroControlePNCPContrato: "VARCHAR",
+    documentoFornecedor: "VARCHAR",
+    nomeFornecedor: "VARCHAR",
+    valorContrato: "DOUBLE",
+    fonte: "VARCHAR",
+    busca: "VARCHAR",
+  },
+  search: ["busca"],
+};
+export const pncpTables: readonly DuckTable[] = [
+  contratacaoTable,
+  contratoTable,
+  contratoFornecedorTable,
+  ataTable,
+  pncpItemTable,
+  pncpInstrumentoTable,
+];
+export const ItemParent = Schema.Struct({
+  numeroControlePNCP: Schema.String,
+  orgaoCnpj: Schema.String.pipe(Schema.check(Schema.isPattern(/^\d{14}$/))),
+  anoCompra: Schema.Finite,
+  sequencialCompra: Schema.Finite,
+});
+const ItemRaw = Schema.Struct({
+  numeroItem: Schema.Finite,
+  descricao: looseString,
+  materialOuServico: looseString,
+  codigoItemCatalogo: looseText,
+  quantidade: looseText,
+  unidadeMedida: looseString,
+  valorUnitarioEstimado: looseText,
+  valorTotal: looseText,
+  situacaoCompraItem: looseText,
+});
+export const ItensPayload = Schema.Array(ItemRaw);
+const ItemBatch = Schema.Struct({ compra: ItemParent, itens: ItensPayload });
+export const itensUrl = (compra: (typeof ItemParent)["Type"]) =>
+  `https://pncp.gov.br/api/pncp/v1/orgaos/${compra.orgaoCnpj}/compras/${compra.anoCompra}/${compra.sequencialCompra}/itens`;
+export const flattenItens = (batch: (typeof ItemBatch)["Type"]) =>
+  Arr.map(batch.itens, (item) => {
+    const descricao = publicText(toStringOrNull(item.descricao) ?? "");
+    return {
+      id: `${batch.compra.numeroControlePNCP}:${item.numeroItem}`,
+      ...batch.compra,
+      numeroItem: item.numeroItem,
+      descricao,
+      materialOuServico: toStringOrNull(item.materialOuServico),
+      codigoItemCatalogo: toStringOrNull(item.codigoItemCatalogo),
+      quantidade: toRealOrNull(item.quantidade),
+      unidadeMedida: toStringOrNull(item.unidadeMedida),
+      valorUnitarioEstimado: toRealOrNull(item.valorUnitarioEstimado),
+      valorTotalEstimado: toRealOrNull(item.valorTotal),
+      situacaoCompraItem: toIntOrNull(item.situacaoCompraItem),
+      fonte: itensUrl(batch.compra),
+      busca: normalize(descricao),
+    };
+  });
+const InstrumentoRaw = Schema.Struct({
+  cnpj: Schema.String,
+  ano: Schema.Finite,
+  sequencialContrato: Schema.Finite,
+  sequencialInstrumentoCobranca: Schema.Finite,
+  tipoInstrumentoCobranca: Schema.optional(
+    Schema.NullOr(Schema.Struct({ id: looseText, nome: looseString }))
+  ),
+  numeroInstrumentoCobranca: looseString,
+  dataEmissaoDocumento: looseString,
+  observacao: looseString,
+  chaveNFe: looseString,
+  statusResponseNFe: looseString,
+  dataInclusao: looseString,
+  dataAtualizacao: looseString,
+  recuperarContratoDTO: Schema.optional(Schema.NullOr(ContratoRaw)),
+});
+export const InstrumentoPayload = Schema.Struct({
+  data: Schema.Array(InstrumentoRaw),
+  totalPaginas: Schema.Finite,
+  paginasRestantes: Schema.optional(Schema.Finite),
+});
+export const flattenInstrumentos = (rows: readonly (typeof InstrumentoRaw)["Type"][]) =>
+  Arr.map(rows, (row) => {
+    const contrato = row.recuperarContratoDTO;
+    const observacao = publicText(toStringOrNull(row.observacao) ?? "");
+    const nomeFornecedor = publicText(toStringOrNull(contrato?.nomeRazaoSocialFornecedor) ?? "");
+    return {
+      id: `${row.cnpj}:${row.ano}:${row.sequencialContrato}:${row.sequencialInstrumentoCobranca}`,
+      orgaoCnpj: row.cnpj,
+      anoContrato: row.ano,
+      sequencialContrato: row.sequencialContrato,
+      sequencialInstrumento: row.sequencialInstrumentoCobranca,
+      numeroInstrumento: toStringOrNull(row.numeroInstrumentoCobranca),
+      tipoId: toIntOrNull(row.tipoInstrumentoCobranca?.id),
+      tipoNome: toStringOrNull(row.tipoInstrumentoCobranca?.nome),
+      dataEmissao: toStringOrNull(row.dataEmissaoDocumento),
+      observacao,
+      chaveNFe: toStringOrNull(row.chaveNFe),
+      statusNFe: toStringOrNull(row.statusResponseNFe),
+      dataInclusao: toStringOrNull(row.dataInclusao),
+      dataAtualizacao: toStringOrNull(row.dataAtualizacao),
+      numeroControlePNCPContrato: toStringOrNull(contrato?.numeroControlePNCP),
+      documentoFornecedor: publicDocument(toStringOrNull(contrato?.niFornecedor) ?? ""),
+      nomeFornecedor,
+      valorContrato: toRealOrNull(contrato?.valorGlobal),
+      fonte: `${base}/${endpoints.instrumentos}`,
+      busca: normalize(`${observacao} ${nomeFornecedor}`),
+    };
+  });

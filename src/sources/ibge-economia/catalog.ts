@@ -90,7 +90,7 @@ export const valoresFor: {
   (payload: AgregadoPayload, ano: number): readonly ValorMunicipio[];
 } = dual(2, valoresForImpl);
 
-export const MunicipioEconomiaFlat = Schema.Struct({
+const MunicipioEconomiaFlat = Schema.Struct({
   codIbge: Schema.String,
   nome: Schema.NullOr(Schema.String),
   uf: Schema.NullOr(Schema.String),
@@ -99,7 +99,7 @@ export const MunicipioEconomiaFlat = Schema.Struct({
   pibMilReais: Schema.NullOr(Schema.Finite),
   busca: Schema.String,
 });
-export type MunicipioEconomiaFlat = (typeof MunicipioEconomiaFlat)["Type"];
+type MunicipioEconomiaFlat = (typeof MunicipioEconomiaFlat)["Type"];
 
 const nomeSemUf = (nome: string) => pipe(nome, Str.replace(/\s*\([A-Za-z]{2}\)\s*$/, ""));
 
