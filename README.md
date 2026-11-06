@@ -20,8 +20,8 @@ Ele baixa fontes públicas, indexa num arquivo DuckDB local, clona os acervos de
 
 | Fonte | Peso | Conteúdo |
 | --- | --- | --- |
-| `leis` | pesada | Acervo [minutei-ai/leis](https://github.com/minutei-ai/leis): ~230 mil normas federais, estaduais e municipais em Markdown (clone git). |
-| `precedentes` | leve | Acervo [minutei-ai/precedentes](https://github.com/minutei-ai/precedentes): súmulas, temas e decisões em Markdown (clone git). |
+| `leis` | pesada | Acervo [Licitei/leis](https://github.com/Licitei/leis): ~230 mil normas federais, estaduais e municipais em Markdown (clone git). |
+| `precedentes` | leve | Acervo [Licitei/precedentes](https://github.com/Licitei/precedentes): súmulas, temas e decisões em Markdown (clone git). |
 | `ibge-localidades` | leve | UFs e municípios. |
 | `cnae` | leve | CNAE 2.0. |
 | `catmat-catser` | leve | Catálogo de materiais e serviços. |

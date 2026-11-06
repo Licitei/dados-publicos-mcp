@@ -15,8 +15,8 @@ export type CorpusName = (typeof CorpusName)["Type"];
 export const corpusNames: readonly CorpusName[] = CorpusName.literals;
 
 const corpusRepos: Readonly<Record<CorpusName, string>> = {
-  leis: "https://github.com/minutei-ai/leis.git",
-  precedentes: "https://github.com/minutei-ai/precedentes.git",
+  leis: "https://github.com/Licitei/leis.git",
+  precedentes: "https://github.com/Licitei/precedentes.git",
 };
 
 const CorpusErrorCode = Schema.Literals(["corpus.DIR", "corpus.GIT"]);
@@ -87,7 +87,10 @@ const makeCorpusGit = Effect.gen(function* () {
         );
       yield* cloned
         ? pipe(
-            git(corpus, ["fetch", "--depth", "1", "origin", "HEAD"], options.dir),
+            git(corpus, ["remote", "set-url", "origin", corpusRepos[corpus]], options.dir),
+            Effect.andThen(
+              git(corpus, ["fetch", "--depth", "1", "origin", "HEAD"], options.dir)
+            ),
             Effect.andThen(git(corpus, ["reset", "--hard", "FETCH_HEAD"], options.dir))
           )
         : pipe(
