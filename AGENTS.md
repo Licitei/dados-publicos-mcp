@@ -11,7 +11,7 @@ src/
     duck/duck.ts        Duck — one native DuckDB file (<dataDir>/dados.duckdb); DuckTable declarations; bm25 fts
     search/search.ts    Search — fff grep / fuzzy file find / read over the Markdown corpora
     search/fuzzy.ts     Fuzzy — fff fuzzy fallback for typos (id<TAB>text files written at index time)
-    search/corpus.ts    CorpusGit — shallow clone/pull of minutei-ai/leis and minutei-ai/precedentes
+    search/corpus.ts    CorpusGit — shallow clone/pull of Licitei/leis and Licitei/precedentes
     http/client.ts      Http — the gold standard (classified retry, Schema-decoded JSON, HttpOriginOverride)
     data-dir.ts         DADOS_PUBLICOS_MCP_DATA_DIR via Config, XDG/platform fallback
     csv/ zip/ xlsx/ text/
